@@ -29,7 +29,7 @@
     "db:seed:dev": "tsx --env-file=.env scripts/seed-dev.ts",
     "db:studio": "node scripts/database-command.mjs studio",
     "format": "prettier --write .",
-    "format:check": "prettier --check package.json pnpm-workspace.yaml turbo.json drizzle.config.ts .prettierrc.json scripts/*.mjs scripts/seed-dev.ts apps/api/package.json apps/api/tsconfig.json apps/api/src/**/*.ts apps/worker/package.json apps/worker/tsconfig.json apps/worker/src/**/*.ts apps/web/package.json apps/web/eslint.config.mjs apps/web/next.config.ts apps/web/src/app/providers.tsx apps/web/src/features/**/*.ts apps/web/src/features/**/*.tsx apps/web/src/stores/**/*.ts packages/*/package.json packages/*/tsconfig.json packages/*/src/**/*.ts",
+    "format:check": "prettier --check .",
     "typegen": "pnpm --filter @calmboard/web typegen",
     "lint": "turbo lint --filter=@calmboard/web --filter=@calmboard/api --filter=@calmboard/worker --filter=@calmboard/types --filter=@calmboard/database --filter=@calmboard/config --filter=@calmboard/notifications --filter=@calmboard/validation --filter=@calmboard/api-client --filter=@calmboard/licensing",
     "typecheck": "turbo typecheck --filter=@calmboard/web --filter=@calmboard/api --filter=@calmboard/worker --filter=@calmboard/types --filter=@calmboard/database --filter=@calmboard/config --filter=@calmboard/notifications --filter=@calmboard/validation --filter=@calmboard/api-client --filter=@calmboard/licensing",
@@ -42,7 +42,7 @@
     "turbo:typecheck": "pnpm run typecheck"
   },
   "lint-staged": {
-    "*.{ts,tsx,js,mjs,cjs,json,css,md}": [
+    "*.{ts,tsx,js,mjs,cjs,json,css,md,yml,yaml}": [
       "prettier --check"
     ],
     "apps/web/**/*.{ts,tsx,js,mjs,cjs}": [
