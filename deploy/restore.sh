@@ -88,7 +88,8 @@ RESTORE_MINIO_PASSWORD="$RESTORE_MINIO_PASSWORD" \
 
 printf 'Restoring PostgreSQL into the isolated drill database...\n'
 docker compose --project-name "$RESTORE_PROJECT_NAME" -f "$RESTORE_COMPOSE_FILE" exec -T restore-postgres \
-  pg_restore --username "$RESTORE_POSTGRES_USER" --dbname "$RESTORE_POSTGRES_DB" --clean --if-exists \
+  pg_restore --username "$RESTORE_POSTGRES_USER" --dbname "$RESTORE_POSTGRES_DB" \
+  --clean --if-exists --no-owner --no-privileges \
   <"$DATABASE_DUMP"
 docker compose --project-name "$RESTORE_PROJECT_NAME" -f "$RESTORE_COMPOSE_FILE" exec -T restore-postgres \
   psql --username "$RESTORE_POSTGRES_USER" --dbname "$RESTORE_POSTGRES_DB" --tuples-only --command 'SELECT 1' \

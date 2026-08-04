@@ -118,6 +118,11 @@ and verifies checksums before decrypting. It always restores into the isolated
 services in `docker-compose.restore.yml`; it cannot target the live Compose
 database.
 
+The drill restores with `--no-owner --no-privileges`, so it does not require the
+source database role names and all restored objects remain owned by
+`RESTORE_POSTGRES_USER`. Reapply and verify the target environment's application
+and maintenance role grants as part of a controlled production cutover.
+
 ```sh
 env \
   AGE_PRIVATE_KEY_FILE=/secure/calmboard/backup.agekey \
