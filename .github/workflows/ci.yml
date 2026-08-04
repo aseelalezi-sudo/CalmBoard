@@ -123,11 +123,11 @@ jobs:
             || (echo "ERROR: expected process_cpu_seconds_total metric not found" && exit 1)
           echo "Prometheus scrape smoke check passed."
       - name: E2E smoke tests (Chromium)
-        run: pnpm run test:e2e -- --project=chromium
+        run: pnpm --filter @calmboard/web exec playwright test --project=chromium
       - name: E2E smoke tests (Firefox)
-        run: pnpm run test:e2e -- --project=firefox
+        run: pnpm --filter @calmboard/web exec playwright test --project=firefox
       - name: E2E smoke tests (WebKit)
-        run: pnpm run test:e2e -- --project=webkit
+        run: pnpm --filter @calmboard/web exec playwright test --project=webkit
       - name: Upload CI logs
         if: failure()
         uses: actions/upload-artifact@v4
