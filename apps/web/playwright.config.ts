@@ -1,0 +1,37 @@
+import { defineConfig, devices } from "@playwright/test";
+
+/**
+ * Keep the same browser matrix locally and in CI. The workflow installs the
+ * Playwright-managed binaries that match this package version and runs every
+ * project explicitly so a browser cannot be silently skipped.
+ *
+ * To run all browsers locally:
+ *   pnpm exec playwright test --project=chromium --project=firefox --project=webkit
+ */
+export default defineConfig({
+  testDir: "./e2e",
+  fullyParallel: true,
+  forbidOnly: !!process.env.CI,
+  retries: process.env.CI ? 2 : 0,
+  workers: process.env.CI ? 1 : undefined,
+  reporter: "html",
+  use: {
+    baseURL: process.env.E2E_BASE_URL ?? "http://localhost:3000",
+    trace: "on-first-retry",
+    screenshot: "only-on-failure",
+  },
+  projects: [
+    {
+      name: "chromium",
+      use: { ...devices["Desktop Chrome"] },
+    },
+    {
+      name: "firefox",
+      use: { ...devices["Desktop Firefox"] },
+    },
+    {
+      name: "webkit",
+      use: { ...devices["Desktop Safari"] },
+    },
+  ],
+});

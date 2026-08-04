@@ -1,0 +1,60 @@
+groups:
+  - name: calmboard-availability
+    rules:
+      - alert: CalmBoardServiceDown
+        expr: up{job=~"calmboard-(api|worker)"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.job }} is unavailable"
+
+      - alert: CalmBoardApiHighErrorRate
+        expr: |
+          sum(rate(calmboard_http_requests_total{status_code=~"5.."}[5m]))
+          /
+          clamp_min(sum(rate(calmboard_http_requests_total[5m])), 0.001)
+          > 0.05
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "CalmBoard API 5xx rate is above 5%"
+
+      - alert: CalmBoardApiHighP95Latency
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le) (rate(calmboard_http_request_duration_seconds_bucket[5m]))
+          ) > 0.75
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "CalmBoard API p95 latency is above 750ms"
+
+  - name: calmboard-worker
+    rules:
+      - alert: CalmBoardWorkerRepeatedFailures
+        expr: sum(increase(calmboard_worker_jobs_total{result="failed"}[10m])) > 3
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "CalmBoard Worker has repeated job failures"
+
+      - alert: CalmBoardQueueBacklog
+        expr: sum(calmboard_worker_queue_jobs{state=~"waiting|delayed|prioritized"}) > 1000
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "CalmBoard queue backlog is above 1,000 jobs"
+
+      - alert: CalmBoardProcessMemoryHigh
+        expr: process_resident_memory_bytes{job=~"calmboard-(api|worker)"} > 1073741824
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.job }} uses more than 1GiB resident memory"

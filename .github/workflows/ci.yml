@@ -1,0 +1,129 @@
+name: CalmBoard CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: app_db
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d app_db"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/app_db
+      REDIS_URL: redis://127.0.0.1:6379/0
+      S3_ENDPOINT: http://127.0.0.1:9000
+      S3_PUBLIC_ENDPOINT: http://127.0.0.1:9000
+      S3_REGION: us-east-1
+      S3_BUCKET: calmboard-ci-attachments
+      S3_ACCESS_KEY_ID: calmboard_ci_minio
+      S3_SECRET_ACCESS_KEY: calmboard_ci_minio_password
+      NODE_ENV: test
+      NEXT_TELEMETRY_DISABLED: 1
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Enable Corepack
+        run: corepack enable
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Security and vulnerability scan
+        run: pnpm audit
+
+      - name: Start MinIO integration service
+        run: |
+          docker run --detach --name calmboard-ci-minio \
+            --publish 9000:9000 \
+            --env MINIO_ROOT_USER="$S3_ACCESS_KEY_ID" \
+            --env MINIO_ROOT_PASSWORD="$S3_SECRET_ACCESS_KEY" \
+            minio/minio:RELEASE.2025-09-07T16-13-09Z server /data
+          for attempt in {1..30}; do
+            curl --fail --silent http://127.0.0.1:9000/minio/health/ready && exit 0
+            sleep 2
+          done
+          docker logs calmboard-ci-minio
+          exit 1
+      - name: Validate environment
+        run: pnpm run check:env
+      - name: Validate Drizzle migration history
+        run: pnpm db:check
+      - name: Apply Drizzle migrations to empty CI database
+        run: pnpm db:migrate
+      - name: Unit and regression tests
+        run: pnpm run test
+      - name: PostgreSQL, Redis, and MinIO integration tests
+        run: pnpm run test:integration
+      - name: Generate route types
+        run: pnpm run typegen
+      - name: TypeScript
+        run: pnpm run typecheck
+      - name: ESLint
+        run: pnpm run lint
+      - name: Production build
+        run: pnpm run build
+      - name: Install Playwright browsers
+        run: pnpm --filter @calmboard/web exec playwright install --with-deps chromium firefox webkit
+      - name: Start web and API applications
+        run: |
+          pnpm run start:api > /tmp/calmboard-api-ci.log 2>&1 &
+          pnpm run start > /tmp/calmboard-web-ci.log 2>&1 &
+      - name: Wait for web and API applications
+        run: pnpm exec wait-on http://127.0.0.1:3000 http://127.0.0.1:4000/health --timeout 60000
+      - name: Security isolation suite
+        run: curl --fail http://127.0.0.1:4000/admin/security-tests
+      - name: Prometheus metrics smoke check
+        run: |
+          # Verify /metrics endpoint responds with Prometheus text format.
+          # In CI the token is unset so the endpoint is open (development mode).
+          CONTENT_TYPE=$(curl --silent --fail --output /dev/null --write-out "%{content_type}" \
+            http://127.0.0.1:4000/metrics)
+          echo "Content-Type: $CONTENT_TYPE"
+          if [[ "$CONTENT_TYPE" != *"text/plain"* ]]; then
+            echo "ERROR: /metrics did not return text/plain Prometheus format"
+            exit 1
+          fi
+          # Confirm at least one process metric is present
+          curl --silent --fail http://127.0.0.1:4000/metrics | grep -q "^process_cpu_seconds_total" \
+            || (echo "ERROR: expected process_cpu_seconds_total metric not found" && exit 1)
+          echo "Prometheus scrape smoke check passed."
+      - name: E2E smoke tests (Chromium)
+        run: pnpm run test:e2e -- --project=chromium
+      - name: E2E smoke tests (Firefox)
+        run: pnpm run test:e2e -- --project=firefox
+      - name: E2E smoke tests (WebKit)
+        run: pnpm run test:e2e -- --project=webkit
+      - name: Upload CI logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: calmboard-ci-artifacts
+          path: |
+            /tmp/calmboard-api-ci.log
+            /tmp/calmboard-web-ci.log
+            test-results/
+            playwright-report/

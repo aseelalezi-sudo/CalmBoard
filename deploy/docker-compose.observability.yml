@@ -1,0 +1,75 @@
+services:
+  api:
+    environment:
+      ENABLE_OTEL: "true"
+      OTEL_SERVICE_NAME: calmboard-api
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+    depends_on:
+      otel-collector:
+        condition: service_healthy
+
+  worker:
+    environment:
+      ENABLE_OTEL: "true"
+      OTEL_SERVICE_NAME: calmboard-worker
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+    depends_on:
+      otel-collector:
+        condition: service_healthy
+
+  prometheus:
+    image: ${PROMETHEUS_IMAGE:-prom/prometheus:v3.5.0}
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+    ports:
+      - "127.0.0.1:${PROMETHEUS_PORT:-19090}:9090"
+    volumes:
+      - ./deploy/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./deploy/prometheus-alerts.yml:/etc/prometheus/calmboard-alerts.yml:ro
+      - ${METRICS_BEARER_TOKEN_FILE:?METRICS_BEARER_TOKEN_FILE is required}:/run/secrets/metrics_bearer_token:ro
+      - prometheus_data:/prometheus
+    depends_on:
+      api:
+        condition: service_healthy
+      worker:
+        condition: service_healthy
+    networks:
+      - calmboard_net
+
+  otel-collector:
+    image: ${OTEL_COLLECTOR_IMAGE:-otel/opentelemetry-collector-contrib:0.131.0}
+    restart: unless-stopped
+    command: ["--config=/etc/otelcol-contrib/config.yml"]
+    volumes:
+      - ./deploy/otel-collector.yml:/etc/otelcol-contrib/config.yml:ro
+    healthcheck:
+      test: ["CMD", "/otelcol-contrib", "components"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    depends_on:
+      tempo:
+        condition: service_started
+    networks:
+      - calmboard_net
+
+  tempo:
+    image: ${TEMPO_IMAGE:-grafana/tempo:2.8.2}
+    restart: unless-stopped
+    command: ["-config.file=/etc/tempo.yml"]
+    volumes:
+      - ./deploy/tempo.yml:/etc/tempo.yml:ro
+      - tempo_data:/var/tempo
+    ports:
+      - "127.0.0.1:${TEMPO_PORT:-13200}:3200"
+    networks:
+      - calmboard_net
+
+volumes:
+  prometheus_data:
+  tempo_data:

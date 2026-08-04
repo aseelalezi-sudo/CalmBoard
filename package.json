@@ -1,0 +1,100 @@
+{
+  "name": "calmboard",
+  "private": true,
+  "packageManager": "pnpm@10.14.0",
+  "engines": {
+    "node": ">=22.0.0",
+    "pnpm": ">=10.0.0"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @calmboard/web dev",
+    "dev:api": "pnpm --filter @calmboard/api dev",
+    "dev:worker": "pnpm --filter @calmboard/worker dev",
+    "dev:all": "turbo run dev --filter=\"!calmboard\"",
+    "build": "turbo build --filter=@calmboard/web --filter=@calmboard/api --filter=@calmboard/worker --filter=@calmboard/types --filter=@calmboard/database --filter=@calmboard/config --filter=@calmboard/notifications --filter=@calmboard/validation --filter=@calmboard/api-client --filter=@calmboard/licensing",
+    "build:web": "pnpm --filter @calmboard/web build",
+    "start": "pnpm --filter @calmboard/web start",
+    "start:api": "pnpm --filter @calmboard/api start",
+    "start:worker": "pnpm --filter @calmboard/worker start",
+    "prepare": "husky",
+    "check:env": "node scripts/check-env.mjs",
+    "check:cycles": "node scripts/check-circular-dependencies.mjs",
+    "db:check": "node scripts/database-command.mjs check",
+    "db:generate": "node scripts/database-command.mjs generate",
+    "db:migrate": "node scripts/database-command.mjs migrate",
+    "db:migrate:verify": "node scripts/verify-empty-migration.mjs",
+    "ci:verify-empty": "node scripts/verify-empty-migration.mjs --ci",
+    "db:migrate:verify-current": "node scripts/verify-current-migration.mjs",
+    "db:push": "node scripts/database-command.mjs push",
+    "db:seed:dev": "tsx --env-file=.env scripts/seed-dev.ts",
+    "db:studio": "node scripts/database-command.mjs studio",
+    "format": "prettier --write .",
+    "format:check": "prettier --check package.json pnpm-workspace.yaml turbo.json drizzle.config.ts .prettierrc.json scripts/*.mjs scripts/seed-dev.ts apps/api/package.json apps/api/tsconfig.json apps/api/src/**/*.ts apps/worker/package.json apps/worker/tsconfig.json apps/worker/src/**/*.ts apps/web/package.json apps/web/eslint.config.mjs apps/web/next.config.ts apps/web/src/app/providers.tsx apps/web/src/features/**/*.ts apps/web/src/features/**/*.tsx apps/web/src/stores/**/*.ts packages/*/package.json packages/*/tsconfig.json packages/*/src/**/*.ts",
+    "typegen": "pnpm --filter @calmboard/web typegen",
+    "lint": "turbo lint --filter=@calmboard/web --filter=@calmboard/api --filter=@calmboard/worker --filter=@calmboard/types --filter=@calmboard/database --filter=@calmboard/config --filter=@calmboard/notifications --filter=@calmboard/validation --filter=@calmboard/api-client --filter=@calmboard/licensing",
+    "typecheck": "turbo typecheck --filter=@calmboard/web --filter=@calmboard/api --filter=@calmboard/worker --filter=@calmboard/types --filter=@calmboard/database --filter=@calmboard/config --filter=@calmboard/notifications --filter=@calmboard/validation --filter=@calmboard/api-client --filter=@calmboard/licensing",
+    "test": "node --test scripts/*.test.mjs && turbo test --filter=@calmboard/web --filter=@calmboard/api --filter=@calmboard/worker --filter=@calmboard/types --filter=@calmboard/database --filter=@calmboard/config --filter=@calmboard/notifications --filter=@calmboard/validation --filter=@calmboard/api-client --filter=@calmboard/licensing",
+    "test:integration": "pnpm run check:env && pnpm --filter @calmboard/database test:integration && pnpm --filter @calmboard/api test:integration",
+    "test:e2e": "pnpm --filter @calmboard/web test:e2e",
+    "ci": "pnpm run check:env && pnpm run db:check && pnpm run check:cycles && pnpm run typegen && pnpm run typecheck && pnpm run lint && pnpm run format:check && pnpm run test && pnpm run build",
+    "turbo:build": "pnpm run build",
+    "turbo:lint": "pnpm run lint",
+    "turbo:typecheck": "pnpm run typecheck"
+  },
+  "lint-staged": {
+    "*.{ts,tsx,js,mjs,cjs,json,css,md}": [
+      "prettier --check"
+    ],
+    "apps/web/**/*.{ts,tsx,js,mjs,cjs}": [
+      "pnpm --dir apps/web exec eslint"
+    ]
+  },
+  "dependencies": {
+    "dotenv": "17.3.1",
+    "drizzle-orm": "0.45.2",
+    "next": "16.2.11",
+    "pg": "8.20.0",
+    "react": "19.2.6",
+    "react-dom": "19.2.6"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.62.0",
+    "@tailwindcss/postcss": "4.1.17",
+    "@types/node": "22.19.15",
+    "@types/pg": "8.18.0",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "drizzle-kit": "0.31.10",
+    "eslint": "9.39.4",
+    "eslint-config-next": "16.2.11",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.2.0",
+    "postcss": "8.5.18",
+    "prettier": "^3.9.6",
+    "tailwindcss": "4.1.17",
+    "tsx": "^4.23.1",
+    "turbo": "^2.10.7",
+    "typescript": "5.9.3",
+    "wait-on": "9.1.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@sentry/node-cpu-profiler",
+      "@sentry/cli",
+      "argon2",
+      "esbuild",
+      "msgpackr-extract",
+      "protobufjs",
+      "sharp",
+      "unrs-resolver"
+    ],
+    "overrides": {
+      "brace-expansion@<1.1.17": "1.1.18",
+      "esbuild@<=0.24.2": "0.25.0",
+      "find-my-way@<=9.6.0": "9.7.0",
+      "postcss@<8.5.18": "8.5.18",
+      "sharp@<0.35.0": "0.35.3",
+      "uuid@<11.1.1": "11.1.1"
+    }
+  }
+}

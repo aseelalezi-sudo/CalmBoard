@@ -1,0 +1,22 @@
+{
+  "name": "CalmBoard — منصة إدارة المشاريع والعمل الجماعي",
+  "short_name": "CalmBoard",
+  "description": "نظام حديث لإدارة المشاريع والمهام والعمل الجماعي للشركات والفرق",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#08080d",
+  "theme_color": "#6366f1",
+  "dir": "rtl",
+  "lang": "ar",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["productivity", "business", "utilities"],
+  "prefer_related_applications": false
+}

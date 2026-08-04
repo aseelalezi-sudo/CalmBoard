@@ -1,0 +1,2 @@
+ALTER TABLE "export_jobs" DROP CONSTRAINT "export_jobs_format_check";--> statement-breakpoint
+ALTER TABLE "export_jobs" ADD CONSTRAINT "export_jobs_format_check" CHECK ("export_jobs"."format" in ('json', 'pdf', 'xlsx'));

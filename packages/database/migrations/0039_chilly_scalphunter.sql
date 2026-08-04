@@ -1,0 +1,3 @@
+CREATE INDEX "tasks_tenant_project_active_created_idx" ON "tasks" USING btree ("organization_id","workspace_id","project_id","deleted_at","created_at","id");--> statement-breakpoint
+CREATE INDEX "tasks_tenant_project_active_title_idx" ON "tasks" USING btree ("organization_id","workspace_id","project_id","deleted_at","title","id");--> statement-breakpoint
+CREATE INDEX "tasks_tenant_project_status_active_order_idx" ON "tasks" USING btree ("organization_id","workspace_id","project_id","status","deleted_at","order","id");

@@ -1,0 +1,1262 @@
+"use client";
+import { useState, useMemo } from "react";
+import {
+  closestCorners,
+  DndContext,
+  DragOverlay,
+  KeyboardSensor,
+  PointerSensor,
+  TouchSensor,
+  useDroppable,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type DragStartEvent,
+  type DraggableAttributes,
+  type DraggableSyntheticListeners,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import type { ViewCtx, Task } from "@/lib/types";
+import { STATUS_CONFIG, PRIORITY_CONFIG, STATUS_ORDER, fmtDate } from "@/lib/types";
+import { cn } from "@/lib/utils";
+import { Badge, Avatar, Bar, Card, Empty, SectionTitle, Btn, Toggle } from "@/components/ui";
+import { useBulkTaskActions } from "@/features/tasks/use-bulk-task-actions";
+import { AdvancedWorkload } from "./advanced-workload";
+import {
+  IconPlus,
+  IconSearch,
+  IconCalendar,
+  IconCheck,
+  IconPlay,
+  IconSparkle,
+  IconTag,
+  IconSubtask,
+  IconTrend,
+  IconFlag,
+} from "@/components/icons";
+
+export { AdvancedTaskTable as TableView } from "./advanced-task-table";
+export { AdvancedTaskCalendar as CalendarView } from "./advanced-task-calendar";
+export { AdvancedTaskGantt as TimelineView } from "./advanced-task-gantt";
+
+const dateLocale = (l: string) => (l === "ar" ? "ar-EG" : "en-US");
+
+/* ================= Task Card (Board) ================= */
+function TaskCard({
+  ctx,
+  task,
+  dragHandle,
+  overlay = false,
+}: {
+  ctx: ViewCtx;
+  task: Task;
+  dragHandle?: { attributes: DraggableAttributes; listeners: DraggableSyntheticListeners };
+  overlay?: boolean;
+}) {
+  const pr = PRIORITY_CONFIG[task.priority];
+  const overdue = task.dueDate && new Date(task.dueDate) < new Date() && task.status !== "done";
+  return (
+    <div
+      onClick={() => {
+        if (!overlay) ctx.openTask(task);
+      }}
+      className={cn(
+        "task-card group relative cursor-pointer overflow-hidden rounded-xl border border-slate-200/80 bg-white p-3.5 shadow-sm transition hover:shadow-md dark:border-white/[0.07] dark:bg-[#12121c] dark:shadow-none",
+        overlay && "cursor-grabbing shadow-xl ring-2 ring-indigo-500/30 dark:shadow-2xl",
+      )}
+    >
+      <span className={`absolute inset-y-0 start-0 w-[3px] ${pr?.bar}`} />
+      <div className="flex items-center justify-between gap-2">
+        <span className="mono rounded-md border border-slate-200 bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600 dark:border-white/[0.06] dark:bg-white/[0.05] dark:text-zinc-400">
+          {task.serial}
+        </span>
+        <div className="flex items-center gap-1.5">
+          <Badge tone={pr?.tone}>{pr?.[ctx.locale === "ar" ? "ar" : "en"]}</Badge>
+          {dragHandle && (
+            <button
+              {...dragHandle.attributes}
+              {...dragHandle.listeners}
+              onClick={(event) => event.stopPropagation()}
+              aria-label={ctx.t(`اسحب ${task.title}`, `Drag ${task.title}`)}
+              className="touch-none rounded-md px-1 py-0.5 text-sm leading-none text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 active:cursor-grabbing dark:text-zinc-500 dark:hover:bg-white/[0.07] dark:hover:text-zinc-200"
+            >
+              ⠿
+            </button>
+          )}
+        </div>
+      </div>
+      <h4 className="mt-2.5 text-[13.5px] font-semibold leading-snug text-slate-900 transition-colors group-hover:text-indigo-600 dark:text-zinc-100 dark:group-hover:text-white">
+        {task.title}
+      </h4>
+      {task.tags?.length > 0 && (
+        <div className="mt-2.5 flex flex-wrap gap-1">
+          {task.tags.slice(0, 3).map((tag) => (
+            <span
+              key={tag}
+              className="inline-flex items-center gap-1 rounded-md border border-indigo-200 bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium text-indigo-700 dark:border-indigo-500/15 dark:bg-indigo-500/[0.08] dark:text-indigo-300/90"
+            >
+              <IconTag size={9} />
+              {tag}
+            </span>
+          ))}
+        </div>
+      )}
+      <div className="mt-3 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <Avatar src={task.assignee?.avatarUrl} name={task.assignee?.name} size={22} />
+          {task.dueDate && (
+            <span
+              className={`inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10.5px] ${overdue ? "border-rose-300 bg-rose-50 text-rose-700 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-300" : "border-slate-200 bg-slate-100 text-slate-600 dark:border-white/[0.07] dark:bg-white/[0.03] dark:text-zinc-400"}`}
+            >
+              <IconCalendar size={10} />
+              {fmtDate(task.dueDate, ctx.locale)}
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-1.5 shrink-0">
+          {task.subtaskStats && task.subtaskStats.total > 0 && (
+            <span className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600 dark:border-white/[0.07] dark:bg-white/[0.03] dark:text-zinc-400">
+              <IconSubtask size={10} />
+              {task.subtaskStats.done}/{task.subtaskStats.total}
+            </span>
+          )}
+          {task.storyPoints && (
+            <span className="grid h-5 w-5 place-items-center rounded-md border border-amber-300 bg-amber-50 text-[10px] font-bold text-amber-700 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-300">
+              {task.storyPoints}
+            </span>
+          )}
+        </div>
+      </div>
+      <Bar value={task.progress} className="mt-3 h-[3px]" />
+    </div>
+  );
+}
+
+function SortableTaskCard({ ctx, task, reorderDisabled }: { ctx: ViewCtx; task: Task; reorderDisabled: boolean }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: task.id,
+    data: { type: "task", status: task.status },
+    disabled: reorderDisabled,
+  });
+  return (
+    <div
+      ref={setNodeRef}
+      style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.3 : 1 }}
+    >
+      <TaskCard ctx={ctx} task={task} dragHandle={reorderDisabled ? undefined : { attributes, listeners }} />
+    </div>
+  );
+}
+
+function BoardColumn({
+  ctx,
+  status,
+  tasks,
+  total,
+  hasMore,
+  limit,
+  reorderDisabled,
+}: {
+  ctx: ViewCtx;
+  status: string;
+  tasks: Task[];
+  total: number;
+  hasMore: boolean;
+  limit?: number;
+  reorderDisabled: boolean;
+}) {
+  const { setNodeRef, isOver } = useDroppable({
+    id: `column:${status}`,
+    data: { type: "column", status },
+    disabled: reorderDisabled,
+  });
+  const cfg = STATUS_CONFIG[status];
+  const isOverWip = Boolean(limit && total > limit);
+  return (
+    <div
+      ref={setNodeRef}
+      className={cn(
+        "column-drop flex w-[290px] shrink-0 flex-col rounded-2xl border transition",
+        isOverWip
+          ? "border-rose-400/80 bg-rose-50/40 dark:border-rose-500/50 dark:bg-rose-500/[0.04]"
+          : "border-slate-200/80 bg-slate-100/60 dark:border-white/[0.06] dark:bg-white/[0.02]",
+        isOver && "over ring-2 ring-indigo-500/30",
+      )}
+    >
+      <div className="relative px-4 pt-4 pb-3">
+        <span className={`absolute inset-x-4 top-0 h-[2px] rounded-full ${cfg.dot} opacity-70`} />
+        <div className="flex flex-wrap items-center justify-between gap-1">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className={`h-2 w-2 shrink-0 rounded-full ${cfg.dot} shadow-[0_0_8px_currentColor]`} />
+            <span className="text-[13px] font-semibold text-slate-800 dark:text-zinc-200 truncate">
+              {cfg[ctx.locale === "ar" ? "ar" : "en"]}
+            </span>
+            <span
+              className={cn(
+                "mono rounded-md border px-1.5 py-0.5 text-[10.5px] font-semibold tabular",
+                isOverWip
+                  ? "animate-pulse border-rose-300 bg-rose-100 text-rose-700 dark:border-rose-500/40 dark:bg-rose-500/20 dark:text-rose-300"
+                  : "border-slate-200 bg-white text-slate-600 dark:border-transparent dark:bg-white/[0.05] dark:text-zinc-400",
+              )}
+            >
+              {total}
+              {limit ? ` / ${limit}` : ""}
+            </span>
+          </div>
+          <div className="flex items-center gap-1 shrink-0">
+            {ctx.can("projects.update") && (
+              <button
+                onClick={() => {
+                  const value = prompt(
+                    ctx.t(
+                      `حد العمل الجاري لعمود (${cfg.ar}): أدخل رقماً أو 0 للإلغاء`,
+                      `WIP limit for (${cfg.en}): enter a number or 0 to clear`,
+                    ),
+                    limit ? String(limit) : "5",
+                  );
+                  if (value === null) return;
+                  const parsed = Number(value);
+                  if (!Number.isInteger(parsed) || parsed < 0 || parsed > 100_000) {
+                    ctx.notify(ctx.t("أدخل عدداً صحيحاً بين 0 و100000", "Enter an integer from 0 to 100000"), "error");
+                    return;
+                  }
+                  void ctx.setProjectWipLimit(status, parsed === 0 ? null : parsed);
+                }}
+                title={ctx.t("تعيين حد العمل الجاري", "Set WIP limit")}
+                className="rounded px-1.5 py-0.5 text-[10px] font-bold text-slate-400 hover:bg-slate-200/60 hover:text-slate-800 dark:text-zinc-500 dark:hover:bg-white/[0.06] dark:hover:text-white"
+              >
+                WIP
+              </button>
+            )}
+            <button
+              disabled={!ctx.can("tasks.create")}
+              onClick={() => ctx.setShowAddTask(true)}
+              className="grid h-6 w-6 place-items-center rounded-lg text-slate-400 transition hover:bg-slate-200/60 hover:text-slate-800 disabled:hidden dark:text-zinc-500 dark:hover:bg-white/[0.06] dark:hover:text-white"
+            >
+              <IconPlus size={13} />
+            </button>
+          </div>
+        </div>
+        {isOverWip && (
+          <div className="mt-1.5 flex items-center gap-1 text-[10.5px] font-bold text-rose-600 dark:text-rose-400">
+            <span>⚠️</span>
+            <span>{ctx.t("تم تجاوز حد العمل الجاري", "WIP limit exceeded")}</span>
+          </div>
+        )}
+      </div>
+      <SortableContext items={tasks.map((task) => task.id)} strategy={verticalListSortingStrategy}>
+        <div className="stagger flex min-h-[200px] flex-col gap-2.5 px-3 pb-3">
+          {tasks.map((task) => (
+            <SortableTaskCard key={task.id} ctx={ctx} task={task} reorderDisabled={reorderDisabled} />
+          ))}
+          {tasks.length === 0 && (
+            <button
+              disabled={!ctx.can("tasks.create")}
+              onClick={() => ctx.setShowAddTask(true)}
+              className="rounded-xl border border-dashed border-slate-300 bg-white/40 py-8 text-[12px] text-slate-500 transition hover:border-indigo-500 hover:text-indigo-600 dark:border-white/10 dark:bg-transparent dark:text-zinc-600 dark:hover:border-indigo-400/40 dark:hover:text-indigo-300"
+            >
+              {ctx.t("اسحب المهام هنا أو أضف مهمة", "Drop tasks here or add one")}
+            </button>
+          )}
+          {tasks.length > 0 && (
+            <button
+              disabled={!ctx.can("tasks.create")}
+              onClick={() => ctx.setShowAddTask(true)}
+              className="flex items-center justify-center gap-1.5 rounded-xl border border-dashed border-slate-300 bg-white/40 py-2.5 text-[12px] font-medium text-slate-600 transition hover:border-indigo-500 hover:text-indigo-600 dark:border-white/10 dark:bg-transparent dark:text-zinc-500 dark:hover:border-indigo-400/40 dark:hover:text-indigo-300"
+            >
+              <IconPlus size={13} />
+              {ctx.t("إضافة مهمة", "Add task")}
+            </button>
+          )}
+          {hasMore && (
+            <button
+              disabled={ctx.taskPagination.loading}
+              onClick={() => void ctx.taskPagination.loadMoreStatus(status)}
+              className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] font-semibold text-indigo-600 transition hover:bg-indigo-50 disabled:opacity-50 dark:border-white/10 dark:bg-white/[0.03] dark:text-indigo-300 dark:hover:bg-white/[0.06]"
+            >
+              {ctx.taskPagination.loading ? ctx.t("جارٍ التحميل…", "Loading…") : ctx.t("تحميل المزيد", "Load more")}
+            </button>
+          )}
+        </div>
+      </SortableContext>
+    </div>
+  );
+}
+
+/* ================= Board View ================= */
+export function BoardView({ ctx }: { ctx: ViewCtx }) {
+  const [activeTask, setActiveTask] = useState<Task | null>(null);
+  const hasActiveFilters = Object.values(ctx.taskFilter).some(Boolean);
+  const reorderDisabled = !ctx.can("tasks.update") || hasActiveFilters;
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 180, tolerance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+  const onDragStart = (event: DragStartEvent) => {
+    if (reorderDisabled) return;
+    setActiveTask(ctx.tasks.find((task) => task.id === String(event.active.id)) ?? null);
+  };
+  const onDragEnd = (event: DragEndEvent) => {
+    setActiveTask(null);
+    if (reorderDisabled) return;
+    if (!event.over) return;
+    const moving = ctx.tasks.find((task) => task.id === String(event.active.id));
+    const targetStatus = event.over.data.current?.status;
+    if (!moving || typeof targetStatus !== "string") return;
+    const targetTasks = ctx.groupedByStatus[targetStatus] ?? [];
+    const overId = String(event.over.id);
+    const overIndex = targetTasks.findIndex((task) => task.id === overId);
+    const targetIndex =
+      event.over.data.current?.type === "task"
+        ? Math.max(0, overIndex)
+        : targetTasks.filter((task) => task.id !== moving.id).length;
+    const currentIndex = (ctx.groupedByStatus[moving.status] ?? []).findIndex((task) => task.id === moving.id);
+    if (moving.status === targetStatus && currentIndex === targetIndex) return;
+    const limit = ctx.activeProject?.wipLimits?.[targetStatus];
+    const targetTotal = ctx.taskPagination.statusTotals[targetStatus] ?? targetTasks.length;
+    if (moving.status !== targetStatus && limit && targetTotal >= limit) {
+      ctx.notify(
+        ctx.t(`لا يمكن النقل: حد العمل الجاري للعمود هو ${limit}`, `Move blocked: this column's WIP limit is ${limit}`),
+        "error",
+      );
+      return;
+    }
+    const targetWithoutMoving = targetTasks.filter((task) => task.id !== moving.id);
+    const boundedTargetIndex = Math.min(targetIndex, targetWithoutMoving.length);
+    void ctx.moveTask(moving.id, targetStatus, targetIndex, {
+      beforeTaskId: targetWithoutMoving[boundedTargetIndex - 1]?.id ?? null,
+      afterTaskId: targetWithoutMoving[boundedTargetIndex]?.id ?? null,
+    });
+  };
+  return (
+    <DndContext
+      sensors={sensors}
+      collisionDetection={closestCorners}
+      onDragStart={onDragStart}
+      onDragCancel={() => setActiveTask(null)}
+      onDragEnd={onDragEnd}
+    >
+      {hasActiveFilters && ctx.can("tasks.update") && (
+        <div className="mb-3 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-[12px] font-medium text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
+          {ctx.t(
+            "امسح مرشحات المهام لإعادة ترتيب البطاقات؛ يمنع ذلك تغيير ترتيب العناصر المخفية دون قصد.",
+            "Clear task filters to reorder cards; this prevents hidden tasks from being repositioned accidentally.",
+          )}
+        </div>
+      )}
+      <div className="flex items-start gap-4 overflow-x-auto pb-4">
+        {STATUS_ORDER.map((status) => (
+          <BoardColumn
+            key={status}
+            ctx={ctx}
+            status={status}
+            tasks={ctx.groupedByStatus[status] ?? []}
+            total={ctx.taskPagination.statusTotals[status] ?? (ctx.groupedByStatus[status] ?? []).length}
+            hasMore={ctx.taskPagination.statusHasMore[status] ?? false}
+            limit={ctx.activeProject?.wipLimits?.[status]}
+            reorderDisabled={reorderDisabled}
+          />
+        ))}
+      </div>
+      <DragOverlay>{activeTask ? <TaskCard ctx={ctx} task={activeTask} overlay /> : null}</DragOverlay>
+    </DndContext>
+  );
+}
+
+/* ================= List View ================= */
+export function ListView({ ctx }: { ctx: ViewCtx }) {
+  return (
+    <Card className="overflow-hidden">
+      <table className="w-full text-[13px]">
+        <thead>
+          <tr className="border-b border-slate-100 dark:border-white/[0.06] text-start text-[10.5px] uppercase tracking-wider text-slate-500 dark:text-zinc-500 bg-slate-50/50 dark:bg-white/[0.02]">
+            <th className="px-5 py-3.5 font-semibold text-start">{ctx.t("المهمة", "Task")}</th>
+            <th className="px-4 py-3.5 font-semibold text-start">{ctx.t("الحالة", "Status")}</th>
+            <th className="px-4 py-3.5 font-semibold text-start">{ctx.t("الأولوية", "Priority")}</th>
+            <th className="px-4 py-3.5 font-semibold text-start">{ctx.t("المسؤول", "Assignee")}</th>
+            <th className="px-4 py-3.5 font-semibold text-start">{ctx.t("الموعد", "Due")}</th>
+            <th className="px-4 py-3.5 font-semibold text-start w-[140px]">{ctx.t("التقدم", "Progress")}</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-100 dark:divide-white/[0.04]">
+          {ctx.tasks.map((task) => {
+            const st = STATUS_CONFIG[task.status];
+            const pr = PRIORITY_CONFIG[task.priority];
+            return (
+              <tr
+                key={task.id}
+                onClick={() => ctx.openTask(task)}
+                className="group cursor-pointer transition hover:bg-slate-50 dark:hover:bg-white/[0.03]"
+              >
+                <td className="px-5 py-3.5">
+                  <div className="flex items-center gap-3">
+                    <span className="mono rounded border border-slate-200 bg-slate-100 px-1.5 py-0.5 text-[10.5px] font-bold text-slate-600 dark:border-white/10 dark:bg-white/[0.05] dark:text-zinc-400">
+                      {task.serial}
+                    </span>
+                    <span className="font-bold text-slate-900 dark:text-zinc-100 transition group-hover:text-indigo-600 dark:group-hover:text-white text-[13.5px]">
+                      {task.title}
+                    </span>
+                  </div>
+                </td>
+                <td className="px-4 py-3.5" onClick={(e) => e.stopPropagation()}>
+                  <select
+                    name="auto-field-s6zmxdj"
+                    value={task.status}
+                    onChange={(e) =>
+                      ctx.updateTask(task.id, {
+                        status: e.target.value,
+                        progress: e.target.value === "done" ? 100 : undefined,
+                      })
+                    }
+                    className={`h-7 rounded-lg border px-2 text-[11px] font-bold outline-none transition cursor-pointer ${st?.tone === "emerald" ? "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-500/40 dark:bg-emerald-500/20 dark:text-emerald-200" : st?.tone === "amber" ? "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/20 dark:text-amber-200" : st?.tone === "cyan" ? "border-cyan-200 bg-cyan-50 text-cyan-800 dark:border-cyan-500/40 dark:bg-cyan-500/20 dark:text-cyan-200" : "border-indigo-200 bg-indigo-50 text-indigo-800 dark:border-indigo-500/40 dark:bg-indigo-500/20 dark:text-indigo-200"} [&>option]:bg-white dark:[&>option]:bg-zinc-900`}
+                  >
+                    {Object.entries(STATUS_CONFIG).map(([k, v]) => (
+                      <option key={k} value={k}>
+                        {ctx.t(v.ar, v.en)}
+                      </option>
+                    ))}
+                  </select>
+                </td>
+                <td className="px-4 py-3.5" onClick={(e) => e.stopPropagation()}>
+                  <select
+                    name="auto-field-algemw6"
+                    value={task.priority}
+                    onChange={(e) => ctx.updateTask(task.id, { priority: e.target.value })}
+                    className={`h-7 rounded-lg border px-2 text-[11px] font-bold outline-none transition cursor-pointer ${pr?.tone === "rose" ? "border-rose-200 bg-rose-50 text-rose-800 dark:border-rose-500/40 dark:bg-rose-500/20 dark:text-rose-200" : pr?.tone === "amber" ? "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/20 dark:text-amber-200" : "border-slate-200 bg-slate-100 text-slate-700 dark:border-white/10 dark:bg-white/10 dark:text-zinc-300"} [&>option]:bg-white dark:[&>option]:bg-zinc-900`}
+                  >
+                    {Object.entries(PRIORITY_CONFIG).map(([k, v]) => (
+                      <option key={k} value={k}>
+                        {ctx.t(v.ar, v.en)}
+                      </option>
+                    ))}
+                  </select>
+                </td>
+                <td className="px-4 py-3.5" onClick={(e) => e.stopPropagation()}>
+                  <div className="flex items-center gap-2">
+                    <Avatar
+                      src={task.assignee?.avatarUrl || ctx.users.find((u) => u.id === task.assigneeId)?.avatarUrl}
+                      name={task.assignee?.name}
+                      size={22}
+                    />
+                    <select
+                      name="auto-field-xkt7z57"
+                      value={task.assigneeId || ""}
+                      onChange={(e) => ctx.updateTask(task.id, { assigneeId: e.target.value || undefined })}
+                      className="h-7 w-[110px] truncate rounded-lg border border-transparent bg-transparent px-1 text-[12px] font-semibold text-slate-700 hover:border-slate-200 dark:text-zinc-300 dark:hover:border-white/10 outline-none cursor-pointer [&>option]:bg-white dark:[&>option]:bg-zinc-900"
+                    >
+                      <option value="">{ctx.t("غير محدد", "Unassigned")}</option>
+                      {ctx.users.map((u) => (
+                        <option key={u.id} value={u.id}>
+                          {u.name.split(" ")[0]}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </td>
+                <td className="px-4 py-3.5 text-[12px] text-slate-500 dark:text-zinc-400 font-medium">
+                  {task.dueDate ? fmtDate(task.dueDate, ctx.locale) : "—"}
+                </td>
+                <td className="px-4 py-3.5">
+                  <div className="flex items-center gap-2">
+                    <Bar value={task.progress} />
+                    <span className="mono w-8 text-end text-[11px] font-bold text-slate-700 dark:text-zinc-300 tabular">
+                      {task.progress}%
+                    </span>
+                  </div>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      {ctx.tasks.length === 0 && (
+        <Empty
+          icon={<IconSearch size={22} />}
+          title={ctx.t("لا توجد مهام", "No tasks found")}
+          hint={ctx.t("جرّب تغيير الفلاتر أو أنشئ مهمة جديدة", "Try adjusting filters or create a new task")}
+        />
+      )}
+    </Card>
+  );
+}
+
+/* ================= Table View (data grid) ================= */
+export function LegacyTableView({ ctx }: { ctx: ViewCtx }) {
+  const { deleteTasks } = useBulkTaskActions(ctx.tasks, ctx.currentUser?.id);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [sortField, setSortField] = useState<string>("title");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+  const [hiddenCols, setHiddenCols] = useState<string[]>([]);
+  const [showColMenu, setShowColMenu] = useState(false);
+
+  const cols = [
+    { key: "title", ar: "المهمة", en: "Task", flex: true },
+    { key: "status", ar: "الحالة", en: "Status", w: "w-[130px]" },
+    { key: "priority", ar: "الأولوية", en: "Priority", w: "w-[110px]" },
+    { key: "assignee", ar: "المسؤول", en: "Assignee", w: "w-[150px]" },
+    { key: "points", ar: "النقاط", en: "Points", w: "w-[80px]" },
+    { key: "estimate", ar: "التقدير", en: "Estimate", w: "w-[90px]" },
+    { key: "logged", ar: "المسجل", en: "Logged", w: "w-[90px]" },
+    { key: "due", ar: "الموعد", en: "Due", w: "w-[110px]" },
+  ].filter((c) => !hiddenCols.includes(c.key));
+
+  const sortedTasks = useMemo(() => {
+    return [...ctx.tasks].sort((a, b) => {
+      let va: any = a[sortField as keyof Task] || "";
+      let vb: any = b[sortField as keyof Task] || "";
+      if (sortField === "priority") {
+        va = PRIORITY_CONFIG[a.priority]?.weight ?? 0;
+        vb = PRIORITY_CONFIG[b.priority]?.weight ?? 0;
+      }
+      if (va < vb) return sortDir === "asc" ? -1 : 1;
+      if (va > vb) return sortDir === "asc" ? 1 : -1;
+      return 0;
+    });
+  }, [ctx.tasks, sortField, sortDir]);
+
+  const toggleSelect = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.length === ctx.tasks.length) setSelectedIds([]);
+    else setSelectedIds(ctx.tasks.map((t) => t.id));
+  };
+
+  const handleSort = (key: string) => {
+    if (sortField === key) setSortDir((prev) => (prev === "asc" ? "desc" : "asc"));
+    else {
+      setSortField(key);
+      setSortDir("asc");
+    }
+  };
+
+  const bulkStatusChange = (status: string) => {
+    selectedIds.forEach((id) => ctx.updateTask(id, { status, progress: status === "done" ? 100 : undefined }));
+    setSelectedIds([]);
+  };
+
+  const bulkAssignChange = (assigneeId: string) => {
+    selectedIds.forEach((id) => ctx.updateTask(id, { assigneeId: assigneeId || undefined }));
+    setSelectedIds([]);
+  };
+
+  return (
+    <Card className="overflow-hidden relative">
+      {/* Top action bar */}
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 dark:border-white/[0.06] px-5 py-3 bg-white/50 dark:bg-transparent">
+        <div className="flex items-center gap-3">
+          <span className="text-[13px] font-semibold text-slate-900 dark:text-white">
+            {ctx.t("شبكة البيانات المتقدمة (TanStack Grid)", "Advanced Data Grid")}
+          </span>
+          <span className="rounded-full bg-slate-100 dark:bg-white/[0.06] px-2 py-0.5 text-[11px] font-medium text-slate-600 dark:text-zinc-400">
+            {ctx.tasks.length} {ctx.t("صف", "rows")}
+          </span>
+        </div>
+
+        <div className="flex items-center gap-2 relative">
+          <button
+            onClick={() => setShowColMenu(!showColMenu)}
+            className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-[12px] font-medium text-slate-700 hover:bg-slate-50 dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-300 dark:hover:bg-white/[0.08]"
+          >
+            ⚙️ {ctx.t("إدارة الأعمدة", "Columns")}
+          </button>
+          {showColMenu && (
+            <div className="absolute end-0 top-10 z-30 w-48 rounded-xl border border-slate-200 bg-white p-2 shadow-xl dark:border-white/10 dark:bg-zinc-900 dark:shadow-[0_12px_40px_rgba(0,0,0,0.6)] animate-pop">
+              <div className="mb-1.5 px-2 text-[10px] font-bold uppercase text-slate-400 dark:text-zinc-500">
+                {ctx.t("إظهار / إخفاء الأعمدة", "Toggle columns")}
+              </div>
+              {["status", "priority", "assignee", "points", "estimate", "logged", "due"].map((key) => {
+                const isHidden = hiddenCols.includes(key);
+                return (
+                  <label
+                    key={key}
+                    className="flex cursor-pointer items-center justify-between rounded-lg px-2.5 py-1.5 text-[12px] text-slate-700 hover:bg-slate-100 dark:text-zinc-300 dark:hover:bg-white/5"
+                  >
+                    <span className="capitalize">{key}</span>
+                    <input
+                      name="auto-field-d29uy1z"
+                      type="checkbox"
+                      checked={!isHidden}
+                      onChange={() =>
+                        setHiddenCols((prev) => (isHidden ? prev.filter((x) => x !== key) : [...prev, key]))
+                      }
+                      className="h-4 w-4 rounded accent-indigo-600 dark:accent-cyan-400"
+                    />
+                  </label>
+                );
+              })}
+            </div>
+          )}
+
+          <Btn
+            size="sm"
+            variant="ghost"
+            onClick={async () => {
+              const head = [
+                "Serial",
+                "Title",
+                "Status",
+                "Priority",
+                "Assignee",
+                "Points",
+                "Estimate",
+                "Logged",
+                "Progress",
+                "Due",
+              ];
+              const rows = ctx.tasks.map((x) =>
+                [
+                  x.serial,
+                  `"${(x.title || "").replace(/"/g, '""')}"`,
+                  x.status,
+                  x.priority,
+                  x.assignee?.name || "",
+                  x.storyPoints ?? "",
+                  x.estimatedHours ?? "",
+                  x.loggedHours ?? "",
+                  `${x.progress}%`,
+                  x.dueDate ? new Date(x.dueDate).toISOString().split("T")[0] : "",
+                ].join(","),
+              );
+              const csv = "\uFEFF" + [head.join(","), ...rows].join("\n");
+              const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+              const a = document.createElement("a");
+              a.href = URL.createObjectURL(blob);
+              a.download = `calmboard-tasks-${new Date().toISOString().split("T")[0]}.csv`;
+              a.click();
+              URL.revokeObjectURL(a.href);
+            }}
+          >
+            <IconTrend size={13} />
+            {ctx.t("تصدير CSV", "Export CSV")}
+          </Btn>
+          <Btn
+            size="sm"
+            variant="ghost"
+            onClick={() => {
+              const tableHtml = `
+              <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+              <head><meta charset="UTF-8" /></head>
+              <body>
+                <table border="1">
+                  <thead><tr style="background:#f1f5f9;font-weight:bold;"><th>Serial</th><th>Title</th><th>Status</th><th>Priority</th><th>Assignee</th><th>Points</th><th>Estimate</th><th>Logged</th><th>Progress</th><th>Due Date</th></tr></thead>
+                  <tbody>
+                    ${ctx.tasks.map((t) => `<tr><td>${t.serial}</td><td>${t.title}</td><td>${t.status}</td><td>${t.priority}</td><td>${t.assignee?.name || ""}</td><td>${t.storyPoints ?? ""}</td><td>${t.estimatedHours ?? ""}</td><td>${t.loggedHours ?? ""}</td><td>${t.progress}%</td><td>${t.dueDate ? new Date(t.dueDate).toISOString().split("T")[0] : ""}</td></tr>`).join("")}
+                  </tbody>
+                </table>
+              </body></html>`;
+              const blob = new Blob([tableHtml], { type: "application/vnd.ms-excel;charset=utf-8" });
+              const a = document.createElement("a");
+              a.href = URL.createObjectURL(blob);
+              a.download = `calmboard-grid-${new Date().toISOString().split("T")[0]}.xls`;
+              a.click();
+              URL.revokeObjectURL(a.href);
+              ctx.notify(ctx.t("تم تصدير ملف Excel ✓", "Excel exported ✓"));
+            }}
+          >
+            📊 {ctx.t("تصدير Excel (.xls)", "Excel (.xls)")}
+          </Btn>
+          <Btn size="sm" variant="ghost" onClick={() => window.print()}>
+            🖨️ {ctx.t("طباعة / PDF", "Print / PDF")}
+          </Btn>
+        </div>
+      </div>
+
+      {/* Grid Table */}
+      <div className="overflow-x-auto">
+        <div className="min-w-[920px]">
+          {/* Header Row */}
+          <div className="flex items-center border-b border-slate-100 dark:border-white/[0.06] bg-slate-50/70 dark:bg-white/[0.02] px-5 text-[10.5px] uppercase tracking-wider text-slate-500 dark:text-zinc-500">
+            <div className="w-8 py-3 shrink-0 flex items-center">
+              <input
+                name="auto-field-3ttpqy1"
+                type="checkbox"
+                checked={selectedIds.length === ctx.tasks.length && ctx.tasks.length > 0}
+                onChange={toggleSelectAll}
+                className="h-4 w-4 rounded border-slate-300 accent-indigo-600 dark:border-white/20 dark:accent-cyan-400"
+              />
+            </div>
+            {cols.map((c) => (
+              <button
+                key={c.key}
+                onClick={() => handleSort(c.key === "title" ? "title" : c.key === "due" ? "dueDate" : c.key)}
+                className={`py-3 font-semibold text-start flex items-center gap-1 hover:text-slate-900 dark:hover:text-white transition ${c.flex ? "flex-1" : c.w}`}
+              >
+                <span>{c[ctx.locale === "ar" ? "ar" : "en"]}</span>
+                {(sortField === c.key || (c.key === "due" && sortField === "dueDate")) && (
+                  <span className="text-indigo-600 dark:text-violet-400 font-bold">
+                    {sortDir === "asc" ? "↑" : "↓"}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+
+          {/* Rows */}
+          {sortedTasks.map((task) => {
+            const st = STATUS_CONFIG[task.status];
+            const pr = PRIORITY_CONFIG[task.priority];
+            const isSelected = selectedIds.includes(task.id);
+            return (
+              <div
+                key={task.id}
+                onClick={() => ctx.openTask(task)}
+                className={cn(
+                  "flex cursor-pointer items-center border-b border-slate-100 dark:border-white/[0.04] px-5 text-[12.5px] transition last:border-0 hover:bg-slate-50 dark:hover:bg-white/[0.03]",
+                  isSelected && "bg-indigo-50/60 dark:bg-indigo-500/[0.08]",
+                )}
+              >
+                <div className="w-8 py-3 shrink-0 flex items-center" onClick={(e) => e.stopPropagation()}>
+                  <input
+                    name="auto-field-lvfna4m"
+                    type="checkbox"
+                    checked={isSelected}
+                    onChange={(e) => toggleSelect(task.id, e as any)}
+                    className="h-4 w-4 rounded border-slate-300 accent-indigo-600 dark:border-white/20 dark:accent-cyan-400"
+                  />
+                </div>
+                <div className="flex flex-1 items-center gap-2.5 py-3 min-w-0">
+                  <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${pr?.bar}`} />
+                  <span className="mono rounded bg-slate-100 dark:bg-white/[0.05] px-1 py-0.5 text-[10px] text-slate-500 dark:text-zinc-400 shrink-0">
+                    {task.serial}
+                  </span>
+                  <span className="truncate font-medium text-slate-800 dark:text-zinc-200">{task.title}</span>
+                </div>
+                {!hiddenCols.includes("status") && (
+                  <div className="w-[130px] py-3 shrink-0" onClick={(e) => e.stopPropagation()}>
+                    <select
+                      name="auto-field-zd2l8bx"
+                      value={task.status}
+                      onChange={(e) =>
+                        ctx.updateTask(task.id, {
+                          status: e.target.value,
+                          progress: e.target.value === "done" ? 100 : undefined,
+                        })
+                      }
+                      className="h-7 rounded-lg border border-slate-200 bg-white px-2 text-[11px] font-medium text-slate-700 outline-none transition hover:border-slate-300 dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:border-white/20"
+                    >
+                      {Object.entries(STATUS_CONFIG).map(([k, v]) => (
+                        <option key={k} value={k}>
+                          {ctx.t(v.ar, v.en)}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+                {!hiddenCols.includes("priority") && (
+                  <div className="w-[110px] py-3 shrink-0">
+                    <Badge tone={pr?.tone}>{pr?.[ctx.locale === "ar" ? "ar" : "en"]}</Badge>
+                  </div>
+                )}
+                {!hiddenCols.includes("assignee") && (
+                  <div className="w-[150px] py-3 shrink-0" onClick={(e) => e.stopPropagation()}>
+                    <div className="flex items-center gap-1.5">
+                      <Avatar
+                        src={task.assignee?.avatarUrl || ctx.users.find((u) => u.id === task.assigneeId)?.avatarUrl}
+                        name={task.assignee?.name}
+                        size={20}
+                      />
+                      <select
+                        name="auto-field-clqbiye"
+                        value={task.assigneeId || ""}
+                        onChange={(e) => ctx.updateTask(task.id, { assigneeId: e.target.value || undefined })}
+                        className="h-7 w-[100px] truncate rounded-lg border border-transparent bg-transparent px-1 text-[11.5px] text-slate-700 outline-none hover:border-slate-200 dark:text-zinc-300 dark:hover:border-white/10 [&>option]:bg-white dark:[&>option]:bg-zinc-900"
+                      >
+                        <option value="">{ctx.t("غير محدد", "Unassigned")}</option>
+                        {ctx.users.map((u) => (
+                          <option key={u.id} value={u.id}>
+                            {u.name.split(" ")[0]}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                )}
+                {!hiddenCols.includes("points") && (
+                  <div className="w-[80px] py-3 mono text-[11.5px] text-slate-500 dark:text-zinc-500 tabular shrink-0">
+                    {task.storyPoints ?? "—"}
+                  </div>
+                )}
+                {!hiddenCols.includes("estimate") && (
+                  <div className="w-[90px] py-3 mono text-[11.5px] text-slate-500 dark:text-zinc-500 tabular shrink-0">
+                    {task.estimatedHours ? `${task.estimatedHours}h` : "—"}
+                  </div>
+                )}
+                {!hiddenCols.includes("logged") && (
+                  <div className="w-[90px] py-3 mono text-[11.5px] text-indigo-600 dark:text-violet-300/80 tabular shrink-0">
+                    {task.loggedHours ? `${Number(task.loggedHours).toFixed(1)}h` : "—"}
+                  </div>
+                )}
+                {!hiddenCols.includes("due") && (
+                  <div className="w-[110px] py-3 text-[12px] text-slate-500 dark:text-zinc-500 shrink-0">
+                    {task.dueDate ? fmtDate(task.dueDate, ctx.locale) : "—"}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      {ctx.tasks.length === 0 && <Empty icon={<IconSearch size={22} />} title={ctx.t("لا توجد بيانات", "No data")} />}
+
+      {/* Floating Bulk Actions Bar */}
+      {selectedIds.length > 0 && (
+        <div className="sticky bottom-4 mx-auto mt-4 flex w-fit items-center gap-3 rounded-2xl border border-slate-200 bg-slate-900 px-5 py-3 text-white shadow-2xl dark:border-white/20 dark:bg-zinc-900/95 animate-pop z-30">
+          <span className="text-[13px] font-bold text-indigo-300 dark:text-violet-300">
+            ⚡ {selectedIds.length} {ctx.t("مهمة محددة", "selected")}
+          </span>
+          <div className="h-4 w-px bg-white/20" />
+
+          <select
+            name="auto-field-iwa4v9b"
+            onChange={(e) => {
+              if (e.target.value) bulkStatusChange(e.target.value);
+            }}
+            className="h-8 rounded-lg bg-white/10 px-2.5 text-[12px] font-medium text-white outline-none [&>option]:bg-zinc-900"
+          >
+            <option value="">{ctx.t("تغيير الحالة...", "Change status...")}</option>
+            {Object.entries(STATUS_CONFIG).map(([k, v]) => (
+              <option key={k} value={k}>
+                {ctx.t(v.ar, v.en)}
+              </option>
+            ))}
+          </select>
+
+          <select
+            name="auto-field-lmlotin"
+            onChange={(e) => {
+              if (e.target.value !== undefined) bulkAssignChange(e.target.value);
+            }}
+            className="h-8 rounded-lg bg-white/10 px-2.5 text-[12px] font-medium text-white outline-none [&>option]:bg-zinc-900"
+          >
+            <option value="">{ctx.t("تعيين لـ...", "Assign to...")}</option>
+            {ctx.users.map((u) => (
+              <option key={u.id} value={u.id}>
+                {u.name}
+              </option>
+            ))}
+          </select>
+
+          <button
+            onClick={() => {
+              if (confirm(ctx.t("هل أنت متأكد من الحذف؟", "Are you sure?"))) {
+                void deleteTasks(selectedIds).then(() => {
+                  setSelectedIds([]);
+                  window.location.reload();
+                });
+              }
+            }}
+            className="h-8 rounded-lg bg-rose-500/20 px-3 text-[12px] font-semibold text-rose-300 hover:bg-rose-500/30 transition"
+          >
+            🗑️ {ctx.t("حذف جماعي", "Delete")}
+          </button>
+
+          <button
+            onClick={() => setSelectedIds([])}
+            className="h-8 rounded-lg bg-white/10 px-2.5 text-[12px] text-zinc-300 hover:bg-white/20 transition"
+          >
+            ✕ {ctx.t("إلغاء", "Cancel")}
+          </button>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+/* ================= Calendar View ================= */
+export function LegacyCalendarView({ ctx }: { ctx: ViewCtx }) {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth();
+  const firstDay = new Date(year, month, 1);
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  let startOffset = firstDay.getDay(); // 0=Sun
+  startOffset = (startOffset + 1) % 7; // shift so Saturday=0 (Arab week start)
+  const cells = startOffset + daysInMonth;
+  const tasksByDay = new Map<number, Task[]>();
+  ctx.tasks.forEach((t) => {
+    if (!t.dueDate) return;
+    const d = new Date(t.dueDate);
+    if (d.getFullYear() === year && d.getMonth() === month) {
+      const arr = tasksByDay.get(d.getDate()) || [];
+      arr.push(t);
+      tasksByDay.set(d.getDate(), arr);
+    }
+  });
+  const monthName = now.toLocaleDateString(dateLocale(ctx.locale), { month: "long", year: "numeric" });
+  const weekdays =
+    ctx.locale === "ar"
+      ? ["السبت", "الأحد", "الإثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة"]
+      : ["Sat", "Sun", "Mon", "Tue", "Wed", "Thu", "Fri"];
+  return (
+    <Card className="overflow-hidden">
+      <div className="flex items-center justify-between border-b border-slate-100 dark:border-white/[0.06] px-5 py-4">
+        <span className="text-[15px] font-semibold text-slate-900 dark:text-white">{monthName}</span>
+        <Badge tone="indigo">
+          {ctx.tasks.filter((t) => t.dueDate).length} {ctx.t("مهمة مجدولة", "scheduled")}
+        </Badge>
+      </div>
+      <div className="grid grid-cols-7 border-b border-slate-100 dark:border-white/[0.06]">
+        {weekdays.map((d) => (
+          <div
+            key={d}
+            className="border-e border-slate-100 dark:border-white/[0.04] px-3 py-2.5 text-center text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-zinc-500 last:border-e-0"
+          >
+            {d}
+          </div>
+        ))}
+      </div>
+      <div className="grid grid-cols-7">
+        {Array.from({ length: Math.ceil(cells / 7) * 7 }).map((_, i) => {
+          const day = i - startOffset + 1;
+          const inMonth = day >= 1 && day <= daysInMonth;
+          const isToday = inMonth && day === now.getDate();
+          const dayTasks = inMonth ? tasksByDay.get(day) || [] : [];
+          return (
+            <div
+              key={i}
+              className={`group min-h-[104px] border-b border-e border-slate-100 dark:border-white/[0.04] p-2 last:border-e-0 ${!inMonth ? "bg-slate-50/60 dark:bg-white/[0.01]" : ""}`}
+            >
+              {inMonth && (
+                <div className="mb-1.5 flex items-center justify-between">
+                  <div
+                    className={`grid h-6 w-6 place-items-center rounded-lg text-[11.5px] font-semibold ${isToday ? "bg-gradient-to-br from-indigo-500 to-violet-500 text-white shadow-sm dark:shadow-[0_0_12px_rgba(99,102,241,0.5)]" : "text-slate-600 dark:text-zinc-500"}`}
+                  >
+                    {day}
+                  </div>
+                  <button
+                    disabled={!ctx.can("tasks.create")}
+                    onClick={() => {
+                      const title = prompt(
+                        ctx.t(`مهمة جديدة ليوم ${day} ${monthName}:`, `New task for ${monthName} ${day}:`),
+                        ctx.t("مهمة مجدولة", "Scheduled task"),
+                      );
+                      if (title && title.trim()) {
+                        const targetDate = new Date(year, month, day, 12, 0, 0);
+                        ctx.createTask({ title, dueDate: targetDate.toISOString() });
+                      }
+                    }}
+                    title={ctx.t("إضافة مهمة في هذا اليوم", "Add task on this day")}
+                    className="grid h-5 w-5 place-items-center rounded text-slate-400 opacity-0 transition hover:bg-slate-200/60 hover:text-slate-800 disabled:hidden group-hover:opacity-100 dark:text-zinc-500 dark:hover:bg-white/[0.06] dark:hover:text-white"
+                  >
+                    +
+                  </button>
+                </div>
+              )}
+              <div className="space-y-1">
+                {dayTasks.slice(0, 2).map((t) => (
+                  <button
+                    key={t.id}
+                    onClick={() => ctx.openTask(t)}
+                    className={`block w-full truncate rounded-md border px-1.5 py-1 text-start text-[10.5px] transition hover:brightness-105 dark:hover:brightness-125 ${STATUS_CONFIG[t.status]?.tone === "emerald" ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/25 dark:bg-emerald-500/10 dark:text-emerald-300" : "border-indigo-200 bg-indigo-50 text-indigo-700 dark:border-indigo-500/25 dark:bg-indigo-500/10 dark:text-indigo-300"}`}
+                  >
+                    {t.title}
+                  </button>
+                ))}
+                {dayTasks.length > 2 && (
+                  <div className="px-1 text-[10px] text-slate-500 dark:text-zinc-500">
+                    +{dayTasks.length - 2} {ctx.t("أخرى", "more")}
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </Card>
+  );
+}
+
+/* ================= Workload View ================= */
+export function LegacyWorkloadView({ ctx }: { ctx: ViewCtx }) {
+  const capacity = 40;
+  return (
+    <div className="grid gap-5 lg:grid-cols-[1fr_320px]">
+      <Card className="p-6">
+        <SectionTitle count={ctx.users.length}>{ctx.t("عبء العمل الأسبوعي", "Weekly Workload")}</SectionTitle>
+        <div className="stagger space-y-5">
+          {ctx.users.map((u) => {
+            const userTasks = ctx.tasks.filter((t) => t.assigneeId === u.id);
+            const hours = userTasks.reduce((a, t) => a + (t.estimatedHours || 0), 0);
+            const pct = Math.min(100, Math.round((hours / capacity) * 100));
+            const level = pct > 90 ? "over" : pct > 70 ? "full" : "free";
+            return (
+              <div
+                key={u.id}
+                className="flex items-center justify-between gap-4 rounded-xl p-2 transition hover:bg-slate-50 dark:hover:bg-white/[0.02]"
+              >
+                <div className="flex items-center gap-4 flex-1 min-w-0">
+                  <Avatar src={u.avatarUrl} name={u.name} size={38} />
+                  <div className="w-[140px] shrink-0">
+                    <div className="truncate text-[13.5px] font-bold text-slate-900 dark:text-white">{u.name}</div>
+                    <div className="text-[11px] text-slate-500 dark:text-zinc-500">
+                      {userTasks.length} {ctx.t("مهمة مفتوحة", "tasks")}
+                    </div>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="mb-1.5 flex items-center justify-between text-[11.5px]">
+                      <span className="mono text-slate-500 dark:text-zinc-400 font-semibold tabular">
+                        {hours}h / {capacity}h {ctx.t("سعة", "cap")}
+                      </span>
+                      <span
+                        className={`mono font-black tabular ${level === "over" ? "text-rose-600 dark:text-rose-400" : level === "full" ? "text-amber-600 dark:text-amber-400" : "text-emerald-600 dark:text-emerald-400"}`}
+                      >
+                        {pct}%
+                      </span>
+                    </div>
+                    <div className="h-2.5 overflow-hidden rounded-full bg-slate-200 dark:bg-white/[0.06]">
+                      <div
+                        className={`h-full rounded-full transition-all duration-700 ${level === "over" ? "bg-gradient-to-r from-rose-500 to-red-500 shadow-[0_0_12px_rgba(244,63,94,0.5)]" : level === "full" ? "bg-gradient-to-r from-amber-500 to-orange-400" : "bg-gradient-to-r from-emerald-500 to-teal-400"}`}
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 shrink-0">
+                  <Badge
+                    tone={level === "over" ? "rose" : level === "full" ? "amber" : "emerald"}
+                    className="px-2.5 py-1 text-[11px]"
+                  >
+                    {level === "over"
+                      ? ctx.t("مثقل 🚨", "Overloaded 🚨")
+                      : level === "full"
+                        ? ctx.t("ممتلئ", "Full")
+                        : ctx.t("متاح ✓", "Available ✓")}
+                  </Badge>
+                  {level === "over" && userTasks.length > 0 && (
+                    <button
+                      onClick={() => {
+                        const freeUser =
+                          ctx.users.find((x) => {
+                            const xHours = ctx.tasks
+                              .filter((t) => t.assigneeId === x.id)
+                              .reduce((a, t) => a + (t.estimatedHours || 0), 0);
+                            return x.id !== u.id && xHours <= 25;
+                          }) ||
+                          ctx.users.find((x) => x.id !== u.id) ||
+                          ctx.users[0];
+                        const targetTask = userTasks[0];
+                        if (targetTask && freeUser) {
+                          ctx.updateTask(targetTask.id, { assigneeId: freeUser.id });
+                          ctx.notify(
+                            `⚖️ ${ctx.t("توازن فوري:", "Quick Rebalance:")} ${ctx.t("نُقلت المهمة", "Moved")} [${targetTask.serial}] ${ctx.t("من", "from")} ${u.name.split(" ")[0]} ${ctx.t("إلى", "to")} ${freeUser.name.split(" ")[0]} ✓`,
+                          );
+                        }
+                      }}
+                      title={ctx.t(
+                        "نقل مهمة إلى عضو متاح لتوازن الفريق (القسم 10)",
+                        "Reassign one task to an available member (Section 10)",
+                      )}
+                      className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-1.5 text-[11px] font-bold text-rose-700 hover:bg-rose-100 transition shadow-sm dark:border-rose-500/40 dark:bg-rose-500/20 dark:text-rose-200"
+                    >
+                      ⚖️ {ctx.t("توازن فوري", "Rebalance")}
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </Card>
+      <div className="space-y-5">
+        <Card className="p-5">
+          <SectionTitle>{ctx.t("ملخص", "Summary")}</SectionTitle>
+          <div className="space-y-2.5">
+            {[
+              {
+                k: ctx.t("الساعات المقدرة", "Estimated"),
+                v: `${ctx.tasks.reduce((a, b) => a + (b.estimatedHours || 0), 0)}h`,
+              },
+              { k: ctx.t("مهام متأخرة", "Overdue"), v: `${ctx.stats.overdue}`, danger: ctx.stats.overdue > 0 },
+              {
+                k: ctx.t("متوسط الإنجاز", "Avg progress"),
+                v: `${ctx.tasks.length ? Math.round(ctx.tasks.reduce((a, b) => a + b.progress, 0) / ctx.tasks.length) : 0}%`,
+              },
+            ].map((it, i) => (
+              <div
+                key={i}
+                className="flex items-center justify-between rounded-xl border border-slate-100 bg-slate-50 px-3.5 py-3 dark:border-white/[0.06] dark:bg-white/[0.02]"
+              >
+                <span className="text-[12px] text-slate-600 dark:text-zinc-400">{it.k}</span>
+                <span
+                  className={`mono text-[14px] font-bold tabular ${it.danger ? "text-rose-600 dark:text-rose-400" : "text-slate-900 dark:text-white"}`}
+                >
+                  {it.v}
+                </span>
+              </div>
+            ))}
+          </div>
+        </Card>
+        <Card className="p-5" glow>
+          <div className="flex items-center gap-2 text-indigo-600 dark:text-violet-300">
+            <IconSparkle size={15} />
+            <span className="text-[12.5px] font-semibold">{ctx.t("اقتراح ذكي", "Smart suggestion")}</span>
+          </div>
+          <p className="mt-2 text-[12px] leading-relaxed text-slate-600 dark:text-zinc-400">
+            {ctx.t(
+              "أعد توزيع 3 مهام من الأعضاء المثقلين إلى المتاحين لتوازن الفريق هذا الأسبوع.",
+              "Rebalance 3 tasks from overloaded members to available ones this week.",
+            )}
+          </p>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+export function WorkloadView({ ctx }: { ctx: ViewCtx }) {
+  return <AdvancedWorkload ctx={ctx} />;
+}
+
+/* ================= My Work View ================= */
+export function MyWorkView({ ctx }: { ctx: ViewCtx }) {
+  const mine = ctx.tasks.filter((t) => t.assigneeId === ctx.currentUser?.id);
+  const sections = [
+    {
+      id: "today",
+      icon: <IconPlay size={14} />,
+      title_ar: "مهامي اليوم",
+      title_en: "Today",
+      list: mine.filter((t) => t.status !== "done").slice(0, 5),
+    },
+    {
+      id: "overdue",
+      icon: <IconFlag size={14} />,
+      title_ar: "متأخرة",
+      title_en: "Overdue",
+      list: ctx.tasks.filter((t) => t.dueDate && new Date(t.dueDate) < new Date() && t.status !== "done").slice(0, 4),
+    },
+    {
+      id: "done",
+      icon: <IconCheck size={14} />,
+      title_ar: "أنجزتها",
+      title_en: "Completed",
+      list: ctx.tasks.filter((t) => t.status === "done").slice(0, 3),
+    },
+  ];
+  return (
+    <div className="grid gap-5 lg:grid-cols-[1fr_320px]">
+      <div className="stagger space-y-5">
+        {sections.map((s) => (
+          <Card key={s.id} className="overflow-hidden">
+            <div className="flex items-center gap-2.5 border-b border-slate-100 dark:border-white/[0.06] px-5 py-3.5">
+              <span className="grid h-7 w-7 place-items-center rounded-lg bg-indigo-50 border border-indigo-200 text-indigo-600 dark:bg-gradient-to-br dark:from-indigo-500/20 dark:to-violet-400/20 dark:text-violet-300 dark:border-white/10">
+                {s.icon}
+              </span>
+              <span className="text-[13.5px] font-semibold text-slate-900 dark:text-white">
+                {ctx.t(s.title_ar, s.title_en)}
+              </span>
+              <span className="mono rounded-md bg-slate-100 text-slate-600 dark:bg-white/[0.05] px-1.5 py-0.5 text-[10.5px] dark:text-zinc-500 tabular">
+                {s.list.length}
+              </span>
+            </div>
+            <div className="divide-y divide-slate-100 dark:divide-white/[0.04]">
+              {s.list.map((task) => {
+                const pr = PRIORITY_CONFIG[task.priority];
+                return (
+                  <div
+                    key={task.id}
+                    onClick={() => ctx.openTask(task)}
+                    className="group flex cursor-pointer items-center gap-3 px-5 py-3.5 transition hover:bg-slate-50 dark:hover:bg-white/[0.03]"
+                  >
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        ctx.updateTask(task.id, {
+                          status: task.status === "done" ? "todo" : "done",
+                          progress: task.status === "done" ? 0 : 100,
+                        });
+                      }}
+                      className={`grid h-5 w-5 shrink-0 place-items-center rounded-md border transition ${task.status === "done" ? "border-emerald-500 bg-emerald-50 text-emerald-600 dark:border-emerald-400/60 dark:bg-emerald-500/20 dark:text-emerald-300" : "border-slate-300 text-transparent hover:border-indigo-500 dark:border-white/20 dark:hover:border-indigo-400/60"}`}
+                    >
+                      <IconCheck size={11} />
+                    </button>
+                    <div className="min-w-0 flex-1">
+                      <div
+                        className={`truncate text-[13px] font-medium ${task.status === "done" ? "text-slate-400 dark:text-zinc-500 line-through" : "text-slate-800 dark:text-zinc-200 group-hover:text-indigo-600 dark:group-hover:text-white"}`}
+                      >
+                        {task.title}
+                      </div>
+                      <div className="mt-0.5 flex items-center gap-2 text-[11px] text-slate-500 dark:text-zinc-500">
+                        <span className="mono">{task.serial}</span>
+                        {task.dueDate && <span>• {fmtDate(task.dueDate, ctx.locale)}</span>}
+                      </div>
+                    </div>
+                    <Badge tone={pr?.tone}>{pr?.[ctx.locale === "ar" ? "ar" : "en"]}</Badge>
+                  </div>
+                );
+              })}
+              {s.list.length === 0 && (
+                <div className="px-5 py-8 text-center text-[12.5px] text-slate-500 dark:text-zinc-600">
+                  {ctx.t("لا شيء هنا 🎉", "Nothing here 🎉")}
+                </div>
+              )}
+            </div>
+          </Card>
+        ))}
+      </div>
+      <div className="space-y-5">
+        <Card className="p-5">
+          <SectionTitle>{ctx.t("النشاط الأخير", "Recent Activity")}</SectionTitle>
+          <div className="space-y-4">
+            {ctx.activities.slice(0, 6).map((a) => (
+              <div key={a.id} className="flex gap-3 text-[12px]">
+                <Avatar src={a.actor?.avatarUrl} name={a.actor?.name} size={26} />
+                <div className="min-w-0 flex-1">
+                  <div className="leading-relaxed text-slate-600 dark:text-zinc-400">
+                    <span className="font-semibold text-slate-900 dark:text-zinc-200">
+                      {a.actor?.name?.split(" ")[0]}
+                    </span>{" "}
+                    {a.action === "task.created"
+                      ? ctx.t("أنشأ", "created")
+                      : a.action === "task.updated"
+                        ? ctx.t("حدّث", "updated")
+                        : ctx.t("علّق على", "commented on")}{" "}
+                    <span className="mono text-[11px] text-indigo-600 dark:text-violet-300/80">
+                      {a.entitySerial || ""}
+                    </span>
+                  </div>
+                  <div className="text-[10.5px] text-slate-400 dark:text-zinc-600">
+                    {new Date(a.createdAt).toLocaleString(dateLocale(ctx.locale))}
+                  </div>
+                </div>
+              </div>
+            ))}
+            {ctx.activities.length === 0 && (
+              <div className="py-4 text-center text-[12px] text-slate-500 dark:text-zinc-600">
+                {ctx.t("لا نشاط بعد", "No activity yet")}
+              </div>
+            )}
+          </div>
+        </Card>
+        <Card className="p-5 relative overflow-hidden" glow>
+          <div className="absolute -top-10 -end-10 h-28 w-28 rounded-full bg-indigo-500/20 blur-2xl" />
+          <SectionTitle>{ctx.t("سلسلة الإنجاز", "Streak")}</SectionTitle>
+          <div className="flex gap-1.5">
+            {Array.from({ length: 7 }).map((_, i) => (
+              <div
+                key={i}
+                className={`grid h-10 flex-1 place-items-center rounded-lg text-[11px] font-bold ${i < 5 ? "bg-gradient-to-br from-indigo-500/80 to-violet-500/80 text-white shadow-[0_0_12px_rgba(99,102,241,0.35)]" : "bg-slate-100 text-slate-400 border border-slate-200 dark:bg-white/[0.04] dark:text-zinc-600 dark:border-white/[0.06]"}`}
+              >
+                {i < 5 ? <IconCheck size={12} /> : "·"}
+              </div>
+            ))}
+          </div>
+          <p className="mt-3 text-[11.5px] text-slate-500 dark:text-zinc-500">
+            {ctx.t("5 أيام متتالية — واصل التقدم!", "5 days in a row — keep going!")}
+          </p>
+        </Card>
+      </div>
+    </div>
+  );
+}

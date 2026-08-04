@@ -1,0 +1,2 @@
+ALTER TABLE "notification_email_outbox" ADD COLUMN "claim_token" uuid;--> statement-breakpoint
+ALTER TABLE "notification_email_outbox" ADD CONSTRAINT "notification_email_outbox_claim_state_check" CHECK (("notification_email_outbox"."status" = 'processing' and "notification_email_outbox"."claimed_at" is not null and "notification_email_outbox"."claim_token" is not null) or ("notification_email_outbox"."status" <> 'processing' and "notification_email_outbox"."claimed_at" is null and "notification_email_outbox"."claim_token" is null));

@@ -1,0 +1,376 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useState } from "react";
+import type { User, ViewCtx, WorkloadSettings, WorkloadTimeOff } from "@/lib/types";
+import { Avatar, Badge, Btn, Card, Empty, SectionTitle } from "@/components/ui";
+import { cn } from "@/lib/utils";
+import {
+  createWorkloadTimeOff,
+  deleteWorkloadTimeOff,
+  getWorkloadSettings,
+  updateWorkloadCapacity,
+} from "./workload-api";
+import {
+  addUtcDays,
+  calculateWeeklyWorkload,
+  DEFAULT_WORKDAY_MASK,
+  isoDate,
+  startOfIsoWeek,
+} from "./workload-analysis";
+
+const EMPTY_SETTINGS: WorkloadSettings = { capacities: [], timeOff: [] };
+
+function minutesLabel(minutes: number) {
+  const hours = minutes / 60;
+  return `${Number.isInteger(hours) ? hours : hours.toFixed(1)}h`;
+}
+
+function uniqueScopedUsers(members: ViewCtx["members"], directoryUsers: User[]) {
+  const users = members.flatMap((member) => (member.user ? [member.user] : []));
+  const source = users.length ? users : directoryUsers;
+  return [...new Map(source.map((user) => [user.id, user])).values()];
+}
+
+const kindLabels: Record<WorkloadTimeOff["kind"], { ar: string; en: string }> = {
+  vacation: { ar: "إجازة", en: "Vacation" },
+  sick: { ar: "مرضية", en: "Sick leave" },
+  personal: { ar: "شخصية", en: "Personal leave" },
+  public_holiday: { ar: "عطلة عامة", en: "Public holiday" },
+};
+
+export function AdvancedWorkload({ ctx }: { ctx: ViewCtx }) {
+  const { notify, t } = ctx;
+  const [weekStart, setWeekStart] = useState(() => startOfIsoWeek(new Date()));
+  const [settings, setSettings] = useState<WorkloadSettings>(EMPTY_SETTINGS);
+  const [loading, setLoading] = useState(false);
+  const scopedUsers = useMemo(() => uniqueScopedUsers(ctx.members, ctx.users), [ctx.members, ctx.users]);
+  const weekEnd = useMemo(() => addUtcDays(weekStart, 6), [weekStart]);
+  const scope = useMemo(
+    () =>
+      ctx.activeProject
+        ? {
+            organizationId: ctx.activeProject.organizationId,
+            workspaceId: ctx.activeProject.workspaceId,
+            actorId: ctx.currentUser?.id,
+          }
+        : null,
+    [ctx.activeProject, ctx.currentUser?.id],
+  );
+
+  const loadSettings = useCallback(async () => {
+    if (!scope) {
+      setSettings(EMPTY_SETTINGS);
+      return;
+    }
+    setLoading(true);
+    try {
+      setSettings(await getWorkloadSettings(scope, isoDate(weekStart), isoDate(weekEnd)));
+    } catch {
+      setSettings(EMPTY_SETTINGS);
+      notify(t("تعذر تحميل السعة والإجازات", "Failed to load capacity and time off"), "error");
+    } finally {
+      setLoading(false);
+    }
+  }, [notify, scope, t, weekEnd, weekStart]);
+
+  useEffect(() => {
+    void loadSettings();
+  }, [loadSettings]);
+
+  const workload = useMemo(
+    () =>
+      calculateWeeklyWorkload({
+        tasks: ctx.tasks,
+        users: scopedUsers,
+        capacities: settings.capacities,
+        timeOff: settings.timeOff,
+        weekStart,
+      }),
+    [ctx.tasks, scopedUsers, settings, weekStart],
+  );
+
+  const editCapacity = async (user: User) => {
+    if (!scope || !ctx.can("members.manage")) return;
+    const current = settings.capacities.find((capacity) => capacity.userId === user.id);
+    const value = prompt(
+      ctx.t(`السعة الأسبوعية لـ ${user.name} بالساعات:`, `Weekly capacity for ${user.name} in hours:`),
+      String((current?.weeklyMinutes ?? 2400) / 60),
+    );
+    if (value === null) return;
+    const hours = Number(value);
+    if (!Number.isFinite(hours) || hours < 0 || hours > 168) {
+      ctx.notify(ctx.t("يجب أن تكون السعة بين 0 و168 ساعة", "Capacity must be between 0 and 168 hours"), "error");
+      return;
+    }
+    try {
+      const updated = await updateWorkloadCapacity(scope, user.id, {
+        weeklyMinutes: Math.round(hours * 60),
+        workdayMask: current?.workdayMask ?? DEFAULT_WORKDAY_MASK,
+      });
+      setSettings((previous) => ({
+        ...previous,
+        capacities: [...previous.capacities.filter((capacity) => capacity.userId !== user.id), updated],
+      }));
+      ctx.notify(ctx.t("تم حفظ السعة الأسبوعية", "Weekly capacity saved"));
+    } catch {
+      ctx.notify(ctx.t("تعذر حفظ السعة", "Failed to save capacity"), "error");
+    }
+  };
+
+  const addTimeOff = async (user?: User) => {
+    if (!scope || !ctx.can("members.manage")) return;
+    const defaultDate = isoDate(weekStart);
+    const startsOn = prompt(ctx.t("تاريخ البداية YYYY-MM-DD:", "Start date YYYY-MM-DD:"), defaultDate);
+    if (!startsOn) return;
+    const endsOn = prompt(ctx.t("تاريخ النهاية YYYY-MM-DD:", "End date YYYY-MM-DD:"), startsOn);
+    if (!endsOn) return;
+    const rawKind = user
+      ? prompt(ctx.t("النوع: vacation أو sick أو personal", "Type: vacation, sick, or personal"), "vacation")
+      : "public_holiday";
+    if (!rawKind) return;
+    const kind = rawKind.trim() as WorkloadTimeOff["kind"];
+    if (!(kind in kindLabels) || (!user && kind !== "public_holiday") || (user && kind === "public_holiday")) {
+      ctx.notify(ctx.t("نوع الإجازة غير صالح", "Invalid time-off type"), "error");
+      return;
+    }
+    const note = prompt(ctx.t("ملاحظة اختيارية:", "Optional note:"), "") ?? undefined;
+    try {
+      await createWorkloadTimeOff(scope, { userId: user?.id ?? null, kind, startsOn, endsOn, note });
+      await loadSettings();
+      ctx.notify(ctx.t("تم حفظ الإجازة", "Time off saved"));
+    } catch {
+      ctx.notify(ctx.t("تعذر حفظ الإجازة؛ تحقق من التواريخ", "Failed to save time off; check the dates"), "error");
+    }
+  };
+
+  const removeTimeOff = async (id: string) => {
+    if (!scope || !ctx.can("members.manage")) return;
+    try {
+      await deleteWorkloadTimeOff(scope, id);
+      setSettings((previous) => ({ ...previous, timeOff: previous.timeOff.filter((entry) => entry.id !== id) }));
+      ctx.notify(ctx.t("حُذفت الإجازة", "Time off removed"));
+    } catch {
+      ctx.notify(ctx.t("تعذر حذف الإجازة", "Failed to remove time off"), "error");
+    }
+  };
+
+  const rebalance = async (sourceUserId: string) => {
+    const source = workload.rows.find((row) => row.user.id === sourceUserId);
+    const target = workload.rows
+      .filter((row) => row.user.id !== sourceUserId && row.effectiveCapacityMinutes > row.allocatedMinutes)
+      .sort(
+        (left, right) =>
+          left.allocatedMinutes / left.effectiveCapacityMinutes -
+          right.allocatedMinutes / right.effectiveCapacityMinutes,
+      )[0];
+    const task = source?.taskIds.map((id) => ctx.tasks.find((candidate) => candidate.id === id)).find(Boolean);
+    if (!task || !target) {
+      ctx.notify(ctx.t("لا يوجد عضو متاح لنقل المهمة إليه", "No available member can receive a task"), "error");
+      return;
+    }
+    const updated = await ctx.updateTask(task.id, { assigneeId: target.user.id, assigneeIds: [target.user.id] });
+    if (updated) {
+      ctx.notify(
+        ctx.t(
+          `نُقلت ${task.serial} إلى ${target.user.name} بناءً على السعة الفعلية`,
+          `${task.serial} moved to ${target.user.name} using effective capacity`,
+        ),
+      );
+    }
+  };
+
+  return (
+    <div className="grid gap-5 lg:grid-cols-[1fr_330px]">
+      <Card className="p-6">
+        <SectionTitle
+          count={workload.rows.length}
+          action={
+            <div className="flex items-center gap-1.5">
+              <Btn size="sm" onClick={() => setWeekStart((date) => addUtcDays(date, -7))}>
+                ←
+              </Btn>
+              <Btn size="sm" onClick={() => setWeekStart(startOfIsoWeek(new Date()))}>
+                {ctx.t("هذا الأسبوع", "This week")}
+              </Btn>
+              <Btn size="sm" onClick={() => setWeekStart((date) => addUtcDays(date, 7))}>
+                →
+              </Btn>
+            </div>
+          }
+        >
+          {ctx.t("عبء العمل الأسبوعي", "Weekly Workload")}
+        </SectionTitle>
+        <div className="mb-5 text-[12px] text-slate-500 dark:text-zinc-400">
+          {new Date(`${workload.weekStart}T00:00:00Z`).toLocaleDateString(ctx.locale === "ar" ? "ar-SA" : "en-US")} –{" "}
+          {new Date(`${workload.weekEnd}T00:00:00Z`).toLocaleDateString(ctx.locale === "ar" ? "ar-SA" : "en-US")}
+          {loading && <span className="ms-2">{ctx.t("جارٍ التحديث…", "Refreshing…")}</span>}
+        </div>
+        {workload.rows.length === 0 ? (
+          <Empty
+            icon={<span aria-hidden>◌</span>}
+            title={ctx.t("لا يوجد أعضاء نشطون في مساحة العمل", "No active workspace members")}
+          />
+        ) : (
+          <div className="space-y-4">
+            {workload.rows.map((row) => {
+              const width = Math.min(100, row.utilizationPercent);
+              const tone =
+                row.level === "overloaded"
+                  ? "rose"
+                  : row.level === "full"
+                    ? "amber"
+                    : row.level === "unavailable"
+                      ? "neutral"
+                      : "emerald";
+              return (
+                <div key={row.user.id} className="rounded-xl border border-slate-200 p-4 dark:border-white/[0.08]">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <Avatar src={row.user.avatarUrl} name={row.user.name} size={38} />
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-[13.5px] font-bold text-slate-900 dark:text-white">
+                        {row.user.name}
+                      </div>
+                      <div className="text-[11px] text-slate-500 dark:text-zinc-500">
+                        {row.taskCount} {ctx.t("مهام مجدولة", "scheduled tasks")}
+                        {row.timeOffDays > 0 && ` · ${row.timeOffDays} ${ctx.t("أيام غياب", "days off")}`}
+                      </div>
+                    </div>
+                    <Badge tone={tone}>
+                      {row.level === "overloaded"
+                        ? ctx.t("مثقل", "Overloaded")
+                        : row.level === "full"
+                          ? ctx.t("ممتلئ", "Full")
+                          : row.level === "unavailable"
+                            ? ctx.t("غير متاح", "Unavailable")
+                            : ctx.t("متاح", "Available")}
+                    </Badge>
+                    {ctx.can("members.manage") && (
+                      <Btn size="sm" onClick={() => void editCapacity(row.user)}>
+                        {ctx.t("السعة", "Capacity")}
+                      </Btn>
+                    )}
+                    {ctx.can("members.manage") && (
+                      <Btn size="sm" onClick={() => void addTimeOff(row.user)}>
+                        {ctx.t("إجازة", "Time off")}
+                      </Btn>
+                    )}
+                  </div>
+                  <div className="mt-3 flex items-center justify-between text-[11.5px] text-slate-600 dark:text-zinc-400">
+                    <span>
+                      {minutesLabel(row.allocatedMinutes)} / {minutesLabel(row.effectiveCapacityMinutes)}{" "}
+                      {ctx.t("متاحة", "available")}
+                    </span>
+                    <span className="font-bold tabular-nums">{row.utilizationPercent}%</span>
+                  </div>
+                  <div className="mt-1.5 h-2.5 overflow-hidden rounded-full bg-slate-200 dark:bg-white/[0.07]">
+                    <div
+                      className={cn(
+                        "h-full rounded-full",
+                        row.level === "overloaded"
+                          ? "bg-rose-500"
+                          : row.level === "full"
+                            ? "bg-amber-500"
+                            : row.level === "unavailable"
+                              ? "bg-slate-400"
+                              : "bg-emerald-500",
+                      )}
+                      style={{ width: `${width}%` }}
+                    />
+                  </div>
+                  <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[10.5px] text-slate-500 dark:text-zinc-500">
+                    <span>
+                      {ctx.t("السعة الأصلية", "Configured")} {minutesLabel(row.configuredCapacityMinutes)}
+                      {row.timeOffMinutes > 0 &&
+                        ` · −${minutesLabel(row.timeOffMinutes)} ${ctx.t("إجازات", "time off")}`}
+                    </span>
+                    {row.level === "overloaded" && ctx.can("tasks.update") && (
+                      <button
+                        className="font-semibold text-rose-600 dark:text-rose-300"
+                        onClick={() => void rebalance(row.user.id)}
+                      >
+                        {ctx.t("نقل مهمة إلى الأقل انشغالاً", "Move one task to least loaded")}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </Card>
+
+      <div className="space-y-5">
+        <Card className="p-5">
+          <SectionTitle>{ctx.t("ملخص الأسبوع", "Week summary")}</SectionTitle>
+          <div className="space-y-2.5 text-[12px]">
+            {[
+              [ctx.t("العمل الموزع", "Allocated work"), minutesLabel(workload.totalAllocatedMinutes)],
+              [
+                ctx.t("السعة بعد الإجازات", "Capacity after time off"),
+                minutesLabel(workload.totalEffectiveCapacityMinutes),
+              ],
+              [ctx.t("مهام بلا تاريخ", "Unscheduled tasks"), String(workload.unscheduledTaskCount)],
+            ].map(([label, value]) => (
+              <div key={label} className="flex justify-between rounded-lg bg-slate-50 px-3 py-2.5 dark:bg-white/[0.04]">
+                <span className="text-slate-600 dark:text-zinc-400">{label}</span>
+                <strong className="text-slate-900 dark:text-white">{value}</strong>
+              </div>
+            ))}
+          </div>
+        </Card>
+        <Card className="p-5">
+          <SectionTitle
+            count={settings.timeOff.length}
+            action={
+              ctx.can("members.manage") ? (
+                <Btn size="sm" onClick={() => void addTimeOff()}>
+                  {ctx.t("عطلة عامة", "Public holiday")}
+                </Btn>
+              ) : undefined
+            }
+          >
+            {ctx.t("الإجازات والعطل", "Time off & holidays")}
+          </SectionTitle>
+          {settings.timeOff.length === 0 ? (
+            <p className="text-[12px] text-slate-500 dark:text-zinc-500">
+              {ctx.t("لا توجد إجازات في هذا الأسبوع", "No time off this week")}
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {settings.timeOff.map((entry) => {
+                const user = scopedUsers.find((candidate) => candidate.id === entry.userId);
+                return (
+                  <div
+                    key={entry.id}
+                    className="rounded-lg border border-slate-200 p-2.5 text-[11px] dark:border-white/10"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <strong className="text-slate-800 dark:text-zinc-200">
+                          {user?.name ?? ctx.t("مساحة العمل", "Workspace")} ·{" "}
+                          {ctx.t(kindLabels[entry.kind].ar, kindLabels[entry.kind].en)}
+                        </strong>
+                        <div className="mt-0.5 text-slate-500 dark:text-zinc-500">
+                          {entry.startsOn} – {entry.endsOn}
+                        </div>
+                        {entry.note && <div className="mt-1 text-slate-600 dark:text-zinc-400">{entry.note}</div>}
+                      </div>
+                      {ctx.can("members.manage") && (
+                        <button
+                          className="text-rose-600 dark:text-rose-300"
+                          onClick={() => void removeTimeOff(entry.id)}
+                        >
+                          {ctx.t("حذف", "Delete")}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </Card>
+      </div>
+    </div>
+  );
+}

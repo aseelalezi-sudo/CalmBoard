@@ -1,0 +1,103 @@
+services:
+  web:
+    image: ${CALMBOARD_WEB_IMAGE:-calmboard-web:staging}
+    build: !reset null
+    restart: unless-stopped
+    ports: !override
+      - "127.0.0.1:${STAGING_WEB_PORT:-3000}:3000"
+    environment:
+      NODE_ENV: production
+      DEPLOY_ENV: staging
+      APP_URL: ${APP_URL:?APP_URL is required for staging}
+      NEXT_PUBLIC_SENTRY_DSN: ${NEXT_PUBLIC_SENTRY_DSN:-}
+
+  api:
+    image: ${CALMBOARD_API_IMAGE:-calmboard-api:staging}
+    build: !reset null
+    restart: unless-stopped
+    ports: !override
+      - "127.0.0.1:${STAGING_API_PORT:-4000}:4000"
+    environment:
+      NODE_ENV: production
+      DEPLOY_ENV: staging
+      DATABASE_URL: postgresql://${POSTGRES_APP_USER:?POSTGRES_APP_USER is required}:${POSTGRES_APP_PASSWORD:?POSTGRES_APP_PASSWORD is required}@postgres:5432/${POSTGRES_DB:?POSTGRES_DB is required}
+      DATABASE_APP_URL: postgresql://${POSTGRES_APP_USER:?POSTGRES_APP_USER is required}:${POSTGRES_APP_PASSWORD:?POSTGRES_APP_PASSWORD is required}@postgres:5432/${POSTGRES_DB:?POSTGRES_DB is required}
+      AUTH_TOKEN_SECRET: ${AUTH_TOKEN_SECRET:?AUTH_TOKEN_SECRET is required}
+      WEBHOOK_SIGNING_SECRET: ${WEBHOOK_SIGNING_SECRET:?WEBHOOK_SIGNING_SECRET is required}
+      INTEGRATION_CREDENTIALS_KEY: ${INTEGRATION_CREDENTIALS_KEY:?INTEGRATION_CREDENTIALS_KEY is required}
+      MFA_ENCRYPTION_KEY: ${MFA_ENCRYPTION_KEY:?MFA_ENCRYPTION_KEY is required}
+      METRICS_BEARER_TOKEN: ${METRICS_BEARER_TOKEN:?METRICS_BEARER_TOKEN is required}
+      APP_URL: ${APP_URL:?APP_URL is required for staging}
+      API_PUBLIC_URL: ${API_PUBLIC_URL:?API_PUBLIC_URL is required for staging}
+      AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-true}
+    depends_on:
+      database-roles:
+        condition: service_completed_successfully
+      migrations:
+        condition: service_completed_successfully
+
+  worker:
+    image: ${CALMBOARD_WORKER_IMAGE:-calmboard-worker:staging}
+    build: !reset null
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      DEPLOY_ENV: staging
+      DATABASE_MAINTENANCE_URL: postgresql://${POSTGRES_MAINTENANCE_USER:?POSTGRES_MAINTENANCE_USER is required}:${POSTGRES_MAINTENANCE_PASSWORD:?POSTGRES_MAINTENANCE_PASSWORD is required}@postgres:5432/${POSTGRES_DB:?POSTGRES_DB is required}
+      DATABASE_URL: postgresql://${POSTGRES_MAINTENANCE_USER:?POSTGRES_MAINTENANCE_USER is required}:${POSTGRES_MAINTENANCE_PASSWORD:?POSTGRES_MAINTENANCE_PASSWORD is required}@postgres:5432/${POSTGRES_DB:?POSTGRES_DB is required}
+      AUTH_EMAIL_ENCRYPTION_KEY: ${AUTH_EMAIL_ENCRYPTION_KEY:?AUTH_EMAIL_ENCRYPTION_KEY is required}
+      METRICS_BEARER_TOKEN: ${METRICS_BEARER_TOKEN:?METRICS_BEARER_TOKEN is required}
+    depends_on:
+      database-roles:
+        condition: service_completed_successfully
+      migrations:
+        condition: service_completed_successfully
+
+  migrations:
+    image: ${CALMBOARD_MIGRATIONS_IMAGE:-calmboard-migrations:staging}
+    build: !reset null
+    restart: "no"
+    environment:
+      NODE_ENV: production
+      DEPLOY_ENV: staging
+      DATABASE_URL: postgresql://${POSTGRES_USER:?POSTGRES_USER is required}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:?POSTGRES_DB is required}
+    depends_on:
+      database-roles:
+        condition: service_completed_successfully
+
+  database-roles:
+    image: postgres:18-alpine
+    restart: "no"
+    environment:
+      PGHOST: postgres
+      PGDATABASE: ${POSTGRES_DB:?POSTGRES_DB is required}
+      PGUSER: ${POSTGRES_USER:?POSTGRES_USER is required}
+      PGPASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_APP_USER: ${POSTGRES_APP_USER:?POSTGRES_APP_USER is required}
+      POSTGRES_APP_PASSWORD: ${POSTGRES_APP_PASSWORD:?POSTGRES_APP_PASSWORD is required}
+      POSTGRES_MAINTENANCE_USER: ${POSTGRES_MAINTENANCE_USER:?POSTGRES_MAINTENANCE_USER is required}
+      POSTGRES_MAINTENANCE_PASSWORD: ${POSTGRES_MAINTENANCE_PASSWORD:?POSTGRES_MAINTENANCE_PASSWORD is required}
+    volumes:
+      - ./deploy/provision-database-roles.sh:/opt/calmboard/provision-database-roles.sh:ro
+    entrypoint: ["/bin/sh", "/opt/calmboard/provision-database-roles.sh"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - calmboard_net
+
+  postgres:
+    ports: !reset []
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
+
+  redis:
+    ports: !reset []
+
+  minio:
+    ports: !reset []
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?MINIO_ROOT_USER is required}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required}

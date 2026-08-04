@@ -1,0 +1,391 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1785184292394,
+      "tag": "0000_baseline",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1785185127299,
+      "tag": "0001_tenant_scope_columns",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1785185642999,
+      "tag": "0002_soft_delete_user_content",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1785185999876,
+      "tag": "0003_core_entity_audit",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1785186357160,
+      "tag": "0004_tenant_indexes_and_uniqueness",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1785187061013,
+      "tag": "0005_task_serial_sequences",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1785187742609,
+      "tag": "0006_rbac_foundation",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1785188281077,
+      "tag": "0007_project_and_task_participants",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1785189323677,
+      "tag": "0008_task_dependencies_and_relations",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1785190044471,
+      "tag": "0009_task_reminders_and_recurrence",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1785190951699,
+      "tag": "0010_task_checklists_and_approvals",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1785192179805,
+      "tag": "0011_sessions_and_refresh_tokens",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1785216994090,
+      "tag": "0012_subscription_plans_and_subscriptions",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1785217810626,
+      "tag": "0013_integration_credentials",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1785218789561,
+      "tag": "0014_idempotency_keys",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1785221667419,
+      "tag": "0015_row_level_security",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1785231683457,
+      "tag": "0016_auth_recovery_tokens",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1785238448808,
+      "tag": "0017_progressive_account_lockout",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1785239758773,
+      "tag": "0018_totp_and_recovery_codes",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1785240907753,
+      "tag": "0019_oauth_login_identities",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1785241787690,
+      "tag": "0020_security_event_audit",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1785243972140,
+      "tag": "0021_authorization_security_events",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1785248529339,
+      "tag": "0022_pretty_norrin_radd",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1785252588337,
+      "tag": "0023_white_puff_adder",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1785255579986,
+      "tag": "0024_square_blue_shield",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1785256326591,
+      "tag": "0025_gifted_harrier",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1785256813733,
+      "tag": "0026_icy_terror",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1785270824088,
+      "tag": "0027_magenta_omega_red",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1785271107364,
+      "tag": "0028_complete_matthew_murdock",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1785272489014,
+      "tag": "0029_soft_shatterstar",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1785273286678,
+      "tag": "0030_fat_mentor",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1785303296794,
+      "tag": "0031_quick_iceman",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1785303829386,
+      "tag": "0032_bizarre_misty_knight",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1785305908376,
+      "tag": "0033_exotic_jane_foster",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1785308061324,
+      "tag": "0034_unified_dead_letter_queue",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1785314445928,
+      "tag": "0035_brief_titanium_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1785324037915,
+      "tag": "0036_legal_rogue",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1785325992187,
+      "tag": "0037_icy_thaddeus_ross",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1785327391232,
+      "tag": "0038_bright_blade",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1785396865037,
+      "tag": "0039_chilly_scalphunter",
+      "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1785405543075,
+      "tag": "0040_secret_reptil",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1785437914228,
+      "tag": "0041_productive_roland_deschain",
+      "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1785441820329,
+      "tag": "0042_yielding_unus",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1785445012210,
+      "tag": "0043_large_phalanx",
+      "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1785446739972,
+      "tag": "0044_flawless_robbie_robertson",
+      "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1785449427226,
+      "tag": "0045_awesome_daredevil",
+      "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1785563572982,
+      "tag": "0046_wonderful_celestials",
+      "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1785565419024,
+      "tag": "0047_postgres_workspace_search",
+      "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1785573600000,
+      "tag": "0048_async_form_task_creation",
+      "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1785577200000,
+      "tag": "0049_billing_failure_lifecycle",
+      "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1785580800000,
+      "tag": "0050_server_usage_limits",
+      "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "7",
+      "when": 1785584400000,
+      "tag": "0051_integration_oauth_connections",
+      "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1785579322146,
+      "tag": "0052_integration_webhook_replay",
+      "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1785585518164,
+      "tag": "0053_ai_usage_limits_and_costs",
+      "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1785592811919,
+      "tag": "0054_ai_action_proposals",
+      "breakpoints": true
+    }
+  ]
+}

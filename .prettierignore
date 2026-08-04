@@ -1,0 +1,13 @@
+node_modules/
+.next/
+.pnpm-store/
+out/
+build/
+dist/
+coverage/
+playwright-report/
+test-results/
+pnpm-lock.yaml
+*.tsbuildinfo
+.env
+.env.*

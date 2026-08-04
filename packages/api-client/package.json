@@ -1,0 +1,19 @@
+{
+  "name": "@calmboard/api-client",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "lint": "pnpm run typecheck",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "pnpm run typecheck"
+  },
+  "dependencies": {
+    "@calmboard/types": "workspace:*"
+  },
+  "devDependencies": {}
+}

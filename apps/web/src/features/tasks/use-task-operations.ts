@@ -1,0 +1,271 @@
+import type { Dispatch, SetStateAction } from "react";
+import type {
+  Attachment,
+  Automation,
+  AutomationRun,
+  Comment,
+  Organization,
+  Project,
+  Task,
+  User,
+  Workspace,
+} from "@/lib/types";
+import { uploadTaskAttachment } from "@/features/attachments/api";
+import { getAutomationState } from "@/features/automations/api";
+import { createTimeLog } from "@/features/workspace/actions-api";
+import {
+  createTaskRecord,
+  getTaskDetailBundle,
+  moveTaskRecord,
+  projectTaskScope,
+  setProjectWipLimit,
+  updateTaskRecord,
+} from "@/features/tasks/api";
+import { reorderBoardTasks } from "@/features/tasks/board-order";
+
+type Setter<T> = Dispatch<SetStateAction<T>>;
+type Translator = (arabic: string, english: string) => string;
+type Notify = (message: string, kind?: "success" | "error") => void;
+
+type TaskOperationsInput = {
+  activeProject: Project | null;
+  activeWorkspace: Workspace | null;
+  activeOrg: Organization | null;
+  currentUser: User | null;
+  tasks: Task[];
+  taskDetail: Task | null;
+  setTasks: Setter<Task[]>;
+  setProjects: Setter<Project[]>;
+  setActiveProject: Setter<Project | null>;
+  setTaskDetail: Setter<Task | null>;
+  setComments: Setter<Comment[]>;
+  setSubtasks: Setter<Task[]>;
+  setAttachments: Setter<Attachment[]>;
+  setAutomations: Setter<Automation[]>;
+  setAutomationRuns: Setter<AutomationRun[]>;
+  setShowAddTask: Setter<boolean>;
+  loadWorkspaceModules: (workspaceId: string, organizationId?: string, userId?: string) => Promise<void>;
+  reloadTasks: () => Promise<void>;
+  t: Translator;
+  notify: Notify;
+};
+
+export function useTaskOperations(input: TaskOperationsInput) {
+  const {
+    activeProject,
+    activeWorkspace,
+    activeOrg,
+    currentUser,
+    tasks,
+    taskDetail,
+    setTasks,
+    setProjects,
+    setActiveProject,
+    setTaskDetail,
+    setComments,
+    setSubtasks,
+    setAttachments,
+    setAutomations,
+    setAutomationRuns,
+    setShowAddTask,
+    loadWorkspaceModules,
+    reloadTasks,
+    t,
+    notify,
+  } = input;
+
+  const refreshTasks = reloadTasks;
+
+  const updateTask = async (id: string, updates: Partial<Task>) => {
+    const targetTask = tasks.find((task) => task.id === id) ?? (taskDetail?.id === id ? taskDetail : null);
+    if (!targetTask) return false;
+    const snapshot = tasks;
+    setTasks((previous) => previous.map((task) => (task.id === id ? ({ ...task, ...updates } as Task) : task)));
+    if (taskDetail?.id === id) {
+      setTaskDetail((previous) => (previous ? ({ ...previous, ...updates } as Task) : null));
+    }
+    try {
+      await updateTaskRecord({
+        id,
+        ...updates,
+        expectedVersion: targetTask.version,
+        organizationId: targetTask.organizationId,
+        workspaceId: targetTask.workspaceId,
+        actorId: currentUser?.id,
+      });
+      if (updates.status || updates.assigneeId) {
+        await refreshTasks();
+        if (activeWorkspace && activeOrg) {
+          const state = await getAutomationState({
+            organizationId: activeOrg.id,
+            workspaceId: activeWorkspace.id,
+          }).catch(() => null);
+          if (state?.automations) {
+            setAutomations(state.automations);
+            setAutomationRuns(state.runs || []);
+          }
+        }
+      }
+      return true;
+    } catch {
+      setTasks(snapshot);
+      notify(t("فشل الحفظ، تم التراجع", "Save failed, reverted"), "error");
+      return false;
+    }
+  };
+
+  const moveTask = async (
+    id: string,
+    status: string,
+    targetIndex: number,
+    anchors: { beforeTaskId: string | null; afterTaskId: string | null },
+  ) => {
+    const targetTask = tasks.find((task) => task.id === id);
+    if (!targetTask || !currentUser) return;
+    const snapshot = tasks;
+    setTasks(reorderBoardTasks(tasks, id, status, targetIndex));
+    try {
+      await moveTaskRecord(targetTask, status, targetIndex, anchors, currentUser.id);
+      await refreshTasks();
+    } catch (error) {
+      setTasks(snapshot);
+      notify(error instanceof Error ? error.message : t("فشل نقل المهمة", "Task move failed"), "error");
+    }
+  };
+
+  const updateProjectWipLimit = async (status: string, limit: number | null) => {
+    if (!activeProject || !currentUser) return;
+    try {
+      const wipLimits = await setProjectWipLimit(activeProject, status, limit, currentUser.id);
+      const updateProject = (project: Project) =>
+        project.id === activeProject.id ? { ...project, wipLimits } : project;
+      setProjects((projects) => projects.map(updateProject));
+      setActiveProject((project) => (project ? updateProject(project) : project));
+    } catch (error) {
+      notify(error instanceof Error ? error.message : t("فشل حفظ حد العمل", "Could not save WIP limit"), "error");
+    }
+  };
+
+  const createTask = async (data: Partial<Task> & { title: string }) => {
+    if (!activeProject || !activeWorkspace || !activeOrg || !currentUser) return;
+    const created = await createTaskRecord({
+      ...projectTaskScope(activeProject, currentUser.id),
+      title: data.title,
+      description: data.description,
+      status: data.status || "todo",
+      priority: data.priority || "medium",
+      assigneeId: data.assigneeId || currentUser.id,
+      reporterId: currentUser.id,
+      tags: data.tags || [],
+      dueDate: data.dueDate,
+    });
+    if (created.id) {
+      notify(`${t("تم إنشاء", "Created")} ${created.serial}`);
+      await refreshTasks();
+    } else {
+      notify(t("تعذر إنشاء المهمة", "Could not create task"), "error");
+    }
+    setShowAddTask(false);
+  };
+
+  const loadTaskDetail = async (
+    task: Pick<Task, "id" | "organizationId" | "workspaceId">,
+    optimisticTask: Task | null,
+  ) => {
+    setTaskDetail(optimisticTask);
+    setComments([]);
+    setSubtasks([]);
+    setAttachments([]);
+    try {
+      const details = await getTaskDetailBundle(task);
+      setTaskDetail(details.task);
+      setComments(details.comments);
+      setAttachments(details.attachments);
+      setSubtasks(details.subtasks);
+    } catch {
+      notify(t("تعذر تحميل التفاصيل", "Could not load details"), "error");
+    }
+  };
+
+  const openTask = (task: Task) => loadTaskDetail(task, task);
+  const openTaskById = (task: Pick<Task, "id" | "organizationId" | "workspaceId">) => loadTaskDetail(task, null);
+
+  const addSubtask = async (title: string) => {
+    if (!taskDetail || !activeProject || !activeWorkspace || !activeOrg || !title.trim()) return;
+    const created = await createTaskRecord({
+      ...projectTaskScope(activeProject, currentUser?.id),
+      parentId: taskDetail.id,
+      title,
+      status: "todo",
+      priority: "medium",
+      reporterId: currentUser?.id,
+    });
+    if (created.id) {
+      setSubtasks((previous) => [...previous, created]);
+      notify(t("أضيفت مهمة فرعية", "Subtask added"));
+    }
+  };
+
+  const toggleSubtask = (subtask: Task) => {
+    const status = subtask.status === "done" ? "todo" : "done";
+    const progress = status === "done" ? 100 : 0;
+    setSubtasks((previous) => previous.map((item) => (item.id === subtask.id ? { ...item, status, progress } : item)));
+    void updateTaskRecord({
+      id: subtask.id,
+      expectedVersion: subtask.version,
+      status,
+      progress,
+      organizationId: subtask.organizationId,
+      workspaceId: subtask.workspaceId,
+      actorId: currentUser?.id,
+    });
+  };
+
+  const logTime = async (taskId: string, minutes: number, description: string) => {
+    if (!currentUser || !activeOrg || !activeWorkspace || minutes < 1) return;
+    const timeLog = await createTimeLog({
+      organizationId: activeOrg.id,
+      workspaceId: activeWorkspace.id,
+      actorId: currentUser.id,
+      taskId,
+      durationMinutes: minutes,
+      description,
+    });
+    if (timeLog.id) {
+      notify(`${t("سُجّل", "Logged")} ${minutes}m`);
+      if (activeWorkspace) await loadWorkspaceModules(activeWorkspace.id, activeOrg?.id, currentUser.id);
+      await refreshTasks();
+    }
+  };
+
+  const addAttachment = async (taskId: string, file: File) => {
+    if (!currentUser || !activeOrg || !activeWorkspace) return;
+    try {
+      const attachment = await uploadTaskAttachment({
+        organizationId: activeOrg.id,
+        workspaceId: activeWorkspace.id,
+        taskId,
+        uploaderId: currentUser.id,
+        file,
+      });
+      setAttachments((previous) => [attachment, ...previous]);
+      notify(t("تم رفع المرفق بنجاح", "Attachment uploaded"));
+    } catch (error) {
+      notify(error instanceof Error ? error.message : t("تعذر رفع المرفق", "Could not upload attachment"), "error");
+    }
+  };
+
+  return {
+    refreshTasks,
+    updateTask,
+    moveTask,
+    updateProjectWipLimit,
+    createTask,
+    openTask,
+    openTaskById,
+    addSubtask,
+    toggleSubtask,
+    logTime,
+    addAttachment,
+  };
+}
