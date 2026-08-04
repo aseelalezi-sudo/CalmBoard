@@ -99,8 +99,14 @@ jobs:
           pnpm run start > /tmp/calmboard-web-ci.log 2>&1 &
       - name: Wait for web and API applications
         run: pnpm exec wait-on http://127.0.0.1:3000 http://127.0.0.1:4000/health --timeout 60000
-      - name: Security isolation suite
-        run: curl --fail http://127.0.0.1:4000/admin/security-tests
+      - name: Protected diagnostics smoke check
+        run: |
+          STATUS=$(curl --silent --output /dev/null --write-out "%{http_code}" \
+            http://127.0.0.1:4000/admin/security-tests)
+          if [[ "$STATUS" != "401" ]]; then
+            echo "ERROR: unauthenticated platform diagnostics returned HTTP $STATUS instead of 401"
+            exit 1
+          fi
       - name: Prometheus metrics smoke check
         run: |
           # Verify /metrics endpoint responds with Prometheus text format.
