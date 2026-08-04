@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { HttpException, ServiceUnavailableException, type ExecutionContext } from "@nestjs/common";
 import type { FastifyReply } from "fastify";
-import { RateLimitGuard } from "./rate-limit.guard.js";
+import { generalRateLimit, RateLimitGuard } from "./rate-limit.guard.js";
 import type { RateLimitStore } from "./rate-limit.service.js";
 
 function executionContext(input: { method: string; url: string; ip: string; body?: unknown; userId?: string }) {
@@ -20,6 +20,13 @@ function executionContext(input: { method: string; url: string; ip: string; body
 }
 
 describe("distributed rate limit guard", () => {
+  it("validates the configurable general API limit", () => {
+    assert.equal(generalRateLimit({}), 300);
+    assert.equal(generalRateLimit({ API_GENERAL_RATE_LIMIT: "25000" }), 25_000);
+    assert.throws(() => generalRateLimit({ API_GENERAL_RATE_LIMIT: "0" }), /positive integer/);
+    assert.throws(() => generalRateLimit({ API_GENERAL_RATE_LIMIT: "1000001" }), /must not exceed/);
+  });
+
   it("limits login by IP and hashed account identity", async () => {
     const counts = new Map<string, number>();
     const keys: string[] = [];

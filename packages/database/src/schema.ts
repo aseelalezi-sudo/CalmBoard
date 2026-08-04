@@ -828,6 +828,12 @@ export const tasks = pgTable(
       table.order,
       table.id,
     ),
+    index("tasks_tenant_active_updated_idx")
+      .on(table.organizationId, table.workspaceId, table.updatedAt.desc().nullsLast(), table.id.desc())
+      .where(sql`${table.deletedAt} is null and ${table.parentId} is null`),
+    index("tasks_tenant_active_parent_idx")
+      .on(table.organizationId, table.workspaceId, table.parentId)
+      .where(sql`${table.deletedAt} is null and ${table.parentId} is not null`),
     index("tasks_tenant_assignee_status_idx").on(
       table.organizationId,
       table.workspaceId,

@@ -1,0 +1,1 @@
+CREATE INDEX "tasks_tenant_active_parent_idx" ON "tasks" USING btree ("organization_id","workspace_id","parent_id") WHERE "tasks"."deleted_at" is null and "tasks"."parent_id" is not null;

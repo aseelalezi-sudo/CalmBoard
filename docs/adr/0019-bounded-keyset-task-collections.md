@@ -19,6 +19,12 @@ Board mutations send the ids immediately before and after the requested position
 
 Page hydration may query related records only for task ids in the current page. Composite indexes support active project pages by creation date and title and Board pages by status and order. An integration fixture inserts 100,000 tasks and verifies two non-overlapping Table pages and one bounded Board page under a five-second query budget.
 
+The 2026-08-04 HTTP load validation added partial indexes for active workspace
+pages ordered by update time and for active child-task lookup. The task RLS
+policy reads tenant settings through scalar subqueries so PostgreSQL evaluates
+them once per statement. A five-minute k6 run against 100,000 tasks and up to 50
+VUs passed with task p95 83.66ms and p99 110.39ms.
+
 ## Consequences
 
 - Table and Board no longer transfer or retain the complete 100,000-task collection.

@@ -1,11 +1,16 @@
 import { createHash, randomBytes } from "node:crypto";
-import { and, desc, eq, gt, isNull, ne } from "drizzle-orm";
+import { and, desc, eq, gt, isNull, lte, ne } from "drizzle-orm";
 import { db } from "../client.js";
 import { TenantResourceNotFoundError } from "../errors.js";
 import { refreshTokens, users, userSessions } from "../schema.js";
 
 const DEFAULT_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1_000;
 const DEFAULT_REFRESH_TTL_MS = 7 * 24 * 60 * 60 * 1_000;
+export const SESSION_ACTIVITY_TOUCH_INTERVAL_MS = 60_000;
+
+export function sessionActivityIsStale(lastActive: Date, now: Date) {
+  return now.getTime() - lastActive.getTime() >= SESSION_ACTIVITY_TOUCH_INTERVAL_MS;
+}
 
 export class InvalidAuthSessionError extends Error {
   constructor(message = "Authentication session is invalid or expired") {
@@ -181,12 +186,28 @@ export function createAuthSessionsRepository() {
       ];
       if (userId) conditions.push(eq(userSessions.userId, userId));
       const [session] = await db
+        .select()
+        .from(userSessions)
+        .where(and(...conditions))
+        .limit(1);
+      if (!session) throw new InvalidAuthSessionError();
+      if (!sessionActivityIsStale(session.lastActive, now)) return session;
+
+      const activityThreshold = new Date(now.getTime() - SESSION_ACTIVITY_TOUCH_INTERVAL_MS);
+      const [touched] = await db
         .update(userSessions)
         .set({ lastActive: now, updatedAt: now })
-        .where(and(...conditions))
+        .where(and(...conditions, lte(userSessions.lastActive, activityThreshold)))
         .returning();
-      if (!session) throw new InvalidAuthSessionError();
-      return session;
+      if (touched) return touched;
+
+      const [revalidated] = await db
+        .select()
+        .from(userSessions)
+        .where(and(...conditions))
+        .limit(1);
+      if (!revalidated) throw new InvalidAuthSessionError();
+      return revalidated;
     },
 
     async list(userId: string, currentSessionId: string) {

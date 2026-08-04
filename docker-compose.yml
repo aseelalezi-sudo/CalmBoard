@@ -50,6 +50,7 @@ services:
       - NODE_ENV=production
       - DATABASE_URL=postgresql://${POSTGRES_USER:-calmboard}:${POSTGRES_PASSWORD:-dev_postgres_password}@postgres:5432/${POSTGRES_DB:-calmboard_db}
       - DATABASE_APP_URL=postgresql://${POSTGRES_USER:-calmboard}:${POSTGRES_PASSWORD:-dev_postgres_password}@postgres:5432/${POSTGRES_DB:-calmboard_db}
+      - DATABASE_POOL_MAX=${API_DATABASE_POOL_MAX:-10}
       - SEARCH_PROVIDER=${SEARCH_PROVIDER:-postgresql}
       - REDIS_URL=redis://redis:6379/0
       - CALMBOARD_QUEUE_NAME=${CALMBOARD_QUEUE_NAME:-calmboard-default}
@@ -87,6 +88,7 @@ services:
       - ENABLE_OTEL=${ENABLE_OTEL:-false}
       - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-}
       - METRICS_BEARER_TOKEN=${METRICS_BEARER_TOKEN:-}
+      - API_GENERAL_RATE_LIMIT=${API_GENERAL_RATE_LIMIT:-300}
     depends_on:
       postgres:
         condition: service_healthy
@@ -119,6 +121,7 @@ services:
       - DATABASE_MAINTENANCE_URL=postgresql://${POSTGRES_USER:-calmboard}:${POSTGRES_PASSWORD:-dev_postgres_password}@postgres:5432/${POSTGRES_DB:-calmboard_db}
       - DATABASE_URL=postgresql://${POSTGRES_USER:-calmboard}:${POSTGRES_PASSWORD:-dev_postgres_password}@postgres:5432/${POSTGRES_DB:-calmboard_db}
       - REDIS_URL=redis://redis:6379/0
+      - DATABASE_POOL_MAX=${WORKER_DATABASE_POOL_MAX:-10}
       - CALMBOARD_QUEUE_NAME=${CALMBOARD_QUEUE_NAME:-calmboard-default}
       - S3_ENDPOINT=http://minio:9000
       - S3_REGION=${S3_REGION:-us-east-1}

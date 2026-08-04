@@ -3,6 +3,7 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import { sql } from "drizzle-orm";
 import { Pool } from "pg";
 import * as schema from "./schema.js";
+import { databasePoolMax } from "./pool-config.js";
 import { assertTenantContext, type DatabaseTenantContext } from "./tenant-context.js";
 
 function readDatabaseUrl() {
@@ -21,6 +22,7 @@ export const pool =
   globalForDb.__calmboardPostgresPool ??
   new Pool({
     connectionString: readDatabaseUrl(),
+    max: databasePoolMax(),
   });
 
 if (process.env.NODE_ENV !== "production") {

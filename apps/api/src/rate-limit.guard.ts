@@ -21,6 +21,22 @@ type RateLimitRule = {
 };
 
 const MINUTE = 60_000;
+const DEFAULT_GENERAL_RATE_LIMIT = 300;
+const MAX_GENERAL_RATE_LIMIT = 1_000_000;
+
+export function generalRateLimit(environment: NodeJS.ProcessEnv = process.env) {
+  const configured = environment.API_GENERAL_RATE_LIMIT;
+  if (configured === undefined || configured === "") return DEFAULT_GENERAL_RATE_LIMIT;
+  if (!/^[1-9][0-9]*$/.test(configured)) {
+    throw new Error("API_GENERAL_RATE_LIMIT must be a positive integer");
+  }
+  const value = Number(configured);
+  if (!Number.isSafeInteger(value) || value > MAX_GENERAL_RATE_LIMIT) {
+    throw new Error(`API_GENERAL_RATE_LIMIT must not exceed ${MAX_GENERAL_RATE_LIMIT}`);
+  }
+  return value;
+}
+
 const AUTH_RULES: Record<string, RateLimitRule[]> = {
   "/auth/login": [
     { name: "login-ip", limit: 10, windowMs: 15 * MINUTE, sensitive: true, subject: "ip" },
@@ -59,7 +75,7 @@ const AUTH_RULES: Record<string, RateLimitRule[]> = {
 };
 const GENERAL_RULE: RateLimitRule = {
   name: "api",
-  limit: 300,
+  limit: generalRateLimit(),
   windowMs: MINUTE,
   sensitive: false,
   subject: "actor",

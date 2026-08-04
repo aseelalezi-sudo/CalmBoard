@@ -1,6 +1,5 @@
 import { Module } from "@nestjs/common";
 import { LoggerModule } from "nestjs-pino";
-import { randomUUID } from "node:crypto";
 import { PrometheusModule } from "@willsoto/nestjs-prometheus";
 import { APP_GUARD, APP_INTERCEPTOR } from "@nestjs/core";
 import { HealthController } from "./health.controller.js";
@@ -78,11 +77,7 @@ import { MetricsController } from "./metrics.controller.js";
 import { HttpMetricsInterceptor } from "./http-metrics.interceptor.js";
 import { LicensingModule } from "./licensing/licensing.module.js";
 import { LicensingGuard } from "./licensing/licensing.guard.js";
-
-function correlationId(header: string | string[] | undefined) {
-  const candidate = Array.isArray(header) ? header[0] : header;
-  return candidate && /^[A-Za-z0-9._:-]{1,128}$/.test(candidate) ? candidate : randomUUID();
-}
+import { correlationId, CorrelationIdInterceptor } from "./correlation-id.interceptor.js";
 
 @Module({
   imports: [
@@ -175,6 +170,7 @@ function correlationId(header: string | string[] | undefined) {
     { provide: APP_GUARD, useClass: PermissionGuard },
     { provide: APP_GUARD, useClass: CsrfGuard },
     { provide: APP_GUARD, useClass: RateLimitGuard },
+    { provide: APP_INTERCEPTOR, useClass: CorrelationIdInterceptor },
     { provide: APP_INTERCEPTOR, useClass: HttpMetricsInterceptor },
     { provide: APP_INTERCEPTOR, useClass: TenantDatabaseInterceptor },
   ],
