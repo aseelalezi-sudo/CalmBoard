@@ -87,6 +87,19 @@ Check `http://127.0.0.1:${STAGING_API_PORT:-4000}/health` and
 `http://127.0.0.1:${STAGING_WEB_PORT:-3000}/api/health`, then run the smoke and
 security-isolation suites before promotion.
 
+## Monitoring and alert delivery
+
+The observability overlay starts Prometheus, Alertmanager, OpenTelemetry
+Collector, and Tempo. Copy `deploy/alertmanager.example.yml` to a protected path,
+replace the example receiver with the deployment's real notification endpoint,
+and set `ALERTMANAGER_CONFIG_FILE` to that absolute path. Keep receiver tokens and
+credentials outside the repository.
+
+Prometheus forwards firing and resolved alerts to `alertmanager:9093` inside the
+Compose network. Before promotion, validate both configurations and deliver a
+test alert through the complete Prometheus-to-Alertmanager-to-receiver path; a
+healthy Alertmanager process alone does not prove notification delivery.
+
 ## Backups
 
 `backup.sh` requires an age public recipient and credentials for both the source
