@@ -768,6 +768,7 @@ infrastructure/
   - **تصحيح تدقيق 2026-08-02:** نجح Chromium وWebKit في آخر تشغيل موثق، بينما فشلت حالات Firefox عند إنشاء الصفحة لخطأ في إنشاء الصفحة داخل حاوية CI.
   - **2026-08-03:** عُزل Firefox في `playwright.config.ts` عبر `grep: /^$/` عند `CI=true` حتى يُحل الخطأ الأصلي؛ يبقى الـproject معلّناً لتسهيل التحقيق المحلي. أضاف CI خطوة WebKit مستقلة (`--project=webkit`) بعد Chromium حتى لا تبقى مصفوفة المتصفحات مقتصرة على Chromium وحده. تبقى العلامة مفتوحة حتى ينجح Firefox في بيئة CI.
   - **2026-08-04:** أُلغي التجاوز الصامت `grep: /^$/` وأصبح CI يثبت Firefox المطابق لإصدار Playwright ويشغله كخطوة إلزامية بين Chromium وWebKit. أعاد التشغيل المحلي على Windows خطأ بيئياً موثقاً من عملية Firefox نفسها: `Failed to launch tab subprocess` قبل فتح الصفحة؛ لذلك تبقى العلامة مفتوحة حتى تنجح المصفوفة على Linux CI.
+  - ثُبتت عناوين `APP_URL` و`API_PUBLIC_URL` و`NEXT_PUBLIC_API_URL` و`NEXT_PUBLIC_REALTIME_URL` داخل workflow على `localhost:3000/4000`. كان غيابها يجعل بناء CI يستخدم fallback المحلي `5500` بينما API يعمل على 4000، فيفشل التسجيل قبل اختبار المتصفح. بقيت العلامة مفتوحة لأن تشغيل GitHub نفسه يحتاج remote ودفع الفرع.
   - نجح التشغيل المحلي المحدث بنتيجة 4/4 على Chromium و4/4 على WebKit، وتشمل كل مجموعة مسار القبول الحقيقي وفحصي Accessibility. لم تُعلّم المصفوفة مكتملة لأن Firefox لم ينجح بعد.
 - [x] اختبارات Accessibility باستخدام axe. **مكتمل كاختبارات؛ تحقق المصفوفة الكاملة معلّق مع Firefox**
   - مكتبة `@axe-core/playwright` مثبتة، وملف `a11y.spec.ts` يغطي شاشة تسجيل الدخول والمرجع البرمجي بـ WCAG 2.1 AA.
