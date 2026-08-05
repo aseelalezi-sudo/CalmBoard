@@ -4,6 +4,7 @@ import type { ViewCtx } from "@/lib/types";
 import { Card, Btn, Toggle, Badge, inputCls } from "./ui";
 import { IconShield } from "./icons";
 import { useProfileSecurity } from "@/features/profile/use-profile-security";
+import { webAuthnUiEnabled } from "@/lib/feature-flags";
 
 export function ProfileSecurityView({ ctx }: { ctx: ViewCtx }) {
   const [activeTab, setActiveTab] = useState<"security" | "sessions" | "prefs" | "branches">("security");
@@ -46,7 +47,9 @@ export function ProfileSecurityView({ ctx }: { ctx: ViewCtx }) {
             {ctx.t("حسابي والأمان (Account & Security)", "My Account & Security")}
           </h2>
           <p className="mt-1 text-[12.5px] text-slate-500 dark:text-zinc-400">
-            إدارة الجلسات والأجهزة، المصادقة الثنائية 2FA، مفاتيح Passkeys، ساعات عدم الإزعاج DND، وإدارة الفروع.
+            {webAuthnUiEnabled
+              ? "إدارة الجلسات والأجهزة، المصادقة الثنائية 2FA، مفاتيح Passkeys، ساعات عدم الإزعاج DND، وإدارة الفروع."
+              : "إدارة الجلسات والأجهزة، المصادقة الثنائية 2FA، ساعات عدم الإزعاج DND، وإدارة الفروع."}
           </p>
         </div>
         <div className="flex gap-2">
@@ -73,7 +76,7 @@ export function ProfileSecurityView({ ctx }: { ctx: ViewCtx }) {
 
       {/* Security & 2FA */}
       {activeTab === "security" && (
-        <div className="grid gap-5 md:grid-cols-2">
+        <div className={`grid gap-5 ${webAuthnUiEnabled ? "md:grid-cols-2" : ""}`}>
           <Card className="p-6 bg-white dark:bg-white/2.5" glow>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
@@ -154,24 +157,26 @@ export function ProfileSecurityView({ ctx }: { ctx: ViewCtx }) {
             </div>
           </Card>
 
-          <Card className="p-6 bg-white dark:bg-white/2.5">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-[15px] font-bold text-slate-900 dark:text-white">
-                  مفاتيح المرور (Passkeys / WebAuthn)
-                </h3>
-                <p className="text-[11.5px] text-slate-500 dark:text-zinc-400">
-                  تسجيل الدخول الفوري بأمان بيومتري (TouchID / FaceID / YubiKey).
-                </p>
+          {webAuthnUiEnabled && (
+            <Card className="p-6 bg-white dark:bg-white/2.5">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-[15px] font-bold text-slate-900 dark:text-white">
+                    مفاتيح المرور (Passkeys / WebAuthn)
+                  </h3>
+                  <p className="text-[11.5px] text-slate-500 dark:text-zinc-400">
+                    تسجيل الدخول الفوري بأمان بيومتري (TouchID / FaceID / YubiKey).
+                  </p>
+                </div>
+                <Badge tone="amber">غير متاح حالياً</Badge>
               </div>
-              <Badge tone="amber">غير متاح حالياً</Badge>
-            </div>
 
-            <div className="mt-6 border-t border-slate-100 pt-5 text-[12.5px] leading-relaxed text-slate-500 dark:border-white/6 dark:text-zinc-400">
-              لم يتم تفعيل WebAuthn في الخادم بعد، لذلك لا تعرض المنصة مفاتيح تجريبية أو زر تسجيل وهمياً. سيظهر الإعداد
-              هنا بعد اكتمال دعم Passkeys الحقيقي.
-            </div>
-          </Card>
+              <div className="mt-6 border-t border-slate-100 pt-5 text-[12.5px] leading-relaxed text-slate-500 dark:border-white/6 dark:text-zinc-400">
+                لم يتم تفعيل WebAuthn في الخادم بعد، لذلك لا تعرض المنصة مفاتيح تجريبية أو زر تسجيل وهمياً. سيظهر
+                الإعداد هنا بعد اكتمال دعم Passkeys الحقيقي.
+              </div>
+            </Card>
+          )}
         </div>
       )}
 

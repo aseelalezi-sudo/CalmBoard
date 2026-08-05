@@ -2,6 +2,7 @@
 import React from "react";
 import { Modal, Btn, Badge } from "./ui";
 import { IconSparkle, IconBoard, IconTable, IconDoc, IconShield, IconCode, IconCheck } from "./icons";
+import { webAuthnUiEnabled } from "@/lib/feature-flags";
 
 export function QuickGuideModal({
   open,
@@ -52,10 +53,12 @@ export function QuickGuideModal({
       step: "4",
       title_ar: "الأمان، 2FA، والتكاملات الخارجية (Integrations & RBAC)",
       title_en: "Enterprise Security, 2FA & Webhook Integrations",
-      desc_ar:
-        "من تبويب (حسابي والأمان)، يمكنك إدارة الجلسات والأجهزة وتفعيل المصادقة الثنائية TOTP وحفظ رموز الاسترداد. ستبقى Passkeys غير متاحة حتى يكتمل WebAuthn الحقيقي.",
-      desc_en:
-        "Manage active sessions, devices, TOTP, and recovery codes under Account & Security. Passkeys remain unavailable until real WebAuthn support is complete.",
+      desc_ar: webAuthnUiEnabled
+        ? "من تبويب (حسابي والأمان)، يمكنك إدارة الجلسات والأجهزة وتفعيل TOTP وحفظ رموز الاسترداد. تظهر معاينة Passkeys فقط لأن علم WebAuthn مفعّل."
+        : "من تبويب (حسابي والأمان)، يمكنك إدارة الجلسات والأجهزة وتفعيل المصادقة الثنائية TOTP وحفظ رموز الاسترداد.",
+      desc_en: webAuthnUiEnabled
+        ? "Manage sessions, devices, TOTP, and recovery codes. The Passkeys preview is visible only because the WebAuthn flag is enabled."
+        : "Manage active sessions, devices, TOTP, and recovery codes under Account & Security.",
       icon: <IconShield size={18} />,
       badge: "القسم 6 & 28",
     },
@@ -84,8 +87,8 @@ export function QuickGuideModal({
         <div className="rounded-xl border border-indigo-200 bg-gradient-to-r from-indigo-50/80 to-violet-50/50 p-4 dark:border-indigo-500/30 dark:from-indigo-500/10 dark:to-violet-500/5">
           <p className="text-[13px] leading-relaxed text-slate-700 dark:text-zinc-200">
             مرحباً بك في <span className="font-bold">CalmBoard 2.0</span> — منصة إدارة العمل والمشاريع العصرية المصممة
-            وفق معايير Enterprise SaaS العالمية. لقد تم بناء وتفعيل تمامی عناصر المشروع الـ37 ببيانات حقيقية وبدون أي
-            كود شكلِي أو ناقص.
+            وفق معايير Enterprise SaaS العالمية. تعتمد الوحدات الظاهرة على بيانات وخدمات حقيقية، وتبقى المعاينات غير
+            المكتملة مخفية افتراضياً خلف Feature Flags صريحة.
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
             <Badge tone="indigo">Multi-Tenant Isolated</Badge>

@@ -25,7 +25,9 @@ docker build -f apps/worker/Dockerfile -t registry.example/calmboard-worker:$GIT
 ```
 
 The web image bakes `NEXT_PUBLIC_API_URL` at build time. Set its build argument
-to the public staging/production API origin when building that image.
+to the public staging/production API origin when building that image. Keep
+`NEXT_PUBLIC_TELEMETRY_UI_ENABLED` and `NEXT_PUBLIC_WEBAUTHN_UI_ENABLED` false
+unless the corresponding preview has been explicitly approved for that image.
 
 ## Secrets
 

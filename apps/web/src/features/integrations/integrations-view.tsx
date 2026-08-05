@@ -1,7 +1,7 @@
 "use client";
 import type { ViewCtx } from "@/lib/types";
-import { Badge, Btn, Card, Toggle } from "@/components/ui";
-import { IconPlus, IconShield } from "@/components/icons";
+import { Badge, Card, Toggle } from "@/components/ui";
+import { IconShield } from "@/components/icons";
 import { useIntegrationSync } from "@/features/integrations/use-integration-sync";
 import {
   useIntegrationCredentials,
@@ -71,10 +71,6 @@ export function IntegrationsView({ ctx }: { ctx: ViewCtx }) {
             )}
           </p>
         </div>
-        <Btn variant="glow" disabled={!ctx.can("integrations.manage")}>
-          <IconPlus size={15} />
-          {ctx.t("إضافة تكامل", "Add integration")}
-        </Btn>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">

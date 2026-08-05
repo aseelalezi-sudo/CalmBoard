@@ -56,9 +56,8 @@ import { useTimesheetOperations } from "@/features/time/use-timesheet-operations
 import { useRealtime } from "@/features/realtime/use-realtime";
 import { useUiStore } from "@/stores/ui-store";
 import { currentSavedViewConfiguration, useTaskViewStateStore } from "@/stores/task-view-state-store";
+import { telemetryUiEnabled } from "@/lib/feature-flags";
 import { useSavedViewOperations } from "./use-saved-view-operations";
-
-const telemetryUiEnabled = process.env.NEXT_PUBLIC_TELEMETRY_UI_ENABLED === "true";
 
 export function CalmBoardApp() {
   const { logout } = useAuthOperations();
