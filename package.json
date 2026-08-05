@@ -18,6 +18,7 @@
     "start:worker": "pnpm --filter @calmboard/worker start",
     "prepare": "husky",
     "check:env": "node scripts/check-env.mjs",
+    "check:secrets": "node scripts/check-secrets.mjs",
     "check:cycles": "node scripts/check-circular-dependencies.mjs",
     "db:check": "node scripts/database-command.mjs check",
     "db:generate": "node scripts/database-command.mjs generate",
@@ -36,7 +37,7 @@
     "test": "node --test scripts/*.test.mjs && turbo test --filter=@calmboard/web --filter=@calmboard/api --filter=@calmboard/worker --filter=@calmboard/types --filter=@calmboard/database --filter=@calmboard/config --filter=@calmboard/notifications --filter=@calmboard/validation --filter=@calmboard/api-client --filter=@calmboard/licensing",
     "test:integration": "pnpm run check:env && pnpm --filter @calmboard/database test:integration && pnpm --filter @calmboard/api test:integration",
     "test:e2e": "pnpm --filter @calmboard/web test:e2e",
-    "ci": "pnpm run check:env && pnpm run db:check && pnpm run check:cycles && pnpm run typegen && pnpm run typecheck && pnpm run lint && pnpm run format:check && pnpm run test && pnpm run build",
+    "ci": "pnpm run check:env && pnpm run check:secrets && pnpm run db:check && pnpm run check:cycles && pnpm run typegen && pnpm run typecheck && pnpm run lint && pnpm run format:check && pnpm run test && pnpm run build",
     "turbo:build": "pnpm run build",
     "turbo:lint": "pnpm run lint",
     "turbo:typecheck": "pnpm run typecheck"
@@ -90,9 +91,12 @@
     ],
     "overrides": {
       "brace-expansion@<1.1.17": "1.1.18",
+      "brace-expansion@>=5.0.0 <5.0.9": "5.0.9",
       "esbuild@<=0.24.2": "0.25.0",
+      "fast-uri@>=3.0.0 <3.1.5": "3.1.5",
+      "fast-uri@>=4.0.0 <4.1.2": "4.1.2",
       "find-my-way@<=9.6.0": "9.7.0",
-      "postcss@<8.5.18": "8.5.18",
+      "postcss@<8.5.23": "8.5.23",
       "sharp@<0.35.0": "0.35.3",
       "uuid@<11.1.1": "11.1.1"
     }

@@ -59,6 +59,8 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Security and vulnerability scan
         run: pnpm audit
+      - name: Tracked-file secret scan
+        run: pnpm run check:secrets
 
       - name: Start MinIO integration service
         run: |
