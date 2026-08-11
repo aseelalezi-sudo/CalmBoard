@@ -1,23 +1,31 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNull } from "drizzle-orm";
 import { db } from "../client.js";
 import { TenantConflictError, TenantResourceNotFoundError } from "../errors.js";
-import { exportJobs, type WorkspaceExportFormat } from "../schema.js";
-import { assertWorkspaceTenantContext, type DatabaseTenantContext } from "../tenant-context.js";
+import { exportJobs, type ExportScope, type WorkspaceExportFormat } from "../schema.js";
+import { assertTenantContext, assertWorkspaceTenantContext, type DatabaseTenantContext } from "../tenant-context.js";
 import { createWorkspaceRepository } from "./workspaces.js";
 
-export function createExportJobsRepository(context: DatabaseTenantContext) {
-  assertWorkspaceTenantContext(context);
+function createScopedExportJobsRepository(context: DatabaseTenantContext, exportScope: ExportScope) {
+  if (exportScope === "workspace") assertWorkspaceTenantContext(context);
+  else {
+    assertTenantContext(context);
+    if (context.workspaceId) throw new TenantResourceNotFoundError("organization export scope");
+  }
   if (!context.actorId) throw new TenantResourceNotFoundError("export requester");
   const { organizationId, workspaceId, actorId } = context;
   const scope = and(
     eq(exportJobs.organizationId, organizationId),
-    eq(exportJobs.workspaceId, workspaceId),
+    eq(exportJobs.exportScope, exportScope),
+    exportScope === "workspace" ? eq(exportJobs.workspaceId, workspaceId!) : isNull(exportJobs.workspaceId),
     eq(exportJobs.requestedBy, actorId),
   )!;
 
   function publicJob(job: typeof exportJobs.$inferSelect) {
     return {
       id: job.id,
+      exportScope: job.exportScope,
+      organizationId: job.organizationId,
+      workspaceId: job.workspaceId,
       format: job.format,
       status: job.status,
       attempts: job.attempts,
@@ -36,12 +44,16 @@ export function createExportJobsRepository(context: DatabaseTenantContext) {
 
   return {
     async request(idempotencyKey: string, format: WorkspaceExportFormat = "json") {
-      await createWorkspaceRepository(context).get();
+      if (exportScope === "workspace") await createWorkspaceRepository(context).get();
+      if (exportScope === "organization" && format !== "json") {
+        throw new TenantConflictError("Organization portability exports use the canonical JSON/ZIP format");
+      }
       const [created] = await db
         .insert(exportJobs)
         .values({
           organizationId,
-          workspaceId,
+          workspaceId: exportScope === "workspace" ? workspaceId! : null,
+          exportScope,
           requestedBy: actorId,
           idempotencyKey,
           format,
@@ -95,4 +107,12 @@ export function createExportJobsRepository(context: DatabaseTenantContext) {
       return jobs.map(publicJob);
     },
   };
+}
+
+export function createExportJobsRepository(context: DatabaseTenantContext) {
+  return createScopedExportJobsRepository(context, "workspace");
+}
+
+export function createOrganizationExportJobsRepository(context: DatabaseTenantContext) {
+  return createScopedExportJobsRepository(context, "organization");
 }

@@ -59,6 +59,15 @@ const AUTH_RULES: Record<string, RateLimitRule[]> = {
     { name: "oauth-callback-ip", limit: 20, windowMs: 15 * MINUTE, sensitive: true, subject: "ip" },
   ],
   "/auth/oauth/mfa/verify": [{ name: "oauth-mfa-ip", limit: 10, windowMs: 5 * MINUTE, sensitive: true, subject: "ip" }],
+  "/invitations/inspect": [
+    { name: "invitation-inspect-ip", limit: 30, windowMs: 15 * MINUTE, sensitive: true, subject: "ip" },
+  ],
+  "/invitations/accept": [
+    { name: "invitation-accept-account", limit: 20, windowMs: 15 * MINUTE, sensitive: true, subject: "actor" },
+  ],
+  "/invitations/decline": [
+    { name: "invitation-decline-account", limit: 20, windowMs: 15 * MINUTE, sensitive: true, subject: "actor" },
+  ],
   "/profile/mfa/setup": [
     { name: "mfa-setup-account", limit: 5, windowMs: 60 * MINUTE, sensitive: true, subject: "actor" },
   ],
@@ -67,6 +76,18 @@ const AUTH_RULES: Record<string, RateLimitRule[]> = {
   ],
   "/profile/mfa/disable": [
     { name: "mfa-disable-account", limit: 5, windowMs: 15 * MINUTE, sensitive: true, subject: "actor" },
+  ],
+  "/profile/deletion": [
+    { name: "account-deletion", limit: 3, windowMs: 60 * MINUTE, sensitive: true, subject: "actor" },
+  ],
+  "/organizations/:organizationId/deletion": [
+    { name: "organization-deletion", limit: 3, windowMs: 60 * MINUTE, sensitive: true, subject: "actor" },
+  ],
+  "/workspaces/export": [
+    { name: "workspace-export", limit: 10, windowMs: 60 * MINUTE, sensitive: true, subject: "actor" },
+  ],
+  "/organizations/:organizationId/export": [
+    { name: "organization-export", limit: 5, windowMs: 60 * MINUTE, sensitive: true, subject: "actor" },
   ],
   "/forms/:submit": [{ name: "public-form-ip", limit: 30, windowMs: 10 * MINUTE, sensitive: true, subject: "ip" }],
   "/integrations/webhooks/receive/:provider/:endpointToken": [
@@ -87,6 +108,16 @@ function asRecord(value: unknown): Record<string, unknown> {
 
 function routeRules(request: AuthenticatedRequest) {
   const path = request.url.split("?", 1)[0] ?? request.url;
+  if (path === "/health" || path.startsWith("/health/") || path === "/metrics") return [];
+  if ((request.method === "POST" || request.method === "DELETE") && /^\/organizations\/[^/]+\/deletion$/.test(path)) {
+    return AUTH_RULES["/organizations/:organizationId/deletion"];
+  }
+  if (request.method === "POST" && /^\/organizations\/[^/]+\/export$/.test(path)) {
+    return AUTH_RULES["/organizations/:organizationId/export"];
+  }
+  if ((request.method === "POST" || request.method === "DELETE") && path === "/profile/deletion") {
+    return AUTH_RULES["/profile/deletion"];
+  }
   if (request.method === "POST" && /^\/forms\/[^/]+\/submit$/.test(path)) return AUTH_RULES["/forms/:submit"];
   if (request.method === "POST" && /^\/integrations\/webhooks\/receive\/[^/]+\/[^/]+$/.test(path)) {
     return AUTH_RULES["/integrations/webhooks/receive/:provider/:endpointToken"];

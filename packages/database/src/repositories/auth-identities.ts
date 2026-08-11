@@ -5,7 +5,7 @@ import { memberships, organizations, users, workspaces } from "../schema.js";
 
 export type PublicAuthUser = Pick<
   typeof users.$inferSelect,
-  "id" | "email" | "name" | "avatarUrl" | "locale" | "theme" | "emailVerifiedAt"
+  "id" | "email" | "name" | "avatarUrl" | "locale" | "theme" | "emailVerifiedAt" | "lifecycleState"
 >;
 
 export type RegisterIdentityInput = {
@@ -24,6 +24,7 @@ const publicUserSelection = {
   locale: users.locale,
   theme: users.theme,
   emailVerifiedAt: users.emailVerifiedAt,
+  lifecycleState: users.lifecycleState,
 };
 
 export function createAuthIdentityRepository() {
@@ -45,6 +46,15 @@ export function createAuthIdentityRepository() {
     async findPublicUser(userId: string) {
       const [user] = await db.select(publicUserSelection).from(users).where(eq(users.id, userId)).limit(1);
       return user ?? null;
+    },
+
+    async findForReauthentication(userId: string) {
+      const [identity] = await db
+        .select({ id: users.id, passwordHash: users.passwordHash, lifecycleState: users.lifecycleState })
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1);
+      return identity ?? null;
     },
 
     async recordLoginFailure(userId: string) {

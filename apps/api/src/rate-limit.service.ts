@@ -42,6 +42,12 @@ export class RedisRateLimitStore implements RateLimitStore, OnModuleDestroy {
     return { count: Number(result[0]), ttlMs: Math.max(1, Number(result[1])) };
   }
 
+  async ping() {
+    const redis = this.redis();
+    if (redis.status === "wait") await redis.connect();
+    return redis.ping();
+  }
+
   async onModuleDestroy() {
     if (this.client && this.client.status !== "end") this.client.disconnect();
   }

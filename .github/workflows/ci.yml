@@ -58,9 +58,11 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
       - name: Security and vulnerability scan
-        run: pnpm audit
+        run: pnpm audit --audit-level high
       - name: Tracked-file secret scan
         run: pnpm run check:secrets
+      - name: User-facing source encoding scan
+        run: pnpm run check:encoding
 
       - name: Start MinIO integration service
         run: |
@@ -140,3 +142,66 @@ jobs:
             /tmp/calmboard-web-ci.log
             test-results/
             playwright-report/
+
+  production-images:
+    name: Production image (${{ matrix.service }})
+    needs: quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [web, api, worker]
+    steps:
+      - name: Checkout tracked source
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build immutable production image
+        shell: bash
+        run: |
+          BUILD_ARGS=()
+          if [[ "${{ matrix.service }}" == "web" ]]; then
+            BUILD_ARGS+=(
+              --build-arg NEXT_PUBLIC_API_URL=http://localhost:4000
+              --build-arg NEXT_PUBLIC_REALTIME_URL=http://localhost:4000
+            )
+          fi
+          docker buildx build \
+            --file "apps/${{ matrix.service }}/Dockerfile" \
+            --tag "calmboard-${{ matrix.service }}:${{ github.sha }}" \
+            --load \
+            "${BUILD_ARGS[@]}" \
+            .
+
+      - name: Prepare supply-chain artifact directory
+        run: mkdir -p artifacts
+
+      - name: Generate SPDX SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          image: calmboard-${{ matrix.service }}:${{ github.sha }}
+          format: spdx-json
+          output-file: artifacts/calmboard-${{ matrix.service }}.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+
+      - name: Scan image for actionable vulnerabilities
+        uses: anchore/scan-action@v7
+        with:
+          image: calmboard-${{ matrix.service }}:${{ github.sha }}
+          fail-build: true
+          severity-cutoff: high
+          output-format: json
+          output-file: artifacts/calmboard-${{ matrix.service }}-grype.json
+
+      - name: Retain SBOM and vulnerability result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: calmboard-${{ matrix.service }}-supply-chain-${{ github.sha }}
+          path: artifacts/
+          if-no-files-found: warn
+          retention-days: 30

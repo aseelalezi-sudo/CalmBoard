@@ -1,22 +1,38 @@
 import "dotenv/config";
 
-const required = ["DATABASE_URL"];
-const productionRequired = [
-  "APP_URL",
-  "AUTH_TOKEN_SECRET",
-  "DATABASE_APP_URL",
-  "RESEND_API_KEY",
-  "RESEND_FROM_EMAIL",
+const serviceArgument = process.argv.find((argument) => argument.startsWith("--service="));
+const service = serviceArgument?.slice("--service=".length) || "all";
+if (!new Set(["all", "api", "worker"]).has(service)) {
+  throw new Error("--service must be one of: all, api, worker");
+}
+const checksApi = service === "all" || service === "api";
+const checksWorker = service === "all" || service === "worker";
+
+const required =
+  service === "api" ? ["DATABASE_APP_URL"] : service === "worker" ? ["DATABASE_MAINTENANCE_URL"] : ["DATABASE_URL"];
+const commonProductionRequired = [
   "REDIS_URL",
-  "WEBHOOK_SIGNING_SECRET",
   "S3_ENDPOINT",
-  "S3_PUBLIC_ENDPOINT",
   "S3_BUCKET",
   "S3_ACCESS_KEY_ID",
   "S3_SECRET_ACCESS_KEY",
-  "TRUST_PROXY_HOPS",
   "METRICS_BEARER_TOKEN",
 ];
+const apiProductionRequired = [
+  "APP_URL",
+  "API_PUBLIC_URL",
+  "AUTH_TOKEN_SECRET",
+  "DATABASE_APP_URL",
+  "WEBHOOK_SIGNING_SECRET",
+  "S3_PUBLIC_ENDPOINT",
+  "TRUST_PROXY_HOPS",
+  "ATTACHMENT_SCAN_MODE",
+  "ATTACHMENT_SCANNER_URL",
+  "ATTACHMENT_SCANNER_TOKEN",
+  "TURNSTILE_SITE_KEY",
+  "TURNSTILE_SECRET_KEY",
+];
+const workerProductionRequired = ["DATABASE_MAINTENANCE_URL", "RESEND_API_KEY", "RESEND_FROM_EMAIL"];
 const placeholderValues = new Set([
   "change-me",
   "change-me-in-production",
@@ -26,6 +42,12 @@ const placeholderValues = new Set([
   "re_simulated_key",
   "notifications@example.com",
 ]);
+const unsafeDevelopmentFragments = [
+  "dev_postgres_password",
+  "dev_minio_password",
+  "development-auth-token-secret-change-in-production",
+  "development-webhook-secret-change-in-production",
+];
 
 const isProduction = process.env.NODE_ENV === "production";
 const missing = [];
@@ -63,25 +85,35 @@ for (const name of required) {
 }
 
 if (isProduction) {
+  const productionRequired = [
+    ...commonProductionRequired,
+    ...(checksApi ? apiProductionRequired : []),
+    ...(checksWorker ? workerProductionRequired : []),
+  ];
   for (const name of productionRequired) {
     if (!process.env[name]) missing.push(name);
   }
 
   for (const [name, value] of Object.entries(process.env)) {
     if (value && placeholderValues.has(value)) unsafe.push(name);
+    if (value && unsafeDevelopmentFragments.some((fragment) => value.includes(fragment))) unsafe.push(name);
   }
 
   if (process.env.STRIPE_SECRET_KEY && !process.env.STRIPE_WEBHOOK_SECRET) {
     missing.push("STRIPE_WEBHOOK_SECRET");
   }
 
-  if (!process.env.INTEGRATION_CREDENTIALS_KEY && !process.env.INTEGRATION_CREDENTIALS_KEYS) {
+  if (checksApi && !process.env.INTEGRATION_CREDENTIALS_KEY && !process.env.INTEGRATION_CREDENTIALS_KEYS) {
     missing.push("INTEGRATION_CREDENTIALS_KEY or INTEGRATION_CREDENTIALS_KEYS");
   }
-  if (!process.env.MFA_ENCRYPTION_KEY && !process.env.MFA_ENCRYPTION_KEYS) {
+  if (checksApi && !process.env.MFA_ENCRYPTION_KEY && !process.env.MFA_ENCRYPTION_KEYS) {
     missing.push("MFA_ENCRYPTION_KEY or MFA_ENCRYPTION_KEYS");
   }
-  if (!process.env.AUTH_EMAIL_ENCRYPTION_KEY && !process.env.AUTH_EMAIL_ENCRYPTION_KEYS) {
+  if (
+    (checksApi || checksWorker) &&
+    !process.env.AUTH_EMAIL_ENCRYPTION_KEY &&
+    !process.env.AUTH_EMAIL_ENCRYPTION_KEYS
+  ) {
     missing.push("AUTH_EMAIL_ENCRYPTION_KEY or AUTH_EMAIL_ENCRYPTION_KEYS");
   }
 
@@ -97,16 +129,63 @@ if (isProduction) {
     missing.push("OTEL_EXPORTER_OTLP_ENDPOINT");
   }
 
-  if (process.env.DATABASE_APP_URL && process.env.DATABASE_APP_URL === process.env.DATABASE_URL) {
+  if (process.env.REDIS_URL) {
+    try {
+      const redisUrl = new URL(process.env.REDIS_URL);
+      if (!/^rediss?:$/.test(redisUrl.protocol) || !redisUrl.hostname || redisUrl.hash) {
+        unsafe.push("REDIS_URL (must be a valid redis:// or rediss:// URL)");
+      }
+    } catch {
+      unsafe.push("REDIS_URL (must be a valid redis:// or rediss:// URL)");
+    }
+  }
+
+  if (checksApi && process.env.DATABASE_APP_URL && process.env.DATABASE_APP_URL === process.env.DATABASE_URL) {
     unsafe.push("DATABASE_APP_URL (must use a separate NOBYPASSRLS runtime role)");
   }
 
-  if (!/^\d+$/.test(process.env.TRUST_PROXY_HOPS ?? "") || Number(process.env.TRUST_PROXY_HOPS) > 10) {
+  if (checksApi && (!/^\d+$/.test(process.env.TRUST_PROXY_HOPS ?? "") || Number(process.env.TRUST_PROXY_HOPS) > 10)) {
     unsafe.push("TRUST_PROXY_HOPS (must be an integer between 0 and 10)");
+  }
+
+  if (checksApi && process.env.ATTACHMENT_SCAN_MODE !== "webhook") {
+    unsafe.push("ATTACHMENT_SCAN_MODE (must be webhook in production)");
+  }
+
+  if (checksApi && process.env.ATTACHMENT_SCANNER_URL) {
+    try {
+      const scannerUrl = new URL(process.env.ATTACHMENT_SCANNER_URL);
+      if (!/^https?:$/.test(scannerUrl.protocol) || scannerUrl.username || scannerUrl.password) {
+        unsafe.push("ATTACHMENT_SCANNER_URL (must be an HTTP(S) URL without embedded credentials)");
+      }
+    } catch {
+      unsafe.push("ATTACHMENT_SCANNER_URL (must be an absolute URL)");
+    }
+  }
+
+  const licenseEnforced = process.env.CALMBOARD_LICENSE_ENFORCED?.trim().toLowerCase();
+  if (checksApi && licenseEnforced && licenseEnforced !== "true" && licenseEnforced !== "false") {
+    unsafe.push("CALMBOARD_LICENSE_ENFORCED (must be true or false)");
+  }
+  if (checksApi && licenseEnforced === "true") {
+    for (const name of [
+      "CALMBOARD_LICENSE_SERVER_URL",
+      "CALMBOARD_LICENSE_DEVICE_HASH_SECRET",
+      "CALMBOARD_LICENSE_STORE_SECRET",
+      "CALMBOARD_LICENSE_STORE_FILE",
+    ]) {
+      if (!process.env[name]) missing.push(name);
+    }
+    if (
+      process.env.CALMBOARD_LICENSE_STORE_SECRET &&
+      Buffer.byteLength(process.env.CALMBOARD_LICENSE_STORE_SECRET, "utf8") < 32
+    ) {
+      unsafe.push("CALMBOARD_LICENSE_STORE_SECRET (must contain at least 32 bytes)");
+    }
   }
 }
 
-for (const provider of oauthProviders) {
+for (const provider of checksApi ? oauthProviders : []) {
   const flagValue = process.env[provider.flag]?.trim().toLowerCase();
   if (flagValue && flagValue !== "true" && flagValue !== "false") {
     unsafe.push(`${provider.flag} (must be true or false)`);
@@ -118,10 +197,12 @@ for (const provider of oauthProviders) {
   }
 }
 
-for (const provider of [
-  { key: "OPENAI_API_KEY", model: "OPENAI_MODEL", provider: "openai" },
-  { key: "ANTHROPIC_API_KEY", model: "ANTHROPIC_MODEL", provider: "anthropic" },
-]) {
+for (const provider of checksApi
+  ? [
+      { key: "OPENAI_API_KEY", model: "OPENAI_MODEL", provider: "openai" },
+      { key: "ANTHROPIC_API_KEY", model: "ANTHROPIC_MODEL", provider: "anthropic" },
+    ]
+  : []) {
   if (process.env[provider.key] && !process.env[provider.model]?.trim()) {
     missing.push(provider.model);
   }

@@ -6,6 +6,7 @@ import {
   timestamp,
   date,
   integer,
+  smallint,
   bigint,
   boolean,
   jsonb,
@@ -77,6 +78,7 @@ export type DashboardWidgetDefinition = {
   };
 };
 export type WorkspaceExportFormat = "json" | "pdf" | "xlsx";
+export type ExportScope = "workspace" | "organization";
 export type ScheduledReportFormat = "pdf" | "xlsx";
 export type ReportScheduleCadence = "daily" | "weekly" | "monthly";
 export type AIProposedTask = {
@@ -88,6 +90,7 @@ export type AIProposedTask = {
 
 export const userRoleEnum = pgEnum("user_role", ["owner", "admin", "manager", "member", "guest", "viewer"]);
 export const projectStatusEnum = pgEnum("project_status", ["planning", "active", "on_hold", "completed", "archived"]);
+export const sprintStatusEnum = pgEnum("sprint_status", ["planned", "active", "completed", "cancelled"]);
 export const taskStatusEnum = pgEnum("task_status", ["backlog", "todo", "in_progress", "review", "done", "canceled"]);
 export const taskPriorityEnum = pgEnum("task_priority", ["low", "medium", "high", "urgent"]);
 export const documentAccessLevelEnum = pgEnum("document_access_level", ["viewer", "editor", "manager"]);
@@ -131,6 +134,7 @@ export const exportJobStatusEnum = pgEnum("export_job_status", [
   "dead",
   "expired",
 ]);
+export const exportScopeEnum = pgEnum("export_scope", ["workspace", "organization"]);
 export const authorizationScopeEnum = pgEnum("authorization_scope", ["organization", "workspace", "project"]);
 export const permissionOverrideEffectEnum = pgEnum("permission_override_effect", ["allow", "deny"]);
 export const projectMemberRoleEnum = pgEnum("project_member_role", ["manager", "member", "guest", "viewer"]);
@@ -192,6 +196,67 @@ export const securityEventTypeEnum = pgEnum("security_event_type", [
 ]);
 export const aiUsageStatusEnum = pgEnum("ai_usage_status", ["pending", "completed", "failed"]);
 export const aiProposalStatusEnum = pgEnum("ai_proposal_status", ["pending", "executed", "rejected", "expired"]);
+export const sprintSnapshotTypeEnum = pgEnum("sprint_snapshot_type", ["start", "complete"]);
+export const sprintDataQualityEnum = pgEnum("sprint_data_quality", ["exact", "reconstructed", "partial"]);
+export const sprintEventTypeEnum = pgEnum("sprint_event_type", [
+  "task_added",
+  "task_removed",
+  "story_points_changed",
+  "task_completed",
+  "task_reopened",
+]);
+export const deletionRequestStatusEnum = pgEnum("deletion_request_status", [
+  "requested",
+  "scheduled",
+  "processing",
+  "retry_wait",
+  "failed",
+  "completed",
+  "canceled",
+]);
+export const userLifecycleStateEnum = pgEnum("user_lifecycle_state", [
+  "active",
+  "deletion_pending",
+  "auth_disabled",
+  "anonymized",
+]);
+export const organizationLifecycleStateEnum = pgEnum("organization_lifecycle_state", [
+  "active",
+  "deletion_pending",
+  "write_frozen",
+]);
+export const purgeCheckpointStatusEnum = pgEnum("purge_checkpoint_status", [
+  "pending",
+  "processing",
+  "retry_wait",
+  "failed",
+  "verified",
+]);
+export const purgeItemStatusEnum = pgEnum("purge_item_status", [
+  "pending",
+  "processing",
+  "retry_wait",
+  "failed",
+  "completed",
+  "verified",
+]);
+export const purgeLocatorKindEnum = pgEnum("purge_locator_kind", ["sql_keyset", "object_key", "provider_resource"]);
+export const deletionSubjectTypeEnum = pgEnum("deletion_subject_type", ["account", "organization"]);
+export const deletionReceiptOutcomeEnum = pgEnum("deletion_receipt_outcome", ["anonymized", "purged"]);
+export const purgeDomainEnum = pgEnum("purge_domain", [
+  "account_security",
+  "account_profile",
+  "account_memberships",
+  "organization_relational",
+  "attachments",
+  "attachment_previews",
+  "documents",
+  "exports",
+  "reports",
+  "integration_oauth",
+  "billing_provider",
+  "final_verification",
+]);
 
 export const users = pgTable(
   "users",
@@ -210,6 +275,9 @@ export const users = pgTable(
     locale: varchar("locale", { length: 10 }).default("ar"),
     theme: varchar("theme", { length: 20 }).default("system"),
     isPlatformAdmin: boolean("is_platform_admin").default(false).notNull(),
+    lifecycleState: userLifecycleStateEnum("lifecycle_state").default("active").notNull(),
+    authDisabledAt: timestamp("auth_disabled_at", { withTimezone: true }),
+    anonymizedAt: timestamp("anonymized_at", { withTimezone: true }),
     skills: jsonb("skills").$type<string[]>().default([]).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
@@ -218,6 +286,13 @@ export const users = pgTable(
     index("users_locked_until_idx").on(table.lockedUntil),
     check("users_failed_login_attempts_check", sql`${table.failedLoginAttempts} >= 0`),
     check("users_login_lock_state_check", sql`${table.failedLoginAttempts} < 5 or ${table.lockedUntil} is not null`),
+    check(
+      "users_lifecycle_state_check",
+      sql`(${table.lifecycleState} = 'active' and ${table.authDisabledAt} is null and ${table.anonymizedAt} is null)
+          or (${table.lifecycleState} = 'deletion_pending' and ${table.anonymizedAt} is null)
+          or (${table.lifecycleState} = 'auth_disabled' and ${table.authDisabledAt} is not null and ${table.anonymizedAt} is null)
+          or (${table.lifecycleState} = 'anonymized' and ${table.authDisabledAt} is not null and ${table.anonymizedAt} is not null)`,
+    ),
   ],
 );
 
@@ -432,18 +507,30 @@ export const securityEvents = pgTable(
   ],
 );
 
-export const organizations = pgTable("organizations", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  name: varchar("name", { length: 255 }).notNull(),
-  slug: varchar("slug", { length: 255 }).notNull().unique(),
-  ownerId: uuid("owner_id").references(() => users.id),
-  plan: orgPlanEnum("plan").default("team").notNull(),
-  seats: integer("seats").default(5).notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
-  deletedAt: timestamp("deleted_at", { withTimezone: true }),
-  settings: jsonb("settings").$type<Record<string, any>>().default({}),
-});
+export const organizations = pgTable(
+  "organizations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: varchar("name", { length: 255 }).notNull(),
+    slug: varchar("slug", { length: 255 }).notNull().unique(),
+    ownerId: uuid("owner_id").references(() => users.id),
+    plan: orgPlanEnum("plan").default("team").notNull(),
+    seats: integer("seats").default(5).notNull(),
+    lifecycleState: organizationLifecycleStateEnum("lifecycle_state").default("active").notNull(),
+    writeFrozenAt: timestamp("write_frozen_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    settings: jsonb("settings").$type<Record<string, any>>().default({}),
+  },
+  (table) => [
+    check(
+      "organizations_lifecycle_state_check",
+      sql`(${table.lifecycleState} in ('active', 'deletion_pending') and ${table.writeFrozenAt} is null)
+        or (${table.lifecycleState} = 'write_frozen' and ${table.writeFrozenAt} is not null)`,
+    ),
+  ],
+);
 
 export const taskSerialSequences = pgTable(
   "task_serial_sequences",
@@ -787,6 +874,7 @@ export const tasks = pgTable(
     customFields: jsonb("custom_fields").$type<Record<string, any>>().default({}),
     isMilestone: boolean("is_milestone").default(false).notNull(),
     isRecurring: boolean("is_recurring").default(false),
+    sprintId: uuid("sprint_id"),
     storyPoints: integer("story_points"),
     delayReason: text("delay_reason"),
     version: integer("version").default(1).notNull(),
@@ -796,6 +884,7 @@ export const tasks = pgTable(
   },
   (table) => [
     uniqueIndex("tasks_organization_serial_unique").on(table.organizationId, table.serial),
+    index("tasks_sprint_id_idx").on(table.sprintId),
     index("tasks_tenant_project_active_order_idx").on(
       table.organizationId,
       table.workspaceId,
@@ -886,6 +975,47 @@ export const comments = pgTable(
       table.workspaceId,
       table.taskId,
       table.deletedAt,
+      table.createdAt,
+    ),
+  ],
+);
+
+export const commentMentions = pgTable(
+  "comment_mentions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .references(() => organizations.id)
+      .notNull(),
+    workspaceId: uuid("workspace_id")
+      .references(() => workspaces.id)
+      .notNull(),
+    projectId: uuid("project_id")
+      .references(() => projects.id)
+      .notNull(),
+    taskId: uuid("task_id")
+      .references(() => tasks.id)
+      .notNull(),
+    commentId: uuid("comment_id")
+      .references(() => comments.id, { onDelete: "cascade" })
+      .notNull(),
+    mentionedUserId: uuid("mentioned_user_id")
+      .references(() => users.id)
+      .notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("comment_mentions_comment_user_unique").on(table.commentId, table.mentionedUserId),
+    index("comment_mentions_tenant_task_idx").on(
+      table.organizationId,
+      table.workspaceId,
+      table.taskId,
+      table.commentId,
+    ),
+    index("comment_mentions_tenant_user_idx").on(
+      table.organizationId,
+      table.workspaceId,
+      table.mentionedUserId,
       table.createdAt,
     ),
   ],
@@ -1316,6 +1446,8 @@ export const notifications = pgTable(
     body: text("body"),
     entityType: varchar("entity_type", { length: 50 }),
     entityId: uuid("entity_id"),
+    deduplicationKey: varchar("deduplication_key", { length: 256 }),
+    actionPath: text("action_path"),
     isRead: boolean("is_read").default(false),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
@@ -1325,6 +1457,13 @@ export const notifications = pgTable(
       table.workspaceId,
       table.userId,
       table.createdAt,
+    ),
+    uniqueIndex("notifications_tenant_user_deduplication_unique")
+      .on(table.organizationId, table.userId, table.deduplicationKey)
+      .where(sql`${table.deduplicationKey} is not null`),
+    check(
+      "notifications_action_path_check",
+      sql`${table.actionPath} is null or (left(${table.actionPath}, 1) = '/' and left(${table.actionPath}, 2) <> '//')`,
     ),
   ],
 );
@@ -1548,9 +1687,8 @@ export const exportJobs = pgTable(
     organizationId: uuid("organization_id")
       .references(() => organizations.id, { onDelete: "cascade" })
       .notNull(),
-    workspaceId: uuid("workspace_id")
-      .references(() => workspaces.id, { onDelete: "cascade" })
-      .notNull(),
+    workspaceId: uuid("workspace_id").references(() => workspaces.id, { onDelete: "cascade" }),
+    exportScope: exportScopeEnum("export_scope").default("workspace").notNull(),
     requestedBy: uuid("requested_by")
       .references(() => users.id, { onDelete: "cascade" })
       .notNull(),
@@ -1587,10 +1725,21 @@ export const exportJobs = pgTable(
       table.createdAt,
     ),
     index("export_jobs_due_idx").on(table.status, table.availableAt, table.claimedAt),
+    index("export_jobs_expired_cleanup_idx")
+      .on(table.expiresAt, table.id)
+      .where(sql`${table.status} = 'completed' and ${table.expiresAt} is not null`),
     check("export_jobs_format_check", sql`${table.format} in ('json', 'pdf', 'xlsx')`),
     check(
+      "export_jobs_scope_target_check",
+      sql`(${table.exportScope} = 'workspace' and ${table.workspaceId} is not null) or (${table.exportScope} = 'organization' and ${table.workspaceId} is null)`,
+    ),
+    check(
+      "export_jobs_organization_format_check",
+      sql`${table.exportScope} <> 'organization' or ${table.format} = 'json'`,
+    ),
+    check(
       "export_jobs_schedule_fields_check",
-      sql`(${table.reportScheduleId} is null and ${table.scheduledFor} is null) or (${table.reportScheduleId} is not null and ${table.scheduledFor} is not null and ${table.format} in ('pdf', 'xlsx'))`,
+      sql`(${table.reportScheduleId} is null and ${table.scheduledFor} is null) or (${table.reportScheduleId} is not null and ${table.scheduledFor} is not null and ${table.exportScope} = 'workspace' and ${table.workspaceId} is not null and ${table.format} in ('pdf', 'xlsx'))`,
     ),
     check("export_jobs_attempts_check", sql`${table.attempts} >= 0 and ${table.maxAttempts} > 0`),
     check(
@@ -1776,7 +1925,16 @@ export const invitations = pgTable(
     role: userRoleEnum("role").default("member").notNull(),
     status: varchar("status", { length: 20 }).default("pending").notNull(),
     invitedBy: uuid("invited_by").references(() => users.id),
+    tokenHash: varchar("token_hash", { length: 64 }),
+    tokenVersion: integer("token_version").default(0).notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+    acceptedBy: uuid("accepted_by").references(() => users.id),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    declinedAt: timestamp("declined_at", { withTimezone: true }),
+    lastSentAt: timestamp("last_sent_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
     uniqueIndex("invitations_pending_org_workspace_email_unique")
@@ -1785,6 +1943,83 @@ export const invitations = pgTable(
     uniqueIndex("invitations_pending_orgwide_email_unique")
       .on(table.organizationId, sql`lower(${table.email})`)
       .where(sql`${table.status} = 'pending' and ${table.workspaceId} is null`),
+    uniqueIndex("invitations_token_hash_unique")
+      .on(table.tokenHash)
+      .where(sql`${table.tokenHash} is not null`),
+    index("invitations_pending_expiry_idx")
+      .on(table.organizationId, table.workspaceId, table.expiresAt)
+      .where(sql`${table.status} = 'pending'`),
+    check("invitations_token_version_check", sql`${table.tokenVersion} >= 0`),
+    check(
+      "invitations_token_pair_check",
+      sql`(${table.tokenHash} is null and ${table.expiresAt} is null) or (${table.tokenHash} is not null and ${table.expiresAt} is not null)`,
+    ),
+    check(
+      "invitations_terminal_timestamp_check",
+      sql`num_nonnulls(${table.acceptedAt}, ${table.revokedAt}, ${table.declinedAt}) <= 1`,
+    ),
+  ],
+);
+
+export const invitationEmailOutbox = pgTable(
+  "invitation_email_outbox",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .references(() => organizations.id)
+      .notNull(),
+    workspaceId: uuid("workspace_id").references(() => workspaces.id),
+    invitationId: uuid("invitation_id")
+      .references(() => invitations.id)
+      .notNull(),
+    tokenVersion: integer("token_version").notNull(),
+    recipientEmail: varchar("recipient_email", { length: 255 }).notNull(),
+    encryptedPayload: text("encrypted_payload"),
+    initializationVector: varchar("initialization_vector", { length: 24 }),
+    authenticationTag: varchar("authentication_tag", { length: 24 }),
+    encryptionAlgorithm: varchar("encryption_algorithm", { length: 20 }).default("aes-256-gcm").notNull(),
+    encryptionKeyVersion: integer("encryption_key_version").default(1).notNull(),
+    idempotencyKey: varchar("idempotency_key", { length: 256 }).notNull(),
+    status: notificationEmailStatusEnum("status").default("pending").notNull(),
+    attempts: integer("attempts").default(0).notNull(),
+    maxAttempts: integer("max_attempts").default(8).notNull(),
+    availableAt: timestamp("available_at", { withTimezone: true }).defaultNow().notNull(),
+    claimedAt: timestamp("claimed_at", { withTimezone: true }),
+    claimToken: uuid("claim_token"),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    providerMessageId: varchar("provider_message_id", { length: 255 }),
+    lastError: text("last_error"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("invitation_email_outbox_invitation_version_unique").on(table.invitationId, table.tokenVersion),
+    uniqueIndex("invitation_email_outbox_idempotency_unique").on(table.idempotencyKey),
+    index("invitation_email_outbox_due_idx").on(table.status, table.availableAt, table.claimedAt),
+    index("invitation_email_outbox_tenant_status_idx").on(
+      table.organizationId,
+      table.workspaceId,
+      table.status,
+      table.availableAt,
+    ),
+    check("invitation_email_outbox_token_version_check", sql`${table.tokenVersion} > 0`),
+    check(
+      "invitation_email_outbox_cipher_check",
+      sql`${table.encryptionAlgorithm} = 'aes-256-gcm' and ${table.encryptionKeyVersion} > 0`,
+    ),
+    check(
+      "invitation_email_outbox_payload_check",
+      sql`(${table.encryptedPayload} is null and ${table.initializationVector} is null and ${table.authenticationTag} is null) or (${table.encryptedPayload} is not null and ${table.initializationVector} is not null and ${table.authenticationTag} is not null)`,
+    ),
+    check("invitation_email_outbox_attempts_check", sql`${table.attempts} >= 0 and ${table.maxAttempts} > 0`),
+    check(
+      "invitation_email_outbox_terminal_state_check",
+      sql`(${table.status} = 'sent' and ${table.sentAt} is not null) or (${table.status} <> 'sent' and ${table.sentAt} is null)`,
+    ),
+    check(
+      "invitation_email_outbox_claim_state_check",
+      sql`(${table.status} = 'processing' and ${table.claimedAt} is not null and ${table.claimToken} is not null) or (${table.status} <> 'processing' and ${table.claimedAt} is null and ${table.claimToken} is null)`,
+    ),
   ],
 );
 
@@ -2019,6 +2254,32 @@ export const notificationPreferences = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [uniqueIndex("notification_preferences_user_unique").on(table.userId)],
+);
+
+export const userOnboardingProgress = pgTable(
+  "user_onboarding_progress",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .references(() => organizations.id, { onDelete: "cascade" })
+      .notNull(),
+    workspaceId: uuid("workspace_id")
+      .references(() => workspaces.id, { onDelete: "cascade" })
+      .notNull(),
+    userId: uuid("user_id")
+      .references(() => users.id, { onDelete: "cascade" })
+      .notNull(),
+    completedSteps: jsonb("completed_steps").$type<string[]>().default([]).notNull(),
+    dismissedAt: timestamp("dismissed_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("user_onboarding_progress_user_workspace_unique").on(table.userId, table.workspaceId),
+    index("user_onboarding_progress_tenant_user_idx").on(table.organizationId, table.workspaceId, table.userId),
+    check("user_onboarding_progress_steps_array_check", sql`jsonb_typeof(${table.completedSteps}) = 'array'`),
+  ],
 );
 
 export const idempotencyKeys = pgTable(
@@ -3109,5 +3370,452 @@ export const taskApprovalReviewers = pgTable(
       "task_approval_reviewers_decision_check",
       sql`(${table.status} = 'pending' and ${table.decidedAt} is null) or (${table.status} <> 'pending' and ${table.decidedAt} is not null)`,
     ),
+  ],
+);
+
+export const sprints = pgTable(
+  "sprints",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .references(() => organizations.id)
+      .notNull(),
+    workspaceId: uuid("workspace_id")
+      .references(() => workspaces.id)
+      .notNull(),
+    projectId: uuid("project_id")
+      .references(() => projects.id)
+      .notNull(),
+    name: varchar("name", { length: 255 }).notNull(),
+    goal: text("goal"),
+    status: sprintStatusEnum("status").default("planned").notNull(),
+    startsAt: timestamp("starts_at", { withTimezone: true }),
+    endsAt: timestamp("ends_at", { withTimezone: true }),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+    createdBy: uuid("created_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (table) => [
+    index("sprints_project_idx").on(table.projectId),
+    index("sprints_project_status_idx").on(table.projectId, table.status),
+    uniqueIndex("sprints_active_unique")
+      .on(table.projectId)
+      .where(sql`${table.status} = 'active' and ${table.deletedAt} is null`),
+  ],
+);
+
+export const taskSprintAssignments = pgTable(
+  "task_sprint_assignments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .references(() => organizations.id)
+      .notNull(),
+    workspaceId: uuid("workspace_id")
+      .references(() => workspaces.id)
+      .notNull(),
+    projectId: uuid("project_id")
+      .references(() => projects.id)
+      .notNull(),
+    taskId: uuid("task_id")
+      .references(() => tasks.id)
+      .notNull(),
+    sprintId: uuid("sprint_id")
+      .references(() => sprints.id)
+      .notNull(),
+    assignedAt: timestamp("assigned_at", { withTimezone: true }).defaultNow().notNull(),
+    removedAt: timestamp("removed_at", { withTimezone: true }),
+    assignedBy: uuid("assigned_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index("task_sprint_assignments_task_idx").on(table.taskId),
+    index("task_sprint_assignments_sprint_idx").on(table.sprintId),
+    index("task_sprint_assignments_project_idx").on(table.projectId),
+    uniqueIndex("task_sprint_assignments_active_unique")
+      .on(table.taskId)
+      .where(sql`${table.removedAt} is null`),
+  ],
+);
+
+export const sprintSnapshots = pgTable(
+  "sprint_snapshots",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .references(() => organizations.id, { onDelete: "restrict" })
+      .notNull(),
+    workspaceId: uuid("workspace_id")
+      .references(() => workspaces.id, { onDelete: "restrict" })
+      .notNull(),
+    projectId: uuid("project_id")
+      .references(() => projects.id, { onDelete: "restrict" })
+      .notNull(),
+    sprintId: uuid("sprint_id")
+      .references(() => sprints.id, { onDelete: "restrict" })
+      .notNull(),
+    snapshotType: sprintSnapshotTypeEnum("snapshot_type").notNull(),
+    dataQuality: sprintDataQualityEnum("data_quality").notNull(),
+    scopeTaskCount: integer("scope_task_count"),
+    scopeStoryPoints: integer("scope_story_points"),
+    completedTaskCount: integer("completed_task_count"),
+    completedStoryPoints: integer("completed_story_points"),
+    remainingTaskCount: integer("remaining_task_count"),
+    remainingStoryPoints: integer("remaining_story_points"),
+    capturedAt: timestamp("captured_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("sprint_snapshots_type_unique").on(table.sprintId, table.snapshotType),
+    index("sprint_snapshots_project_type_captured_idx").on(table.projectId, table.snapshotType, table.capturedAt),
+    check("sprint_snapshots_scope_tasks_check", sql`${table.scopeTaskCount} is null or ${table.scopeTaskCount} >= 0`),
+    check(
+      "sprint_snapshots_scope_points_check",
+      sql`${table.scopeStoryPoints} is null or ${table.scopeStoryPoints} >= 0`,
+    ),
+    check(
+      "sprint_snapshots_completed_tasks_check",
+      sql`${table.completedTaskCount} is null or ${table.completedTaskCount} >= 0`,
+    ),
+    check(
+      "sprint_snapshots_completed_points_check",
+      sql`${table.completedStoryPoints} is null or ${table.completedStoryPoints} >= 0`,
+    ),
+    check(
+      "sprint_snapshots_remaining_tasks_check",
+      sql`${table.remainingTaskCount} is null or ${table.remainingTaskCount} >= 0`,
+    ),
+    check(
+      "sprint_snapshots_remaining_points_check",
+      sql`${table.remainingStoryPoints} is null or ${table.remainingStoryPoints} >= 0`,
+    ),
+  ],
+);
+
+export const sprintAnalyticsEvents = pgTable(
+  "sprint_analytics_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .references(() => organizations.id, { onDelete: "restrict" })
+      .notNull(),
+    workspaceId: uuid("workspace_id")
+      .references(() => workspaces.id, { onDelete: "restrict" })
+      .notNull(),
+    projectId: uuid("project_id")
+      .references(() => projects.id, { onDelete: "restrict" })
+      .notNull(),
+    sprintId: uuid("sprint_id")
+      .references(() => sprints.id, { onDelete: "restrict" })
+      .notNull(),
+    taskId: uuid("task_id")
+      .references(() => tasks.id, { onDelete: "restrict" })
+      .notNull(),
+    eventSequence: bigint("event_sequence", { mode: "bigint" }).generatedAlwaysAsIdentity().unique().notNull(),
+    eventType: sprintEventTypeEnum("event_type").notNull(),
+    storyPointsAtEvent: integer("story_points_at_event"),
+    isCompletedAtEvent: boolean("is_completed_at_event").notNull(),
+    oldStoryPoints: integer("old_story_points"),
+    newStoryPoints: integer("new_story_points"),
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
+    actorId: uuid("actor_id").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index("sprint_analytics_events_sprint_idx").on(table.sprintId, table.occurredAt, table.eventSequence),
+    index("sprint_analytics_events_project_idx").on(table.projectId, table.occurredAt, table.eventSequence),
+    index("sprint_analytics_events_task_idx").on(table.taskId),
+  ],
+);
+
+export const accountDeletionRequests = pgTable(
+  "account_deletion_requests",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .references(() => users.id, { onDelete: "restrict" })
+      .notNull(),
+    status: deletionRequestStatusEnum("status").default("requested").notNull(),
+    policyVersion: varchar("policy_version", { length: 64 }).notNull(),
+    requestedAt: timestamp("requested_at", { withTimezone: true }).defaultNow().notNull(),
+    reauthenticatedAt: timestamp("reauthenticated_at", { withTimezone: true }).notNull(),
+    scheduledFor: timestamp("scheduled_for", { withTimezone: true }),
+    processingStartedAt: timestamp("processing_started_at", { withTimezone: true }),
+    retryAt: timestamp("retry_at", { withTimezone: true }),
+    canceledAt: timestamp("canceled_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    failedAt: timestamp("failed_at", { withTimezone: true }),
+    claimToken: uuid("claim_token"),
+    claimedAt: timestamp("claimed_at", { withTimezone: true }),
+    heartbeatAt: timestamp("heartbeat_at", { withTimezone: true }),
+    attempts: integer("attempts").default(0).notNull(),
+    lastErrorCode: varchar("last_error_code", { length: 64 }),
+    lastErrorSummary: varchar("last_error_summary", { length: 512 }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("account_deletion_requests_active_user_unique")
+      .on(table.userId)
+      .where(sql`${table.status} in ('requested', 'scheduled', 'processing', 'retry_wait', 'failed')`),
+    index("account_deletion_requests_due_idx")
+      .on(table.status, table.scheduledFor, table.retryAt)
+      .where(sql`${table.status} in ('scheduled', 'retry_wait')`),
+    index("account_deletion_requests_stale_claim_idx")
+      .on(table.status, table.heartbeatAt)
+      .where(sql`${table.status} = 'processing'`),
+    index("account_deletion_requests_user_created_idx").on(table.userId, table.createdAt),
+    check("account_deletion_requests_attempts_check", sql`${table.attempts} >= 0`),
+    check(
+      "account_deletion_requests_schedule_check",
+      sql`${table.scheduledFor} is null or ${table.scheduledFor} >= ${table.requestedAt}`,
+    ),
+    check("account_deletion_requests_reauthentication_check", sql`${table.reauthenticatedAt} <= ${table.requestedAt}`),
+    check(
+      "account_deletion_requests_processing_history_check",
+      sql`(${table.status} in ('requested', 'scheduled', 'canceled') and ${table.processingStartedAt} is null)
+          or (${table.status} in ('processing', 'retry_wait', 'failed', 'completed') and ${table.processingStartedAt} is not null)`,
+    ),
+    check(
+      "account_deletion_requests_claim_state_check",
+      sql`(${table.status} = 'processing' and ${table.claimToken} is not null and ${table.claimedAt} is not null and ${table.heartbeatAt} is not null)
+          or (${table.status} <> 'processing' and ${table.claimToken} is null and ${table.claimedAt} is null and ${table.heartbeatAt} is null)`,
+    ),
+    check(
+      "account_deletion_requests_retry_state_check",
+      sql`(${table.status} = 'retry_wait' and ${table.retryAt} is not null) or (${table.status} <> 'retry_wait' and ${table.retryAt} is null)`,
+    ),
+    check(
+      "account_deletion_requests_terminal_state_check",
+      sql`(${table.status} = 'completed' and ${table.completedAt} is not null and ${table.canceledAt} is null)
+          or (${table.status} = 'canceled' and ${table.canceledAt} is not null and ${table.completedAt} is null and ${table.processingStartedAt} is null)
+          or (${table.status} not in ('completed', 'canceled') and ${table.completedAt} is null and ${table.canceledAt} is null)`,
+    ),
+    check(
+      "account_deletion_requests_failed_state_check",
+      sql`${table.status} <> 'failed' or ${table.failedAt} is not null`,
+    ),
+  ],
+);
+
+export const organizationDeletionRequests = pgTable(
+  "organization_deletion_requests",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .references(() => organizations.id, { onDelete: "cascade" })
+      .notNull(),
+    requestedByUserId: uuid("requested_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    status: deletionRequestStatusEnum("status").default("requested").notNull(),
+    policyVersion: varchar("policy_version", { length: 64 }).notNull(),
+    confirmationVersion: varchar("confirmation_version", { length: 64 }).notNull(),
+    requestedAt: timestamp("requested_at", { withTimezone: true }).defaultNow().notNull(),
+    reauthenticatedAt: timestamp("reauthenticated_at", { withTimezone: true }).notNull(),
+    scheduledFor: timestamp("scheduled_for", { withTimezone: true }),
+    processingStartedAt: timestamp("processing_started_at", { withTimezone: true }),
+    retryAt: timestamp("retry_at", { withTimezone: true }),
+    canceledAt: timestamp("canceled_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    failedAt: timestamp("failed_at", { withTimezone: true }),
+    claimToken: uuid("claim_token"),
+    claimedAt: timestamp("claimed_at", { withTimezone: true }),
+    heartbeatAt: timestamp("heartbeat_at", { withTimezone: true }),
+    attempts: integer("attempts").default(0).notNull(),
+    lastErrorCode: varchar("last_error_code", { length: 64 }),
+    lastErrorSummary: varchar("last_error_summary", { length: 512 }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("organization_deletion_requests_active_org_unique")
+      .on(table.organizationId)
+      .where(sql`${table.status} in ('requested', 'scheduled', 'processing', 'retry_wait', 'failed')`),
+    index("organization_deletion_requests_due_idx")
+      .on(table.status, table.scheduledFor, table.retryAt)
+      .where(sql`${table.status} in ('scheduled', 'retry_wait')`),
+    index("organization_deletion_requests_stale_claim_idx")
+      .on(table.status, table.heartbeatAt)
+      .where(sql`${table.status} = 'processing'`),
+    index("organization_deletion_requests_org_created_idx").on(table.organizationId, table.createdAt),
+    check("organization_deletion_requests_attempts_check", sql`${table.attempts} >= 0`),
+    check(
+      "organization_deletion_requests_schedule_check",
+      sql`${table.scheduledFor} is null or ${table.scheduledFor} >= ${table.requestedAt}`,
+    ),
+    check(
+      "organization_deletion_requests_reauthentication_check",
+      sql`${table.reauthenticatedAt} <= ${table.requestedAt}`,
+    ),
+    check(
+      "organization_deletion_requests_processing_history_check",
+      sql`(${table.status} in ('requested', 'scheduled', 'canceled') and ${table.processingStartedAt} is null)
+          or (${table.status} in ('processing', 'retry_wait', 'failed', 'completed') and ${table.processingStartedAt} is not null)`,
+    ),
+    check(
+      "organization_deletion_requests_claim_state_check",
+      sql`(${table.status} = 'processing' and ${table.claimToken} is not null and ${table.claimedAt} is not null and ${table.heartbeatAt} is not null)
+          or (${table.status} <> 'processing' and ${table.claimToken} is null and ${table.claimedAt} is null and ${table.heartbeatAt} is null)`,
+    ),
+    check(
+      "organization_deletion_requests_retry_state_check",
+      sql`(${table.status} = 'retry_wait' and ${table.retryAt} is not null) or (${table.status} <> 'retry_wait' and ${table.retryAt} is null)`,
+    ),
+    check(
+      "organization_deletion_requests_terminal_state_check",
+      sql`(${table.status} = 'completed' and ${table.completedAt} is not null and ${table.canceledAt} is null)
+          or (${table.status} = 'canceled' and ${table.canceledAt} is not null and ${table.completedAt} is null and ${table.processingStartedAt} is null)
+          or (${table.status} not in ('completed', 'canceled') and ${table.completedAt} is null and ${table.canceledAt} is null)`,
+    ),
+    check(
+      "organization_deletion_requests_failed_state_check",
+      sql`${table.status} <> 'failed' or ${table.failedAt} is not null`,
+    ),
+  ],
+);
+
+export const dataPurgeCheckpoints = pgTable(
+  "data_purge_checkpoints",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    accountRequestId: uuid("account_request_id").references(() => accountDeletionRequests.id, { onDelete: "cascade" }),
+    organizationRequestId: uuid("organization_request_id").references(() => organizationDeletionRequests.id, {
+      onDelete: "cascade",
+    }),
+    domain: purgeDomainEnum("domain").notNull(),
+    partitionKey: varchar("partition_key", { length: 128 }).default("default").notNull(),
+    status: purgeCheckpointStatusEnum("status").default("pending").notNull(),
+    cursor: jsonb("cursor").$type<Record<string, unknown>>().default({}).notNull(),
+    batchSize: integer("batch_size").notNull(),
+    discoveredCount: bigint("discovered_count", { mode: "number" }).default(0).notNull(),
+    completedCount: bigint("completed_count", { mode: "number" }).default(0).notNull(),
+    attempts: integer("attempts").default(0).notNull(),
+    retryAt: timestamp("retry_at", { withTimezone: true }),
+    claimToken: uuid("claim_token"),
+    claimedAt: timestamp("claimed_at", { withTimezone: true }),
+    heartbeatAt: timestamp("heartbeat_at", { withTimezone: true }),
+    lastErrorCode: varchar("last_error_code", { length: 64 }),
+    lastErrorSummary: varchar("last_error_summary", { length: 512 }),
+    lastBatchAt: timestamp("last_batch_at", { withTimezone: true }),
+    verifiedAt: timestamp("verified_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("data_purge_checkpoints_account_domain_partition_unique")
+      .on(table.accountRequestId, table.domain, table.partitionKey)
+      .where(sql`${table.accountRequestId} is not null`),
+    uniqueIndex("data_purge_checkpoints_org_domain_partition_unique")
+      .on(table.organizationRequestId, table.domain, table.partitionKey)
+      .where(sql`${table.organizationRequestId} is not null`),
+    index("data_purge_checkpoints_due_idx").on(table.status, table.retryAt, table.createdAt),
+    index("data_purge_checkpoints_stale_claim_idx").on(table.status, table.heartbeatAt),
+    check(
+      "data_purge_checkpoints_parent_xor_check",
+      sql`num_nonnulls(${table.accountRequestId}, ${table.organizationRequestId}) = 1`,
+    ),
+    check("data_purge_checkpoints_batch_size_check", sql`${table.batchSize} between 1 and 10000`),
+    check(
+      "data_purge_checkpoints_counts_check",
+      sql`${table.discoveredCount} >= 0 and ${table.completedCount} >= 0 and ${table.completedCount} <= ${table.discoveredCount}`,
+    ),
+    check("data_purge_checkpoints_attempts_check", sql`${table.attempts} >= 0`),
+    check("data_purge_checkpoints_cursor_check", sql`jsonb_typeof(${table.cursor}) = 'object'`),
+    check(
+      "data_purge_checkpoints_claim_state_check",
+      sql`(${table.status} = 'processing' and ${table.claimToken} is not null and ${table.claimedAt} is not null and ${table.heartbeatAt} is not null)
+          or (${table.status} <> 'processing' and ${table.claimToken} is null and ${table.claimedAt} is null and ${table.heartbeatAt} is null)`,
+    ),
+    check(
+      "data_purge_checkpoints_retry_state_check",
+      sql`(${table.status} = 'retry_wait' and ${table.retryAt} is not null) or (${table.status} <> 'retry_wait' and ${table.retryAt} is null)`,
+    ),
+    check(
+      "data_purge_checkpoints_verified_state_check",
+      sql`(${table.status} = 'verified' and ${table.verifiedAt} is not null) or ${table.status} <> 'verified'`,
+    ),
+  ],
+);
+
+export const dataPurgeItems = pgTable(
+  "data_purge_items",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    accountRequestId: uuid("account_request_id").references(() => accountDeletionRequests.id, { onDelete: "cascade" }),
+    organizationRequestId: uuid("organization_request_id").references(() => organizationDeletionRequests.id, {
+      onDelete: "cascade",
+    }),
+    domain: purgeDomainEnum("domain").notNull(),
+    locatorKind: purgeLocatorKindEnum("locator_kind").notNull(),
+    locator: jsonb("locator").$type<Record<string, unknown>>().notNull(),
+    locatorFingerprint: varchar("locator_fingerprint", { length: 64 }).notNull(),
+    status: purgeItemStatusEnum("status").default("pending").notNull(),
+    attempts: integer("attempts").default(0).notNull(),
+    retryAt: timestamp("retry_at", { withTimezone: true }),
+    claimToken: uuid("claim_token"),
+    claimedAt: timestamp("claimed_at", { withTimezone: true }),
+    heartbeatAt: timestamp("heartbeat_at", { withTimezone: true }),
+    lastErrorCode: varchar("last_error_code", { length: 64 }),
+    lastErrorSummary: varchar("last_error_summary", { length: 512 }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    verifiedAt: timestamp("verified_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("data_purge_items_account_domain_fingerprint_unique")
+      .on(table.accountRequestId, table.domain, table.locatorFingerprint)
+      .where(sql`${table.accountRequestId} is not null`),
+    uniqueIndex("data_purge_items_org_domain_fingerprint_unique")
+      .on(table.organizationRequestId, table.domain, table.locatorFingerprint)
+      .where(sql`${table.organizationRequestId} is not null`),
+    index("data_purge_items_due_idx").on(table.status, table.retryAt, table.createdAt),
+    index("data_purge_items_stale_claim_idx").on(table.status, table.heartbeatAt),
+    check(
+      "data_purge_items_parent_xor_check",
+      sql`num_nonnulls(${table.accountRequestId}, ${table.organizationRequestId}) = 1`,
+    ),
+    check("data_purge_items_attempts_check", sql`${table.attempts} >= 0`),
+    check("data_purge_items_locator_check", sql`jsonb_typeof(${table.locator}) = 'object'`),
+    check("data_purge_items_fingerprint_check", sql`${table.locatorFingerprint} ~ '^[a-f0-9]{64}$'`),
+    check(
+      "data_purge_items_claim_state_check",
+      sql`(${table.status} = 'processing' and ${table.claimToken} is not null and ${table.claimedAt} is not null and ${table.heartbeatAt} is not null)
+          or (${table.status} <> 'processing' and ${table.claimToken} is null and ${table.claimedAt} is null and ${table.heartbeatAt} is null)`,
+    ),
+    check(
+      "data_purge_items_retry_state_check",
+      sql`(${table.status} = 'retry_wait' and ${table.retryAt} is not null) or (${table.status} <> 'retry_wait' and ${table.retryAt} is null)`,
+    ),
+    check(
+      "data_purge_items_completed_state_check",
+      sql`(${table.status} in ('completed', 'verified') and ${table.completedAt} is not null) or ${table.status} not in ('completed', 'verified')`,
+    ),
+    check(
+      "data_purge_items_verified_state_check",
+      sql`(${table.status} = 'verified' and ${table.verifiedAt} is not null) or ${table.status} <> 'verified'`,
+    ),
+  ],
+);
+
+export const dataDeletionReceipts = pgTable(
+  "data_deletion_receipts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    subjectType: deletionSubjectTypeEnum("subject_type").notNull(),
+    outcome: deletionReceiptOutcomeEnum("outcome").notNull(),
+    schemaVersion: smallint("schema_version").notNull(),
+    verificationVersion: varchar("verification_version", { length: 64 }).notNull(),
+    domainSummary: jsonb("domain_summary").$type<Record<string, number>>().notNull(),
+    completedAt: timestamp("completed_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index("data_deletion_receipts_completed_idx").on(table.completedAt),
+    check("data_deletion_receipts_schema_version_check", sql`${table.schemaVersion} > 0`),
+    check("data_deletion_receipts_domain_summary_check", sql`jsonb_typeof(${table.domainSummary}) = 'object'`),
   ],
 );

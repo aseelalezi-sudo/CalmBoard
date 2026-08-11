@@ -4,12 +4,23 @@ import {
   ForbiddenException,
   HttpException,
   HttpStatus,
+  Inject,
   Injectable,
+  SetMetadata,
   ServiceUnavailableException,
 } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
 import { PUBLIC_ROUTE } from "../public-route.decorator.js";
 import { LicensingService } from "./licensing.service.js";
+
+export const SKIP_LICENSE_CHECK = "calmboard:skip-license-check";
+
+/**
+ * Lets a route remain reachable while an installation has no usable license.
+ * This is deliberately separate from `@PublicRoute()`: authentication and
+ * authorization guards still run for the route.
+ */
+export const SkipLicenseCheck = () => SetMetadata(SKIP_LICENSE_CHECK, true);
 
 /**
  * Global license gate.
@@ -26,8 +37,8 @@ import { LicensingService } from "./licensing.service.js";
 @Injectable()
 export class LicensingGuard implements CanActivate {
   constructor(
-    private readonly reflector: Reflector,
-    private readonly licensing: LicensingService,
+    @Inject(Reflector) private readonly reflector: Reflector,
+    @Inject(LicensingService) private readonly licensing: LicensingService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -39,6 +50,12 @@ export class LicensingGuard implements CanActivate {
       context.getClass(),
     ]);
     if (isPublic) return true;
+
+    const skipLicenseCheck = this.reflector.getAllAndOverride<boolean>(SKIP_LICENSE_CHECK, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+    if (skipLicenseCheck) return true;
 
     const check = await this.licensing.status();
 

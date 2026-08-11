@@ -21,6 +21,9 @@ import {
 } from "@/features/tasks/task-views";
 import { TimeView } from "@/features/time/time-view";
 import { ProfileSecurityView } from "@/components/profile-security";
+import { ProjectsView } from "@/features/projects/projects-view";
+import { WorkspacesView } from "@/features/workspace/workspaces-view";
+import { SprintsView } from "@/features/sprints/sprints-view";
 
 export function ActiveView({ activeView, ctx }: { activeView: string; ctx: ViewCtx }) {
   return (
@@ -45,6 +48,10 @@ export function ActiveView({ activeView, ctx }: { activeView: string; ctx: ViewC
       {activeView === "activity" && <ActivityView ctx={ctx} />}
       {activeView === "settings" && <SettingsView ctx={ctx} />}
       {activeView === "profile" && <ProfileSecurityView ctx={ctx} />}
+      {activeView === "projects" && <ProjectsView ctx={ctx} />}
+      {activeView === "workspaces" && <WorkspacesView ctx={ctx} />}
+      {activeView === "sprints" && <SprintsView ctx={ctx} />}
+      {activeView === "sprint_board" && <SprintsView ctx={ctx} defaultTab="active" />}
     </div>
   );
 }

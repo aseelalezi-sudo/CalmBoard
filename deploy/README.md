@@ -61,6 +61,12 @@ The staging override:
 - completes role provisioning and migrations before API/Worker start; and
 - uses prebuilt immutable images rather than local Docker build definitions.
 
+`TRUST_PROXY_HOPS` is the number of trusted forwarding hops immediately in
+front of the API. Use `1` for the documented topology
+`client -> TLS reverse proxy/load balancer -> CalmBoard API`, `0` only when the
+API is directly exposed, and increase it only when an additional trusted proxy
+is deliberately inserted. Do not count an untrusted client-controlled hop.
+
 Set these image references in the external environment file:
 
 ```dotenv
@@ -166,3 +172,48 @@ verified commit and running staging/production Compose again with `--no-build`.
 Do not run down-migrations. Database changes must follow expand/migrate/contract
 so both the previous and current application versions remain compatible during
 the rollback window.
+
+## Production deployment checklist
+
+Record an owner and timestamp for every item. A green container process alone is
+not release evidence.
+
+1. Confirm the release commit, review its SBOM/Grype artifacts, and require no
+   unresolved release-blocking High/Critical finding.
+2. Validate the external environment with `pnpm run check:env`. Confirm that no
+   plaintext secret or local `.env` is part of the image/build context.
+3. Decide whether a fresh encrypted database/object backup is required. Record
+   the last successful backup and isolated restore-drill reference; do not claim
+   an RPO/RTO that has not been measured.
+4. Verify the migration journal and pristine chain. Run the migrator image once
+   before application rollout. Migrations are forward-only; never improvise a
+   down-migration during an incident.
+5. Roll out API and Worker, verify `/health`, readiness, database/Redis/object
+   storage connectivity and queue progress, then roll out Web and verify
+   `/api/health`.
+6. Run authenticated smoke checks for login, tenant-scoped reads/writes, private
+   attachment resolution, export request/download, billing state, and a
+   cross-tenant denial. Verify Prometheus scrape and alert delivery.
+7. Verify Stripe Test/Staging checkout, webhook ordering/idempotency, subscription
+   recovery/cancellation, and portal behavior before enabling a billing change.
+8. Keep `ORGANIZATION_PURGE_ENABLED=false` until all retention classifications
+   are approved. Live Stripe cleanup additionally requires both an approved
+   `STRIPE_PURGE_MODE` and `STRIPE_LIVE_PURGE_ENABLED=true`.
+
+Rollback criteria include failed readiness, tenant-isolation regression,
+unrecoverable queue growth, object-resolution failure, or incorrect billing
+state. Roll application images back only when the previous version is compatible
+with the already-applied schema; otherwise use a reviewed forward fix. Do not
+unfreeze or reconstruct a tenant whose irreversible purge has started.
+
+The incident commander owns the go/no-go decision, rollback/forward-fix choice,
+customer communication and evidence log. The database owner runs migrations and
+restore validation; the application owner validates API/Web/Worker; the security
+owner reviews secret, SBOM and vulnerability findings; the billing owner verifies
+Stripe. Store actual names and escalation channels in the private operations
+system, not this repository.
+
+Use the [backup](#backups) and [restore drill](#restore-drill) procedures above.
+Each drill record must include backup/restore durations, artifact checksums,
+migration parity through the deployed migration, critical FK/RLS and tenant
+isolation results, application reads, attachment resolution and smoke evidence.

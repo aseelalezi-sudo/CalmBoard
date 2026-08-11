@@ -1,11 +1,15 @@
-import { BadRequestException, Body, Controller, Get, Param, Patch, Post, Query } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Delete, Get, Param, Patch, Post, Query } from "@nestjs/common";
 import {
   createOrganizationWorkspacesRepository,
   createWorkspaceDirectoryRepository,
   type CreateWorkspaceInput,
 } from "@calmboard/database";
 import { RequirePermission, SelfService, TenantMember } from "./permission.guard.js";
-import { parseCreateProjectRequest } from "./project-validation.js";
+import {
+  parseCreateProjectRequest,
+  parseProjectMutationRequest,
+  parseUpdateProjectRequest,
+} from "./project-validation.js";
 import { createProjectService } from "./project.service.js";
 import { parseTaskStatus } from "./task-validation.js";
 
@@ -69,6 +73,34 @@ export class ProjectsController {
   create(@Body() body: JsonObject) {
     const request = parseCreateProjectRequest(body);
     return createProjectService(request.context).create(request.input);
+  }
+
+  @Patch(":id")
+  @RequirePermission("projects.update")
+  update(@Param("id") id: string, @Body() body: JsonObject) {
+    const request = parseUpdateProjectRequest(body);
+    return createProjectService(request.context).update(id, request.expectedVersion, request.input);
+  }
+
+  @Post(":id/archive")
+  @RequirePermission("projects.delete")
+  archive(@Param("id") id: string, @Body() body: JsonObject) {
+    const request = parseProjectMutationRequest(body);
+    return createProjectService(request.context).archive(id, request.expectedVersion);
+  }
+
+  @Post(":id/restore")
+  @RequirePermission("projects.delete")
+  restore(@Param("id") id: string, @Body() body: JsonObject) {
+    const request = parseProjectMutationRequest(body);
+    return createProjectService(request.context).restore(id, request.expectedVersion);
+  }
+
+  @Delete(":id")
+  @RequirePermission("projects.delete")
+  softDelete(@Param("id") id: string, @Body() body: JsonObject) {
+    const request = parseProjectMutationRequest(body);
+    return createProjectService(request.context).softDelete(id, request.expectedVersion);
   }
 
   @Get(":id/wip-limits")

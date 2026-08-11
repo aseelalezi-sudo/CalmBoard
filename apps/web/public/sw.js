@@ -1,5 +1,5 @@
 // CalmBoard PWA Service Worker - Offline readiness & Cache management
-const CACHE_NAME = "calmboard-cache-v3";
+const CACHE_NAME = "calmboard-cache-v4";
 const ASSETS_TO_CACHE = ["/", "/icon.svg", "/manifest.json", "/globals.css"];
 
 self.addEventListener("install", (event) => {

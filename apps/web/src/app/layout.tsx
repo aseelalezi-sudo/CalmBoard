@@ -23,7 +23,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       <head>
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{var t=localStorage.getItem('calmboard-theme');var l=localStorage.getItem('calmboard-locale')||'ar';var dark=t ? t==='dark' : false;document.documentElement.classList.toggle('dark',dark);document.documentElement.lang=l;document.documentElement.dir=l==='ar'?'rtl':'ltr';if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('/sw.js').catch(function(){});});}}catch(e){}})();`,
+            __html: `(function(){try{var t=localStorage.getItem('calmboard-theme');var l=localStorage.getItem('calmboard-locale')||'ar';var dark=t ? t==='dark' : false;document.documentElement.classList.toggle('dark',dark);document.documentElement.lang=l;document.documentElement.dir=l==='ar'?'rtl':'ltr';if('serviceWorker' in navigator){window.addEventListener('load',function(){var local=location.hostname==='localhost'||location.hostname==='127.0.0.1'||location.hostname==='[::1]';if(local){navigator.serviceWorker.getRegistrations().then(function(rs){rs.forEach(function(r){r.unregister();});}).catch(function(){});if('caches' in window){caches.keys().then(function(keys){keys.filter(function(k){return k.indexOf('calmboard-cache-')===0;}).forEach(function(k){caches.delete(k);});}).catch(function(){});}return;}navigator.serviceWorker.register('/sw.js').catch(function(){});});}}catch(e){}})();`,
           }}
         />
       </head>

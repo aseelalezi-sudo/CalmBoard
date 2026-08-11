@@ -69,6 +69,7 @@ export function useWorkspaceData(t: Translator, notify: Notify) {
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [notifications, setNotifications] = useState<import("@/lib/types").Notification[]>([]);
   const [loading, setLoading] = useState(true);
+  const [dataError, setDataError] = useState<string | null>(null);
 
   const loadWorkspaceModules = useCallback(async (workspaceId: string, organizationId?: string, userId?: string) => {
     const modules = await getWorkspaceModules(workspaceId, organizationId, userId);
@@ -108,6 +109,7 @@ export function useWorkspaceData(t: Translator, notify: Notify) {
   const fetchData = useCallback(async () => {
     try {
       setLoading(true);
+      setDataError(null);
       const auth = await queryClient.fetchQuery({
         queryKey: ["auth", "session"],
         queryFn: getCurrentSession,
@@ -159,7 +161,9 @@ export function useWorkspaceData(t: Translator, notify: Notify) {
         return;
       }
       console.error(error);
-      notify(t("تعذر تحميل البيانات", "Failed to load data"), "error");
+      const message = error instanceof Error ? error.message : t("تعذر تحميل البيانات", "Failed to load data");
+      setDataError(message);
+      notify(message, "error");
     } finally {
       setLoading(false);
     }
@@ -230,6 +234,7 @@ export function useWorkspaceData(t: Translator, notify: Notify) {
     notifications,
     setNotifications,
     loading,
+    dataError,
     loadWorkspaceModules,
     refreshWorkspaceScope,
     reload: fetchData,

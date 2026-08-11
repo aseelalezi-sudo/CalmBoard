@@ -53,6 +53,23 @@ describe("workspace export job formats", () => {
       assert.equal((await owner.request(idempotencyKey, "pdf")).id, created.id);
       await assert.rejects(() => owner.request(idempotencyKey, "xlsx"), TenantConflictError);
       await assert.rejects(() => member.request(idempotencyKey, "pdf"), TenantResourceNotFoundError);
+
+      await db
+        .update(exportJobs)
+        .set({
+          status: "completed",
+          objectKey: `organizations/${organizationId}/exports/${created.id}.pdf`,
+          fileName: "owned-export.pdf",
+          contentType: "application/pdf",
+          fileSize: 10,
+          checksumSha256: "a".repeat(64),
+          completedAt: new Date(),
+          expiresAt: new Date(Date.now() + 60_000),
+        })
+        .where(eq(exportJobs.id, created.id));
+      assert.equal((await owner.getDownload(created.id)).fileName, "owned-export.pdf");
+      await assert.rejects(() => member.get(created.id), TenantResourceNotFoundError);
+      await assert.rejects(() => member.getDownload(created.id), TenantResourceNotFoundError);
     } finally {
       await db
         .delete(exportJobs)

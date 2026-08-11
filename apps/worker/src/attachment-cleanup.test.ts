@@ -96,7 +96,10 @@ describe("attachment cleanup configuration", () => {
     const pool = { connect: async () => client } as unknown as Pool;
     const result = await cleanupOrphanAttachments(
       pool,
-      { deleteReference: async (reference) => void deletedReferences.push(reference) },
+      {
+        deleteReference: async (reference) => void deletedReferences.push(reference),
+        referenceExists: async () => false,
+      },
       options,
     );
 

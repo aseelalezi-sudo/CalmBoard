@@ -53,3 +53,10 @@ export function usageLimitErrorFromDatabase(error: unknown) {
   if (code !== "P0001" || !resource || !values) return undefined;
   return new TenantUsageLimitExceededError(resource, Number(values[1]), Number(values[2]));
 }
+
+export class AnalyticsIntegrityError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "AnalyticsIntegrityError";
+  }
+}

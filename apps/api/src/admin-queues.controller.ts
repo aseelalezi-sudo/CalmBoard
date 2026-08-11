@@ -89,6 +89,17 @@ export class AdminQueuesController {
     if (action === "trigger_cleanup") {
       return { ok: true, jobId: await this.queues.triggerAttachmentCleanup() };
     }
+    if (action === "retry_data_lifecycle") {
+      const subjectType = requiredString(body.subjectType, "subjectType");
+      if (subjectType !== "account" && subjectType !== "organization") {
+        throw new BadRequestException("subjectType must be account or organization");
+      }
+      const requestId = requiredString(body.requestId, "requestId");
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(requestId)) {
+        throw new BadRequestException("requestId must be a UUID");
+      }
+      return { ok: true, jobId: await this.queues.retryDataLifecycle(subjectType, requestId) };
+    }
     throw new BadRequestException("Unsupported queue action");
   }
 

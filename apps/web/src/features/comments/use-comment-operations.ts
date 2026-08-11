@@ -20,7 +20,7 @@ type CommentOperationsInput = {
 export function useCommentOperations(input: CommentOperationsInput) {
   const { taskDetail, currentUser, activeOrg, activeWorkspace, comments, setComments, t, notify } = input;
 
-  const addComment = async (content: string) => {
+  const addComment = async (content: string, options: { parentId?: string; mentionedUserIds?: string[] } = {}) => {
     if (!taskDetail || !currentUser || !activeOrg || !activeWorkspace || !content.trim()) return;
     const created = await createCommentRecord({
       organizationId: activeOrg.id,
@@ -29,6 +29,7 @@ export function useCommentOperations(input: CommentOperationsInput) {
       userId: currentUser.id,
       actorId: currentUser.id,
       content,
+      ...options,
     });
     if (created.id) setComments((previous) => [{ ...created, user: currentUser }, ...previous]);
   };
@@ -79,7 +80,7 @@ export function useCommentOperations(input: CommentOperationsInput) {
     notify(t("تم حذف التعليق 🗑️", "Comment deleted"));
   };
 
-  const editComment = async (id: string, content: string) => {
+  const editComment = async (id: string, content: string, mentionedUserIds?: string[]) => {
     if (!activeOrg || !activeWorkspace) return;
     setComments((previous) => previous.map((comment) => (comment.id === id ? { ...comment, content } : comment)));
     await updateCommentRecord({
@@ -88,6 +89,7 @@ export function useCommentOperations(input: CommentOperationsInput) {
       organizationId: activeOrg.id,
       workspaceId: activeWorkspace.id,
       actorId: currentUser?.id,
+      ...(mentionedUserIds === undefined ? {} : { mentionedUserIds }),
     });
     notify(t("تم تعديل التعليق ✓", "Comment edited ✓"));
   };

@@ -2,6 +2,7 @@ import { BadRequestException, Body, Controller, Get, Headers, Inject, Param, Pos
 import {
   createActivitiesRepository,
   createExportJobsRepository,
+  createOrganizationExportJobsRepository,
   createIdempotencyRepository,
   createNotificationsRepository,
   createTasksRepository,
@@ -14,6 +15,7 @@ import { parseWorkspaceExportFormat } from "./export-validation.js";
 import {
   requiredIdempotencyKey,
   requiredString,
+  organizationContext,
   tenantContext,
   tenantContextFromBody,
   type JsonObject,
@@ -161,6 +163,48 @@ export class WorkspaceExportController {
     @Query("actorId") actorId?: string,
   ) {
     return createExportJobsRepository(tenantContext(organizationId, workspaceId, actorId)).get(
+      requiredString(jobId, "jobId"),
+    );
+  }
+}
+
+@Controller("organizations/:organizationId/export")
+export class OrganizationExportController {
+  @RequirePermission("data.export")
+  @Post()
+  request(
+    @Param("organizationId") organizationId: string,
+    @Body() body: JsonObject,
+    @Headers("idempotency-key") idempotencyKeyHeader = "",
+  ) {
+    return createOrganizationExportJobsRepository(organizationContext(organizationId, body.actorId)).request(
+      requiredIdempotencyKey(idempotencyKeyHeader),
+      "json",
+    );
+  }
+
+  @RequirePermission("data.export")
+  @Get(":jobId/download")
+  async download(
+    @Param("organizationId") organizationId: string,
+    @Param("jobId") jobId: string,
+    @Query("actorId") actorId?: string,
+  ) {
+    const download = await createOrganizationExportJobsRepository(
+      organizationContext(organizationId, actorId),
+    ).getDownload(requiredString(jobId, "jobId"));
+    const url = await createObjectStorageAdapter().createDownloadUrl(download.objectKey, download.fileName);
+    return { url, fileName: download.fileName, contentType: download.contentType };
+  }
+
+  @RequirePermission("data.export")
+  @Get(":jobId")
+  status(
+    @Param("organizationId") organizationId: string,
+    @Param("jobId") jobId: string,
+    @Query("actorId") actorId?: string,
+  ) {
+    return createOrganizationExportJobsRepository(organizationContext(organizationId, actorId)).get(
       requiredString(jobId, "jobId"),
     );
   }

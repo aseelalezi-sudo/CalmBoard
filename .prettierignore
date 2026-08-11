@@ -7,7 +7,9 @@ dist/
 coverage/
 playwright-report/
 test-results/
+artifacts/
 pnpm-lock.yaml
+packages/database/migrations/meta/
 *.tsbuildinfo
 .env
 .env.*

@@ -161,6 +161,9 @@ export class AuthService {
       });
       throw new UnauthorizedException("Invalid email or password");
     }
+    if (!["active", "deletion_pending"].includes(identity.lifecycleState)) {
+      throw new UnauthorizedException("Invalid email or password");
+    }
     if (locked) {
       const retryAfter = Math.max(1, Math.ceil((identity.lockedUntil!.getTime() - Date.now()) / 1_000));
       await this.securityEvents.record({
@@ -284,6 +287,9 @@ export class AuthService {
     }
     if (!identity) throw new UnauthorizedException("OAuth identity could not be resolved");
     const { oauthIdentityId, ...user } = identity;
+    if (!["active", "deletion_pending"].includes(user.lifecycleState)) {
+      throw new UnauthorizedException("OAuth identity could not be resolved");
+    }
     if (await this.mfa.isEnabled(user.id)) {
       const challenge = await this.authTokens.issue(user.id, "mfa_login", client.ip);
       await this.securityEvents.record({
@@ -336,6 +342,22 @@ export class AuthService {
     const setup = await this.mfa.beginSetup(user.id, user.email);
     if (!setup) throw new ConflictException("TOTP is already enabled");
     return setup;
+  }
+
+  async verifyRecentAuthentication(userId: string, credential: { password?: string; code?: string }) {
+    const identity = await this.identities.findForReauthentication(userId);
+    if (!identity || !["active", "deletion_pending"].includes(identity.lifecycleState)) {
+      throw new UnauthorizedException("Account is not available for re-authentication");
+    }
+    const password = credential.password?.trim();
+    if (password && identity.passwordHash && (await verify(identity.passwordHash, password).catch(() => false))) {
+      return new Date();
+    }
+    const code = credential.code?.trim();
+    if (code && (await this.mfa.isEnabled(userId)) && (await this.mfa.verify(userId, code))) {
+      return new Date();
+    }
+    throw new UnauthorizedException("Recent authentication is required");
   }
 
   async enableMfa(userId: string, code: string) {
@@ -430,7 +452,9 @@ export class AuthService {
   async current(token: string) {
     const session = await this.verifyAccessToken(token);
     const user = await this.identities.findPublicUser(session.userId);
-    if (!user) throw new UnauthorizedException("Authentication user no longer exists");
+    if (!user || !["active", "deletion_pending"].includes(user.lifecycleState)) {
+      throw new UnauthorizedException("Authentication user is disabled");
+    }
     return { user, sessionId: session.sessionId };
   }
 
@@ -442,7 +466,9 @@ export class AuthService {
         userAgent: client.userAgent,
       });
       const user = await this.identities.findPublicUser(rotated.userId);
-      if (!user) throw new UnauthorizedException("Authentication user no longer exists");
+      if (!user || !["active", "deletion_pending"].includes(user.lifecycleState)) {
+        throw new UnauthorizedException("Authentication user is disabled");
+      }
       return {
         user,
         tokens: {

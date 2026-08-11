@@ -132,7 +132,31 @@ describe("PostgreSQL tenant isolation", () => {
            and relation.relrowsecurity = true
            and relation.relforcerowsecurity = true`,
       );
-      assert.equal(rlsState.rows[0]?.count, 65);
+      assert.equal(rlsState.rows[0]?.count, 77);
+      const m3ProtectedTables = await pool.query<{
+        table_name: string;
+        row_security: boolean;
+        force_row_security: boolean;
+        policy_count: number;
+      }>(
+        `select relation.relname as table_name,
+                relation.relrowsecurity as row_security,
+                relation.relforcerowsecurity as force_row_security,
+                count(policy.oid)::int as policy_count
+         from pg_class relation
+         join pg_namespace namespace on namespace.oid = relation.relnamespace
+         left join pg_policy policy on policy.polrelid = relation.oid
+         where namespace.nspname = 'public'
+           and relation.relname = any($1::text[])
+         group by relation.relname, relation.relrowsecurity, relation.relforcerowsecurity
+         order by relation.relname`,
+        [["comment_mentions", "invitation_email_outbox", "user_onboarding_progress"]],
+      );
+      assert.deepEqual(m3ProtectedTables.rows, [
+        { table_name: "comment_mentions", row_security: true, force_row_security: true, policy_count: 1 },
+        { table_name: "invitation_email_outbox", row_security: true, force_row_security: true, policy_count: 1 },
+        { table_name: "user_onboarding_progress", row_security: true, force_row_security: true, policy_count: 1 },
+      ]);
       const missingTenantProtection = await pool.query<{ table_name: string }>(
         `with tenant_tables as (
            select table_name

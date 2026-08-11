@@ -1,4 +1,5 @@
 "use client";
+import { useState, useRef, useEffect } from "react";
 import type { Automation, Doc, Goal, Invitation, Member, Project, SavedView, Task, User } from "@/lib/types";
 import { PRIORITY_CONFIG, STATUS_CONFIG } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -14,6 +15,184 @@ import {
 } from "@/features/creation/operations";
 
 /* ================= Modals ================= */
+
+function EmojiSelect({ name, t }: { name: string; t: any }) {
+  const [open, setOpen] = useState(false);
+  const [value, setValue] = useState("🏢");
+  const containerRef = useRef<HTMLDivElement>(null);
+  const EMOJIS = [
+    "🏢",
+    "🚀",
+    "💻",
+    "🔥",
+    "✨",
+    "🌟",
+    "💡",
+    "🎯",
+    "📊",
+    "📈",
+    "🛠️",
+    "⚙️",
+    "📁",
+    "📂",
+    "🎨",
+    "📝",
+    "🌐",
+    "📱",
+    "🔒",
+    "🔑",
+    "📦",
+    "📚",
+    "💼",
+    "🤝",
+  ];
+
+  useEffect(() => {
+    if (!open) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [open]);
+
+  return (
+    <div className="relative" ref={containerRef}>
+      <input type="hidden" name={name} value={value} />
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="flex h-10 w-full items-center gap-2.5 rounded-xl border border-slate-200 bg-white px-3 transition-colors hover:bg-slate-50 focus:border-indigo-500 focus:shadow-[0_0_0_3px_rgba(99,102,241,0.12)] dark:border-white/10 dark:bg-white/4 dark:hover:bg-white/6 dark:focus:border-indigo-400/50"
+      >
+        <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-slate-100 text-[14px] dark:bg-white/10">
+          {value}
+        </div>
+        <span className="truncate text-[13px] text-slate-500 dark:text-zinc-400">
+          {t("اختر أيقونة", "Choose an icon")}
+        </span>
+      </button>
+
+      {open && (
+        <div className="absolute top-12 left-0 z-50 w-60 rounded-xl border border-slate-200/80 bg-white p-2 shadow-[0_8px_30px_rgba(0,0,0,0.12)] animate-pop dark:border-white/10 dark:bg-zinc-900 dark:shadow-[0_8px_40px_rgba(0,0,0,0.4)]">
+          <div className="grid grid-cols-6 gap-1">
+            {EMOJIS.map((emoji) => (
+              <button
+                key={emoji}
+                type="button"
+                onClick={() => {
+                  setValue(emoji);
+                  setOpen(false);
+                }}
+                className={cn(
+                  "grid h-8 w-8 place-items-center rounded-lg text-[16px] transition hover:bg-slate-100 dark:hover:bg-white/10",
+                  value === emoji && "bg-indigo-50 dark:bg-indigo-500/20",
+                )}
+              >
+                {emoji}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function NewWorkspaceModal({
+  open,
+  onClose,
+  t,
+  onCreate,
+}: {
+  open: boolean;
+  onClose: () => void;
+  t: (a: string, e: string) => string;
+  onCreate: (input: { name: string; color?: string; icon?: string; description?: string }) => void | Promise<void>;
+}) {
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={t("مساحة عمل جديدة", "New Workspace")}
+      icon={<IconPlus size={15} />}
+      wide
+    >
+      <form
+        onSubmit={async (e) => {
+          e.preventDefault();
+          const fd = new FormData(e.target as HTMLFormElement);
+          setSubmitting(true);
+          setError(null);
+          try {
+            await onCreate({
+              name: fd.get("name") as string,
+              color: (fd.get("color") as string) || undefined,
+              icon: (fd.get("icon") as string) || undefined,
+              description: (fd.get("description") as string) || undefined,
+            });
+          } catch (submitError) {
+            setError(
+              submitError instanceof Error
+                ? submitError.message
+                : t("تعذر إنشاء مساحة العمل", "Failed to create workspace"),
+            );
+          } finally {
+            setSubmitting(false);
+          }
+        }}
+        className="space-y-4"
+      >
+        <Field label={t("اسم مساحة العمل", "Workspace Name")}>
+          <input
+            name="name"
+            required
+            autoFocus
+            placeholder={t("مثال: الإدارة المالية", "e.g. Finance Department")}
+            className={inputCls}
+          />
+        </Field>
+
+        <Field label={t("وصف", "Description")}>
+          <textarea
+            name="description"
+            placeholder={t("وصف مساحة العمل (اختياري)", "Workspace description (optional)")}
+            className={areaCls}
+          />
+        </Field>
+
+        <div className="grid grid-cols-2 gap-3">
+          <Field label={t("اللون", "Color")}>
+            <div className="flex h-10 w-full items-center gap-2.5 rounded-xl border border-slate-200 bg-white px-3 transition-colors focus-within:border-indigo-500 focus-within:shadow-[0_0_0_3px_rgba(99,102,241,0.12)] dark:border-white/10 dark:bg-white/4 dark:focus-within:border-indigo-400/50 dark:focus-within:bg-white/6">
+              <input
+                type="color"
+                name="color"
+                defaultValue="#6366f1"
+                className="h-5 w-5 shrink-0 cursor-pointer rounded-full border-0 bg-transparent outline-none [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:rounded-full [&::-webkit-color-swatch]:border-none"
+              />
+              <span className="truncate text-[13px] text-slate-500 dark:text-zinc-400">
+                {t("اختر اللون", "Pick a color")}
+              </span>
+            </div>
+          </Field>
+          <Field label={t("الأيقونة (إيموجي)", "Icon (Emoji)")}>
+            <EmojiSelect name="icon" t={t} />
+          </Field>
+        </div>
+
+        {error && (
+          <p role="alert" className="text-[12px] text-rose-600 dark:text-rose-400">
+            {error}
+          </p>
+        )}
+        <Btn type="submit" disabled={submitting} className="w-full h-10 text-[14px]">
+          {submitting ? t("جارٍ الإنشاء…", "Creating…") : t("إنشاء مساحة العمل", "Create Workspace")}
+        </Btn>
+      </form>
+    </Modal>
+  );
+}
 export function NewTaskModal({
   open,
   onClose,
@@ -526,9 +705,7 @@ export function InviteModal({
             notify(r.error, "error");
             return;
           }
-          notify(
-            r.immediate ? t("أُضيف العضو مباشرة", "Member added instantly") : t("أُرسلت الدعوة", "Invitation sent"),
-          );
+          notify(t("أُنشئت الدعوة الآمنة وأُضيفت إلى طابور البريد", "Secure invitation created and queued"));
           onClose();
           onDone();
         }}
@@ -536,8 +713,8 @@ export function InviteModal({
       >
         <p className="text-[12px] leading-relaxed text-zinc-500">
           {t(
-            "إذا كان لدى الشخص حساب سيُضاف فوراً، وإلا تُنشأ دعوة معلقة.",
-            "Existing accounts are added instantly; otherwise a pending invite is created.",
+            "سيصل رابط آمن ومحدود الصلاحية. لا تُمنح العضوية إلا بعد قبول الدعوة.",
+            "A secure, time-limited link is sent. Membership is granted only after acceptance.",
           )}
         </p>
         <input name="email" type="email" required autoFocus placeholder="name@company.com" className={inputCls} />

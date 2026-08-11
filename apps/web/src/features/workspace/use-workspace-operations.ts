@@ -1,8 +1,9 @@
-import type { Dispatch, SetStateAction } from "react";
+import { useRef, type Dispatch, type SetStateAction } from "react";
 import type {
   CustomField,
   Form,
   FormInput,
+  Invitation,
   Member,
   Notification,
   Organization,
@@ -19,8 +20,15 @@ import {
   updateFormStatusRecord,
   updateFormRecord,
   updateMemberRoleRecord,
+  resendInvitationRecord,
+  revokeInvitationRecord,
   updateUserSkillsRecord,
   updateWorkspaceRecord,
+  createWorkspaceRecord,
+  archiveProjectRecord,
+  deleteProjectRecord,
+  restoreProjectRecord,
+  updateProjectRecord,
 } from "@/features/workspace/actions-api";
 import { getProjects } from "@/features/workspace/api";
 
@@ -42,6 +50,7 @@ type WorkspaceOperationsInput = {
   setWorkspaces: Setter<Workspace[]>;
   setUsers: Setter<User[]>;
   setMembers: Setter<Member[]>;
+  setInvitations: Setter<Invitation[]>;
   setCustomFields: Setter<CustomField[]>;
   setForms: Setter<Form[]>;
   setNotifications: Setter<Notification[]>;
@@ -52,6 +61,7 @@ type WorkspaceOperationsInput = {
 };
 
 export function useWorkspaceOperations(input: WorkspaceOperationsInput) {
+  const workspaceSwitchSequence = useRef(0);
   const {
     activeWorkspace,
     activeOrg,
@@ -66,6 +76,7 @@ export function useWorkspaceOperations(input: WorkspaceOperationsInput) {
     setWorkspaces,
     setUsers,
     setMembers,
+    setInvitations,
     setCustomFields,
     setForms,
     setNotifications,
@@ -82,20 +93,23 @@ export function useWorkspaceOperations(input: WorkspaceOperationsInput) {
   };
 
   const switchWorkspace = async (workspace: Workspace) => {
+    const sequence = workspaceSwitchSequence.current + 1;
+    workspaceSwitchSequence.current = sequence;
     setActiveWorkspace(workspace);
     const organization = organizations.find((candidate) => candidate.id === workspace.organizationId);
     if (organization) setActiveOrg(organization);
-    const projects = await getProjects(workspace.organizationId, workspace.id);
+    setProjects([]);
+    setActiveProject(null);
+    setTasks([]);
+    const [projects] = await Promise.all([
+      getProjects(workspace.organizationId, workspace.id),
+      loadWorkspaceModules(workspace.id, workspace.organizationId, currentUser?.id),
+    ]);
+    if (sequence !== workspaceSwitchSequence.current) return;
     if (Array.isArray(projects) && projects.length) {
       setProjects(projects);
       setActiveProject(projects[0]);
-      setTasks([]);
-    } else {
-      setProjects([]);
-      setTasks([]);
-      setActiveProject(null);
     }
-    await loadWorkspaceModules(workspace.id, workspace.organizationId, currentUser?.id);
   };
 
   const markAllRead = async () => {
@@ -104,8 +118,22 @@ export function useWorkspaceOperations(input: WorkspaceOperationsInput) {
       userId: currentUser.id,
       organizationId: activeOrg.id,
       workspaceId: activeWorkspace.id,
+      markAllRead: true,
     });
     setNotifications((previous) => previous.map((notification) => ({ ...notification, isRead: true })));
+  };
+
+  const markAsRead = async (id: string) => {
+    if (!currentUser || !activeOrg || !activeWorkspace) return;
+    await markNotificationsRead({
+      userId: currentUser.id,
+      organizationId: activeOrg.id,
+      workspaceId: activeWorkspace.id,
+      id,
+    });
+    setNotifications((previous) =>
+      previous.map((notification) => (notification.id === id ? { ...notification, isRead: true } : notification)),
+    );
   };
 
   const updateMemberRole = async (id: string, role: string) => {
@@ -127,6 +155,30 @@ export function useWorkspaceOperations(input: WorkspaceOperationsInput) {
     notify(t("حُدّث الدور", "Role updated"));
   };
 
+  const resendInvitation = async (id: string) => {
+    if (!activeOrg || !activeWorkspace || !currentUser) return;
+    const updated = (await resendInvitationRecord(id, {
+      organizationId: activeOrg.id,
+      workspaceId: activeWorkspace.id,
+      actorId: currentUser.id,
+    })) as Invitation;
+    setInvitations((previous) => previous.map((invitation) => (invitation.id === id ? updated : invitation)));
+    notify(t("تم تدوير رمز الدعوة وإعادة إرسالها", "Invitation token rotated and resent"));
+  };
+
+  const revokeInvitation = async (id: string) => {
+    if (!activeOrg || !activeWorkspace || !currentUser) return;
+    await revokeInvitationRecord(id, {
+      organizationId: activeOrg.id,
+      workspaceId: activeWorkspace.id,
+      actorId: currentUser.id,
+    });
+    setInvitations((previous) =>
+      previous.map((invitation) => (invitation.id === id ? { ...invitation, status: "revoked" } : invitation)),
+    );
+    notify(t("تم إلغاء الدعوة", "Invitation revoked"));
+  };
+
   const updateUserSkills = async (userId: string, skills: string[]) => {
     if (!activeOrg || !activeWorkspace || !currentUser) return;
     setUsers((previous) => previous.map((user) => (user.id === userId ? { ...user, skills } : user)));
@@ -140,21 +192,96 @@ export function useWorkspaceOperations(input: WorkspaceOperationsInput) {
     notify(t("تم تحديث وسوم المهارات بنجاح ✓", "Skills updated ✓"));
   };
 
-  const updateWorkspace = async (patch: Partial<Workspace>) => {
-    if (!activeWorkspace || !activeOrg) return;
-    const updated = await updateWorkspaceRecord(activeWorkspace.id, {
+  const updateWorkspace = async (patch: Partial<Workspace>, targetWorkspace = activeWorkspace) => {
+    if (!targetWorkspace) return;
+    const updated = await updateWorkspaceRecord(targetWorkspace.id, {
       ...patch,
-      organizationId: activeOrg.id,
-      workspaceId: activeWorkspace.id,
+      organizationId: targetWorkspace.organizationId,
+      workspaceId: targetWorkspace.id,
       actorId: currentUser?.id,
     });
     if (updated.id) {
-      setActiveWorkspace((previous) => (previous ? { ...previous, ...updated } : previous));
+      setActiveWorkspace((previous) => (previous?.id === updated.id ? { ...previous, ...updated } : previous));
       setWorkspaces((previous) =>
         previous.map((workspace) => (workspace.id === updated.id ? { ...workspace, ...updated } : workspace)),
       );
       notify(t("تم حفظ إعدادات مساحة العمل ✓", "Workspace settings saved ✓"));
     }
+  };
+
+  const createWorkspace = async (input: { name: string; color?: string; icon?: string; description?: string }) => {
+    if (!activeOrg || !currentUser) return;
+    try {
+      const created = await createWorkspaceRecord({
+        ...input,
+        organizationId: activeOrg.id,
+        workspaceId: activeWorkspace?.id || "",
+        actorId: currentUser.id,
+      });
+      if (created.id) {
+        setWorkspaces((prev) => [...prev, created]);
+        await switchWorkspace(created);
+        notify(t("تم إنشاء مساحة العمل بنجاح ✓", "Workspace created successfully ✓"));
+      }
+    } catch (error) {
+      notify(
+        error instanceof Error ? error.message : t("تعذر إنشاء مساحة العمل", "Failed to create workspace"),
+        "error",
+      );
+      throw error;
+    }
+  };
+
+  const projectScope = () => {
+    if (!activeOrg || !activeWorkspace) return null;
+    return {
+      organizationId: activeOrg.id,
+      workspaceId: activeWorkspace.id,
+      actorId: currentUser?.id,
+    };
+  };
+
+  const replaceProject = (updated: Project) => {
+    setProjects((previous) => previous.map((project) => (project.id === updated.id ? updated : project)));
+    setActiveProject((previous) => (previous?.id === updated.id ? updated : previous));
+  };
+
+  const updateProject = async (project: Project, patch: Partial<Project>) => {
+    const scope = projectScope();
+    if (!scope) return;
+    const updated = await updateProjectRecord(project.id, {
+      ...scope,
+      ...patch,
+      expectedVersion: project.version,
+    });
+    replaceProject(updated);
+    notify(t("تم تحديث المشروع", "Project updated"));
+  };
+
+  const archiveProject = async (project: Project) => {
+    const scope = projectScope();
+    if (!scope) return;
+    const updated = await archiveProjectRecord(project, scope);
+    replaceProject(updated);
+    notify(t("تمت أرشفة المشروع", "Project archived"));
+  };
+
+  const restoreProject = async (project: Project) => {
+    const scope = projectScope();
+    if (!scope) return;
+    const updated = await restoreProjectRecord(project, scope);
+    replaceProject(updated);
+    notify(t("تمت استعادة المشروع", "Project restored"));
+  };
+
+  const deleteProject = async (project: Project) => {
+    const scope = projectScope();
+    if (!scope) return;
+    await deleteProjectRecord(project, scope);
+    setProjects((previous) => previous.filter((candidate) => candidate.id !== project.id));
+    setActiveProject((previous) => (previous?.id === project.id ? null : previous));
+    setTasks((previous) => (activeProject?.id === project.id ? [] : previous));
+    notify(t("تم حذف المشروع", "Project deleted"));
   };
 
   const createCustomField = async (field: {
@@ -236,9 +363,17 @@ export function useWorkspaceOperations(input: WorkspaceOperationsInput) {
     switchProject,
     switchWorkspace,
     markAllRead,
+    markAsRead,
     updateMemberRole,
+    resendInvitation,
+    revokeInvitation,
     updateUserSkills,
     updateWorkspace,
+    createWorkspace,
+    updateProject,
+    archiveProject,
+    restoreProject,
+    deleteProject,
     createCustomField,
     deleteCustomField,
     createForm,

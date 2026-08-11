@@ -7,6 +7,7 @@ import { PLATFORM_ADMIN_REQUIRED, PlatformAdminGuard } from "./platform-admin.gu
 import type { PlatformAdministrationService } from "./platform-administration.service";
 import { PUBLIC_ROUTE } from "./public-route.decorator";
 import { TenantGuard } from "./tenant.guard";
+import type { RequestScopeService } from "./request-scope.service";
 
 function reflector(values: Record<string, unknown>) {
   return { getAllAndOverride: (key: string) => values[key] } as never;
@@ -19,6 +20,10 @@ function executionContext(request: unknown) {
     getClass: () => class Controller {},
   } as unknown as ExecutionContext;
 }
+
+const requestScope = {
+  trustedProjectId: async () => undefined,
+} as unknown as RequestScopeService;
 
 describe("tenant and permission guards", () => {
   it("derives the actor from the session and attaches database authorization", async () => {
@@ -35,7 +40,7 @@ describe("tenant and permission guards", () => {
         };
       },
     } as unknown as AuthorizationService;
-    const guard = new TenantGuard(reflector({ [PUBLIC_ROUTE]: false }), authorization);
+    const guard = new TenantGuard(reflector({ [PUBLIC_ROUTE]: false }), authorization, requestScope);
     const request = {
       url: "/projects",
       auth: { userId: "trusted-user", sessionId: "session-1" },
@@ -63,7 +68,7 @@ describe("tenant and permission guards", () => {
     const authorization = {
       resolve: async () => ({ member: false, allowed: false, roles: [], permissions: [] }),
     } as unknown as AuthorizationService;
-    const guard = new TenantGuard(reflector({ [PUBLIC_ROUTE]: false }), authorization);
+    const guard = new TenantGuard(reflector({ [PUBLIC_ROUTE]: false }), authorization, requestScope);
     await assert.rejects(
       () =>
         guard.canActivate(

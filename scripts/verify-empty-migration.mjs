@@ -10,6 +10,17 @@ const sourceUrl = process.env.DATABASE_URL;
 if (!sourceUrl) throw new Error("DATABASE_URL is required to verify migrations.");
 const migrationJournal = JSON.parse(await readFile(resolve("packages/database/migrations/meta/_journal.json"), "utf8"));
 const expectedMigrationCount = migrationJournal.entries.length;
+const latestMigration = migrationJournal.entries.at(-1);
+if (!latestMigration?.tag) throw new Error("The migration journal does not contain a latest migration.");
+const latestSnapshot = JSON.parse(
+  await readFile(
+    resolve(`packages/database/migrations/meta/${latestMigration.tag.split("_")[0]}_snapshot.json`),
+    "utf8",
+  ),
+);
+const expectedPublicTables = Object.keys(latestSnapshot.tables)
+  .map((table) => table.replace(/^public\./, ""))
+  .sort();
 const verifyFullCi = process.argv.includes("--ci");
 
 const databaseName = `calmboard_migration_check_${process.pid}_${Date.now()}`;
@@ -53,7 +64,9 @@ try {
       resolve("apps/api/integration/mfa-flow.test.ts"),
       resolve("apps/api/integration/oauth-flow.test.ts"),
       resolve("apps/api/integration/integration-oauth-flow.test.ts"),
+      resolve("apps/api/integration/project-authorization-scope.test.ts"),
       resolve("packages/database/integration/billing-subscriptions.test.ts"),
+      resolve("packages/database/integration/data-lifecycle.test.ts"),
       resolve("packages/database/integration/dead-letter-queue.test.ts"),
       resolve("packages/database/integration/export-jobs.test.ts"),
       resolve("packages/database/integration/integration-credentials.test.ts"),
@@ -78,6 +91,7 @@ try {
       resolve("packages/database/integration/task-dependencies.test.ts"),
       resolve("packages/database/integration/task-schedules.test.ts"),
       resolve("packages/database/integration/task-workflows.test.ts"),
+      resolve("packages/database/integration/sprint.test.ts"),
       resolve("packages/database/integration/tenant-isolation.test.ts"),
       resolve("packages/database/integration/usage-limits.test.ts"),
     ],
@@ -106,6 +120,8 @@ try {
       resolve("apps/worker/src/automation-events.test.ts"),
       resolve("apps/worker/src/form-submissions.test.ts"),
       resolve("apps/worker/src/billing-grace-periods.test.ts"),
+      resolve("apps/worker/src/data-lifecycle.test.ts"),
+      resolve("apps/worker/src/organization-purge.test.ts"),
     ],
     {
       cwd: process.cwd(),
@@ -201,16 +217,69 @@ try {
 
   target = new Pool({ connectionString: targetUrl.toString(), max: 24 });
   const tables = await target.query(
-    "select count(*)::int as count from information_schema.tables where table_schema = 'public' and table_type = 'BASE TABLE'",
+    "select table_name from information_schema.tables where table_schema = 'public' and table_type = 'BASE TABLE' order by table_name",
   );
   const journal = await target.query('select count(*)::int as count from drizzle."__drizzle_migrations"');
-  const tableCount = tables.rows[0]?.count ?? 0;
+  const migratedPublicTables = tables.rows.map((row) => row.table_name);
+  const tableCount = migratedPublicTables.length;
   const migrationCount = journal.rows[0]?.count ?? 0;
-  if (tableCount !== 79 || migrationCount !== expectedMigrationCount) {
-    throw new Error(
-      `Unexpected migrated state: expected 79 tables and ${expectedMigrationCount} journal rows, received ${tableCount} and ${migrationCount}.`,
-    );
-  }
+  assert.deepEqual(
+    migratedPublicTables,
+    expectedPublicTables,
+    "Migrated tables must exactly match the latest snapshot.",
+  );
+  assert.equal(migrationCount, expectedMigrationCount, "Every journal migration must execute exactly once.");
+
+  const sprintSecurity = await target.query(
+    `select c.relname as table_name, c.relrowsecurity as rls_enabled, c.relforcerowsecurity as rls_forced,
+            count(p.policyname)::int as policy_count
+       from pg_class c
+       join pg_namespace n on n.oid = c.relnamespace
+       left join pg_policies p on p.schemaname = n.nspname and p.tablename = c.relname
+      where n.nspname = 'public'
+        and c.relname = any($1::text[])
+      group by c.relname, c.relrowsecurity, c.relforcerowsecurity
+      order by c.relname`,
+    [["sprint_analytics_events", "sprint_snapshots", "sprints", "task_sprint_assignments"]],
+  );
+  assert.deepEqual(
+    sprintSecurity.rows,
+    ["sprint_analytics_events", "sprint_snapshots", "sprints", "task_sprint_assignments"].map((tableName) => ({
+      table_name: tableName,
+      rls_enabled: true,
+      rls_forced: true,
+      policy_count: 1,
+    })),
+    "Every Sprint table must enforce one tenant-isolation RLS policy.",
+  );
+
+  const requiredSprintObjects = [
+    "sprint_analytics_events_event_sequence_unique",
+    "sprint_analytics_events_project_idx",
+    "sprint_analytics_events_sprint_idx",
+    "sprint_analytics_events_task_idx",
+    "sprint_snapshots_project_type_captured_idx",
+    "sprint_snapshots_type_unique",
+    "sprints_active_unique",
+    "sprints_project_idx",
+    "sprints_project_status_idx",
+    "task_sprint_assignments_active_unique",
+    "task_sprint_assignments_project_idx",
+    "task_sprint_assignments_sprint_idx",
+    "task_sprint_assignments_task_idx",
+    "tasks_sprint_id_idx",
+  ];
+  const sprintObjects = await target.query(
+    `select indexname from pg_indexes
+      where schemaname = 'public' and indexname = any($1::text[])
+      order by indexname`,
+    [requiredSprintObjects],
+  );
+  assert.deepEqual(
+    sprintObjects.rows.map((row) => row.indexname),
+    requiredSprintObjects.toSorted(),
+    "Sprint indexes and unique constraints must match the approved migration chain.",
+  );
 
   const billingCatalog = await target.query(
     `select
@@ -256,30 +325,39 @@ try {
 
   const authorizationDefaults = await target.query(
     `select
-       (select count(*)::int from permissions) as permission_count,
        (select count(*)::int from roles where is_system = true) as system_role_count,
        (select count(*)::int
-        from role_permissions role_permission
-        join roles role on role.id = role_permission.role_id
-        where role.key = 'owner' and role.is_system = true) as owner_permission_count`,
+          from permissions
+         where key in ('sprints.view', 'sprints.manage')) as sprint_permission_count,
+       (select count(*)::int
+          from permissions permission
+         where not exists (
+           select 1
+             from role_permissions role_permission
+             join roles role on role.id = role_permission.role_id
+            where role_permission.permission_id = permission.id
+              and role.key = 'owner'
+              and role.is_system = true
+         )) as owner_missing_permission_count`,
   );
   assert.deepEqual(authorizationDefaults.rows[0], {
-    permission_count: 30,
     system_role_count: 6,
-    owner_permission_count: 30,
+    sprint_permission_count: 2,
+    owner_missing_permission_count: 0,
   });
 
   const readOnlyRoleDefaults = await target.query(
-    `select role.key, count(role_permission.id)::int as permission_count
+    `select role.key, array_agg(permission.key order by permission.key) filter (where permission.key is not null) as permissions
      from roles role
      left join role_permissions role_permission on role_permission.role_id = role.id
+     left join permissions permission on permission.id = role_permission.permission_id
      where role.is_system = true and role.key in ('guest', 'viewer')
      group by role.key
      order by role.key`,
   );
   assert.deepEqual(readOnlyRoleDefaults.rows, [
-    { key: "guest", permission_count: 0 },
-    { key: "viewer", permission_count: 0 },
+    { key: "guest", permissions: ["sprints.view"] },
+    { key: "viewer", permissions: ["sprints.view"] },
   ]);
 
   const primaryBinding = await target.query(

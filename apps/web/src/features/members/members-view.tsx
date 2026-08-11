@@ -1,4 +1,5 @@
 "use client";
+import { useState } from "react";
 import type { ViewCtx } from "@/lib/types";
 import { Avatar, Badge, Bar, Btn, Card, SectionTitle } from "@/components/ui";
 import { IconMail, IconPlus, IconShield } from "@/components/icons";
@@ -7,6 +8,16 @@ const dateLocale = (locale: string) => (locale === "ar" ? "ar-EG" : "en-US");
 
 /* ================= Members View (Skills Matrix & Workload) ================= */
 export function MembersView({ ctx }: { ctx: ViewCtx }) {
+  const [pendingInvitationAction, setPendingInvitationAction] = useState<string | null>(null);
+  const invitationStatus = (status: string) =>
+    ({
+      pending: ctx.t("معلقة", "Pending"),
+      resend_required: ctx.t("تحتاج إعادة إرسال", "Resend required"),
+      expired: ctx.t("منتهية", "Expired"),
+      accepted: ctx.t("مقبولة", "Accepted"),
+      declined: ctx.t("مرفوضة", "Declined"),
+      revoked: ctx.t("ملغاة", "Revoked"),
+    })[status] ?? status;
   const allSkills = [
     "React",
     "TypeScript",
@@ -166,14 +177,63 @@ export function MembersView({ ctx }: { ctx: ViewCtx }) {
                 key={inv.id}
                 className="flex items-center justify-between rounded-xl border border-amber-200 bg-amber-50 dark:border-amber-500/20 dark:bg-amber-500/[0.06] px-4 py-3 text-[13px]"
               >
-                <span className="flex items-center gap-2 text-amber-900 dark:text-amber-200">
+                <span className="flex min-w-0 items-center gap-2 text-amber-900 dark:text-amber-200">
                   <IconMail size={14} />
-                  {inv.email}
+                  <bdi dir="ltr" className="truncate">
+                    {inv.email}
+                  </bdi>
                 </span>
-                <span className="flex items-center gap-2">
-                  <Badge tone="amber">{inv.role}</Badge>
-                  <span className="text-[10.5px] text-amber-700 dark:text-amber-400/70">{inv.status}</span>
-                </span>
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  <div className="text-end">
+                    <div className="flex items-center justify-end gap-2">
+                      <Badge tone="amber">{inv.role}</Badge>
+                      <span className="text-[10.5px] text-amber-700 dark:text-amber-400/70">
+                        {invitationStatus(inv.status)}
+                      </span>
+                    </div>
+                    <div className="mt-1 text-[10px] text-slate-500 dark:text-zinc-500">
+                      {ctx.t("أُرسلت", "Invited")} {new Date(inv.createdAt).toLocaleDateString(dateLocale(ctx.locale))}
+                      {inv.expiresAt
+                        ? ` · ${ctx.t("تنتهي", "Expires")} ${new Date(inv.expiresAt).toLocaleDateString(dateLocale(ctx.locale))}`
+                        : ` · ${ctx.t("يلزم إنشاء رمز آمن", "Secure token required")}`}
+                    </div>
+                  </div>
+                  {["pending", "expired", "resend_required"].includes(inv.status) && (
+                    <>
+                      <Btn
+                        size="sm"
+                        variant="outline"
+                        disabled={pendingInvitationAction === inv.id || !ctx.can("members.invite")}
+                        onClick={async () => {
+                          setPendingInvitationAction(inv.id);
+                          try {
+                            await ctx.resendInvitation(inv.id);
+                          } finally {
+                            setPendingInvitationAction(null);
+                          }
+                        }}
+                      >
+                        {ctx.t("إعادة إرسال", "Resend")}
+                      </Btn>
+                      <Btn
+                        size="sm"
+                        variant="danger"
+                        disabled={pendingInvitationAction === inv.id || !ctx.can("members.manage")}
+                        onClick={async () => {
+                          if (!confirm(ctx.t("هل تريد إلغاء هذه الدعوة؟", "Revoke this invitation?"))) return;
+                          setPendingInvitationAction(inv.id);
+                          try {
+                            await ctx.revokeInvitation(inv.id);
+                          } finally {
+                            setPendingInvitationAction(null);
+                          }
+                        }}
+                      >
+                        {ctx.t("إلغاء الدعوة", "Revoke")}
+                      </Btn>
+                    </>
+                  )}
+                </div>
               </div>
             ))}
           </div>

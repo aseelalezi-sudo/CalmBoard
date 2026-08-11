@@ -1,6 +1,6 @@
 "use client";
-import { useState, type CSSProperties } from "react";
-import type { Comment, Task, ViewCtx, Workspace } from "@/lib/types";
+import { useEffect, useState, type CSSProperties } from "react";
+import type { Comment, Task, User, ViewCtx, Workspace } from "@/lib/types";
 import { PRIORITY_CONFIG, STATUS_CONFIG } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { areaCls, Avatar, Badge, Bar, Btn, Field, inputCls, selectCls } from "@/components/ui";
@@ -18,6 +18,7 @@ import {
   IconSubtask,
   IconX,
 } from "@/components/icons";
+import { useMentionUsers } from "@/features/comments/use-mention-users";
 
 /* ================= Task Drawer ================= */
 export function TaskDrawer({
@@ -39,12 +40,99 @@ export function TaskDrawer({
   subtasks: Task[];
   addSubtask: (t: string) => void;
   toggleSubtask: (s: Task) => void;
-  addComment: (c: string) => void;
-  editComment: (id: string, content: string) => void;
+  addComment: (c: string, options?: { parentId?: string; mentionedUserIds?: string[] }) => void | Promise<void>;
+  editComment: (id: string, content: string, mentionedUserIds?: string[]) => void | Promise<void>;
   logTime: (id: string, m: number, d: string) => void;
 }) {
   const [comment, setComment] = useState("");
+  const [replyTo, setReplyTo] = useState<Comment | null>(null);
+  const [selectedMentions, setSelectedMentions] = useState<Array<Pick<User, "id" | "name">>>([]);
+  const [mentionIndex, setMentionIndex] = useState(0);
+  const [editingComment, setEditingComment] = useState<Comment | null>(null);
+  const [editText, setEditText] = useState("");
+  const [editSelectedMentions, setEditSelectedMentions] = useState<Array<Pick<User, "id" | "name">>>([]);
+  const [editMentionIndex, setEditMentionIndex] = useState(0);
+  const mentionMatch = /(?:^|\s)@([^\s@]*)$/.exec(comment);
+  const mentionQuery = mentionMatch?.[1] ?? "";
+  const { users: mentionUsers, clear: clearMentionUsers } = useMentionUsers({
+    taskId: task?.id,
+    organizationId: ctx.activeOrg?.id,
+    workspaceId: ctx.activeWorkspace?.id,
+    actorId: ctx.currentUser?.id,
+    query: mentionQuery,
+    enabled: mentionMatch !== null,
+  });
+  const editMentionMatch = /(?:^|\s)@([^\s@]*)$/.exec(editText);
+  const editMentionQuery = editMentionMatch?.[1] ?? "";
+  const { users: editMentionUsers, clear: clearEditMentionUsers } = useMentionUsers({
+    taskId: task?.id,
+    organizationId: ctx.activeOrg?.id,
+    workspaceId: ctx.activeWorkspace?.id,
+    actorId: ctx.currentUser?.id,
+    query: editMentionQuery,
+    enabled: editingComment !== null && editMentionMatch !== null,
+  });
+  useEffect(() => setMentionIndex(0), [mentionQuery]);
+  useEffect(() => setEditMentionIndex(0), [editMentionQuery]);
   if (!task) return null;
+  const chooseMention = (user: Pick<User, "id" | "name">) => {
+    setComment((current) =>
+      current.replace(/(?:^|\s)@([^\s@]*)$/, (match) => `${match.startsWith(" ") ? " " : ""}@[${user.name}] `),
+    );
+    setSelectedMentions((current) => (current.some((item) => item.id === user.id) ? current : [...current, user]));
+    clearMentionUsers();
+  };
+  const submitComment = async () => {
+    if (!comment.trim()) return;
+    const activeMentions = selectedMentions
+      .filter((user) => comment.includes(`@[${user.name}]`))
+      .map((user) => user.id);
+    await addComment(comment.trim(), {
+      ...(replyTo ? { parentId: replyTo.id } : {}),
+      mentionedUserIds: activeMentions,
+    });
+    setComment("");
+    setSelectedMentions([]);
+    setReplyTo(null);
+  };
+  const startEditingComment = (item: Comment) => {
+    const mentioned = new Set(item.mentionedUserIds ?? []);
+    setEditingComment(item);
+    setEditText(item.content);
+    setEditSelectedMentions(
+      ctx.members
+        .filter((member) => mentioned.has(member.userId) && member.user)
+        .map((member) => ({ id: member.userId, name: member.user!.name })),
+    );
+  };
+  const chooseEditMention = (user: Pick<User, "id" | "name">) => {
+    setEditText((current) =>
+      current.replace(/(?:^|\s)@([^\s@]*)$/, (match) => `${match.startsWith(" ") ? " " : ""}@[${user.name}] `),
+    );
+    setEditSelectedMentions((current) => (current.some((item) => item.id === user.id) ? current : [...current, user]));
+    clearEditMentionUsers();
+  };
+  const submitEdit = async () => {
+    if (!editingComment || !editText.trim()) return;
+    const activeMentions = editSelectedMentions
+      .filter((user) => editText.includes(`@[${user.name}]`))
+      .map((user) => user.id);
+    await editComment(editingComment.id, editText.trim(), activeMentions);
+    setEditingComment(null);
+    setEditText("");
+    setEditSelectedMentions([]);
+  };
+  const topLevelComments = comments.filter((item) => !item.parentId);
+  const orphanReplies = comments.filter(
+    (item) => item.parentId && !topLevelComments.some((parent) => parent.id === item.parentId),
+  );
+  const threadedComments = topLevelComments
+    .sort((a, b) => Number(Boolean(b.isPinned)) - Number(Boolean(a.isPinned)))
+    .flatMap((parent) => [parent, ...comments.filter((reply) => reply.parentId === parent.id)])
+    .concat(orphanReplies);
+  const currentMembershipRole = ctx.members.find((member) => member.userId === ctx.currentUser?.id)?.role;
+  const canModerateComments = currentMembershipRole === "owner" || currentMembershipRole === "admin";
+  const canModifyComment = (item: Comment) => canModerateComments || item.userId === ctx.currentUser?.id;
   const st = STATUS_CONFIG[task.status];
   const pr = PRIORITY_CONFIG[task.priority];
   return (
@@ -717,19 +805,76 @@ export function TaskDrawer({
               <div className="flex gap-3">
                 <Avatar src={ctx.currentUser?.avatarUrl} name={ctx.currentUser?.name} size={30} />
                 <div className="flex-1">
+                  {replyTo && (
+                    <div className="mb-2 flex items-center justify-between rounded-lg bg-indigo-50 px-3 py-2 text-[11px] text-indigo-800 dark:bg-indigo-500/10 dark:text-indigo-200">
+                      <span>
+                        {ctx.t("رد على", "Replying to")} {replyTo.user?.name}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setReplyTo(null)}
+                        aria-label={ctx.t("إلغاء الرد", "Cancel reply")}
+                      >
+                        <IconX size={13} />
+                      </button>
+                    </div>
+                  )}
                   <textarea
                     name="auto-field-489335h"
                     value={comment}
                     onChange={(e) => setComment(e.target.value)}
+                    aria-label={ctx.t("نص التعليق", "Comment text")}
+                    aria-autocomplete="list"
                     placeholder={ctx.t("اكتب تعليقاً… (@ للإشارة)", "Write a comment… (@ to mention)")}
                     className={areaCls}
                     onKeyDown={(e) => {
                       if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                        addComment(comment);
-                        setComment("");
+                        void submitComment();
+                      } else if (mentionUsers.length && e.key === "ArrowDown") {
+                        e.preventDefault();
+                        setMentionIndex((current) => (current + 1) % mentionUsers.length);
+                      } else if (mentionUsers.length && e.key === "ArrowUp") {
+                        e.preventDefault();
+                        setMentionIndex((current) => (current - 1 + mentionUsers.length) % mentionUsers.length);
+                      } else if (mentionUsers.length && e.key === "Enter") {
+                        e.preventDefault();
+                        const selected = mentionUsers[mentionIndex];
+                        if (selected) chooseMention(selected);
                       }
                     }}
                   />
+                  {mentionUsers.length > 0 && (
+                    <div
+                      role="listbox"
+                      aria-label={ctx.t("أعضاء يمكن الإشارة إليهم", "Mentionable members")}
+                      className="mt-1 max-h-48 overflow-y-auto rounded-xl border border-slate-200 bg-white p-1 shadow-xl dark:border-white/10 dark:bg-zinc-900"
+                    >
+                      {mentionUsers.map((user, index) => (
+                        <button
+                          key={user.id}
+                          type="button"
+                          role="option"
+                          aria-selected={index === mentionIndex}
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={() => chooseMention(user)}
+                          className={cn(
+                            "flex w-full items-center gap-2 rounded-lg px-2 py-2 text-start text-xs",
+                            index === mentionIndex
+                              ? "bg-indigo-50 text-indigo-800 dark:bg-indigo-500/15 dark:text-indigo-200"
+                              : "text-slate-700 hover:bg-slate-50 dark:text-zinc-300 dark:hover:bg-white/5",
+                          )}
+                        >
+                          <Avatar src={user.avatarUrl} name={user.name} size={24} />
+                          <span className="min-w-0">
+                            <strong className="block truncate">{user.name}</strong>
+                            <bdi dir="ltr" className="block truncate text-[10px] opacity-70">
+                              {user.email}
+                            </bdi>
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
                   <div className="mt-2 flex items-center justify-between">
                     <span className="text-[10.5px] text-zinc-600">{ctx.t("⌘+Enter للإرسال", "⌘+Enter to send")}</span>
                     <div className="flex gap-1.5">
@@ -747,15 +892,18 @@ export function TaskDrawer({
                         />
                         <IconPaperclip size={13} />
                       </label>
-                      <Btn size="sm" variant="ghost" onClick={() => setComment((p) => p + " @سارة الخالدي ")}>
+                      <Btn
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setComment((p) => `${p}${p && !p.endsWith(" ") ? " " : ""}@`)}
+                      >
                         <IconAt size={13} />
                       </Btn>
                       <Btn
                         size="sm"
                         variant="glow"
                         onClick={() => {
-                          addComment(comment);
-                          setComment("");
+                          void submitComment();
                         }}
                       >
                         <IconSend size={13} />
@@ -766,47 +914,45 @@ export function TaskDrawer({
                 </div>
               </div>
               <div className="mt-5 space-y-4">
-                {[...comments]
-                  .sort((a, b) => (b.isPinned ? 1 : 0) - (a.isPinned ? 1 : 0))
-                  .map((c) => (
-                    <div
-                      key={c.id}
-                      className={`flex gap-3 rounded-xl p-2.5 transition ${c.isPinned ? "border border-amber-500/30 bg-amber-500/[0.05]" : ""}`}
-                    >
-                      <Avatar src={c.user?.avatarUrl} name={c.user?.name} size={30} />
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="flex items-center gap-2">
-                            <span className="text-[12.5px] font-semibold text-zinc-200">{c.user?.name}</span>
-                            {c.isPinned && (
-                              <Badge tone="amber" className="!px-1.5 !text-[10px]">
-                                📌 {ctx.t("مثبت", "Pinned")}
-                              </Badge>
-                            )}
-                            <span className="text-[10px] text-zinc-600">
-                              {new Date(c.createdAt).toLocaleString(ctx.locale === "ar" ? "ar-EG" : "en-US")}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-1 opacity-80 hover:opacity-100">
+                {threadedComments.map((c) => (
+                  <div
+                    key={c.id}
+                    className={`flex gap-3 rounded-xl p-2.5 transition ${c.parentId ? "ms-8 border-s-2 border-indigo-200 bg-indigo-50/40 dark:border-indigo-500/30 dark:bg-indigo-500/[0.04]" : ""} ${c.isPinned ? "border border-amber-500/30 bg-amber-500/[0.05]" : ""}`}
+                  >
+                    <Avatar src={c.user?.avatarUrl} name={c.user?.name} size={30} />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[12.5px] font-semibold text-zinc-200">{c.user?.name}</span>
+                          {c.isPinned && (
+                            <Badge tone="amber" className="!px-1.5 !text-[10px]">
+                              📌 {ctx.t("مثبت", "Pinned")}
+                            </Badge>
+                          )}
+                          <span className="text-[10px] text-zinc-600">
+                            {new Date(c.createdAt).toLocaleString(ctx.locale === "ar" ? "ar-EG" : "en-US")}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1 opacity-80 hover:opacity-100">
+                          {canModerateComments && (
                             <button
                               onClick={() => ctx.togglePinComment(c.id, !c.isPinned)}
-                              className="text-[11px] text-zinc-400 hover:text-amber-400 px-1"
+                              className="px-1 text-[11px] text-zinc-400 hover:text-amber-400"
                               title={ctx.t("تثبيت / إلغاء", "Pin / Unpin")}
                             >
                               {c.isPinned ? "📌" : "📍"}
                             </button>
+                          )}
+                          {canModifyComment(c) && (
                             <button
-                              onClick={() => {
-                                const newText = prompt(ctx.t("تعديل التعليق:", "Edit comment:"), c.content);
-                                if (newText && newText.trim()) {
-                                  editComment(c.id, newText.trim());
-                                }
-                              }}
-                              className="text-[11px] text-zinc-400 hover:text-indigo-400 px-1"
+                              onClick={() => startEditingComment(c)}
+                              className="px-1 text-[11px] text-zinc-400 hover:text-indigo-400"
                               title={ctx.t("تعديل", "Edit")}
                             >
                               ✏️
                             </button>
+                          )}
+                          {ctx.can("tasks.create") && (
                             <button
                               onClick={() => {
                                 if (ctx.createTask) {
@@ -822,37 +968,110 @@ export function TaskDrawer({
                             >
                               ✨
                             </button>
+                          )}
+                          {canModifyComment(c) && (
                             <button
                               onClick={() => ctx.deleteComment(c.id)}
-                              className="text-[11px] text-zinc-400 hover:text-rose-400 px-1"
+                              className="px-1 text-[11px] text-zinc-400 hover:text-rose-400"
                               title={ctx.t("حذف", "Delete")}
                             >
                               🗑️
                             </button>
+                          )}
+                        </div>
+                      </div>
+                      {editingComment?.id === c.id ? (
+                        <div className="relative mt-2 space-y-2">
+                          <textarea
+                            value={editText}
+                            onChange={(event) => setEditText(event.target.value)}
+                            aria-label={ctx.t("تعديل نص التعليق", "Edit comment text")}
+                            aria-autocomplete="list"
+                            className={areaCls}
+                            onKeyDown={(event) => {
+                              if (editMentionUsers.length && event.key === "ArrowDown") {
+                                event.preventDefault();
+                                setEditMentionIndex((current) => (current + 1) % editMentionUsers.length);
+                              } else if (editMentionUsers.length && event.key === "ArrowUp") {
+                                event.preventDefault();
+                                setEditMentionIndex(
+                                  (current) => (current - 1 + editMentionUsers.length) % editMentionUsers.length,
+                                );
+                              } else if (editMentionUsers.length && event.key === "Enter") {
+                                event.preventDefault();
+                                const selected = editMentionUsers[editMentionIndex];
+                                if (selected) chooseEditMention(selected);
+                              } else if (event.key === "Escape") {
+                                setEditingComment(null);
+                              }
+                            }}
+                          />
+                          {editMentionUsers.length > 0 && (
+                            <div
+                              role="listbox"
+                              className="absolute z-20 w-full rounded-xl border border-slate-200 bg-white p-1 shadow-xl dark:border-white/10 dark:bg-zinc-900"
+                            >
+                              {editMentionUsers.map((user, index) => (
+                                <button
+                                  key={user.id}
+                                  type="button"
+                                  role="option"
+                                  aria-selected={index === editMentionIndex}
+                                  onMouseDown={(event) => event.preventDefault()}
+                                  onClick={() => chooseEditMention(user)}
+                                  className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-start text-xs ${index === editMentionIndex ? "bg-indigo-50 text-indigo-800 dark:bg-indigo-500/15 dark:text-indigo-200" : "text-slate-700 dark:text-zinc-300"}`}
+                                >
+                                  <Avatar src={user.avatarUrl} name={user.name} size={24} />
+                                  <span>{user.name}</span>
+                                  <bdi dir="ltr" className="ms-auto text-[10px] opacity-60">
+                                    {user.email}
+                                  </bdi>
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                          <div className="flex gap-2">
+                            <Btn size="sm" variant="glow" onClick={() => void submitEdit()}>
+                              {ctx.t("حفظ", "Save")}
+                            </Btn>
+                            <Btn size="sm" variant="ghost" onClick={() => setEditingComment(null)}>
+                              {ctx.t("إلغاء", "Cancel")}
+                            </Btn>
                           </div>
                         </div>
+                      ) : (
                         <div className="mt-1.5 rounded-xl rounded-ss-sm border border-white/[0.06] bg-white/[0.03] px-3.5 py-2.5 text-[12.5px] leading-relaxed text-zinc-300">
                           {c.content}
                         </div>
-                        <div className="mt-2 flex items-center gap-1.5 flex-wrap">
-                          {["👍", "❤️", "🎉", "🚀", "👀"].map((em) => {
-                            const list = (c.reactions || {})[em] || [];
-                            const active = ctx.currentUser && list.includes(ctx.currentUser.name);
-                            return (
-                              <button
-                                key={em}
-                                onClick={() => ctx.toggleReaction(c.id, em)}
-                                className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] border transition ${active ? "border-indigo-500/40 bg-indigo-500/20 text-indigo-300" : "border-white/10 bg-white/[0.03] text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.06]"}`}
-                              >
-                                <span>{em}</span>
-                                {list.length > 0 && <span className="mono font-bold tabular">{list.length}</span>}
-                              </button>
-                            );
-                          })}
-                        </div>
+                      )}
+                      <div className="mt-2 flex items-center gap-1.5 flex-wrap">
+                        {!c.parentId && (
+                          <button
+                            type="button"
+                            onClick={() => setReplyTo(c)}
+                            className="rounded-full px-2 py-0.5 text-[11px] font-semibold text-indigo-600 hover:bg-indigo-50 dark:text-indigo-300 dark:hover:bg-indigo-500/10"
+                          >
+                            {ctx.t("رد", "Reply")}
+                          </button>
+                        )}
+                        {["👍", "❤️", "🎉", "🚀", "👀"].map((em) => {
+                          const list = (c.reactions || {})[em] || [];
+                          const active = ctx.currentUser && list.includes(ctx.currentUser.name);
+                          return (
+                            <button
+                              key={em}
+                              onClick={() => ctx.toggleReaction(c.id, em)}
+                              className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] border transition ${active ? "border-indigo-500/40 bg-indigo-500/20 text-indigo-300" : "border-white/10 bg-white/[0.03] text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.06]"}`}
+                            >
+                              <span>{em}</span>
+                              {list.length > 0 && <span className="mono font-bold tabular">{list.length}</span>}
+                            </button>
+                          );
+                        })}
                       </div>
                     </div>
-                  ))}
+                  </div>
+                ))}
                 {comments.length === 0 && (
                   <div className="py-4 text-center text-[12px] text-zinc-600">
                     {ctx.t("لا تعليقات بعد", "No comments yet")}

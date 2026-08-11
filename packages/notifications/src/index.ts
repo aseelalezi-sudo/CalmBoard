@@ -24,6 +24,17 @@ export type AuthEmailEncryptionEnvelope = {
   encryptionKeyVersion: number;
 };
 
+export type InvitationEmailIdentity = {
+  id: string;
+  organizationId: string;
+  workspaceId: string | null;
+  invitationId: string;
+  tokenVersion: number;
+};
+
+export type InvitationEmailPayload = AuthEmailPayload;
+export type InvitationEmailEncryptionEnvelope = AuthEmailEncryptionEnvelope;
+
 export class AuthEmailEncryptionError extends Error {
   constructor(message: string, options?: ErrorOptions) {
     super(message, options);
@@ -78,6 +89,20 @@ function loadKeyring(env: NodeJS.ProcessEnv) {
 function aad(identity: AuthEmailIdentity, keyVersion: number) {
   return Buffer.from(
     [identity.id, identity.userId, identity.authTokenId, identity.purpose, keyVersion].join("\u001f"),
+    "utf8",
+  );
+}
+
+function invitationAad(identity: InvitationEmailIdentity, keyVersion: number) {
+  return Buffer.from(
+    [
+      identity.id,
+      identity.organizationId,
+      identity.workspaceId ?? "",
+      identity.invitationId,
+      identity.tokenVersion,
+      keyVersion,
+    ].join("\u001f"),
     "utf8",
   );
 }
@@ -144,5 +169,51 @@ export function decryptAuthEmailPayload(
   } catch (error) {
     if (error instanceof AuthEmailEncryptionError) throw error;
     throw new AuthEmailEncryptionError("Auth email payload authentication failed", { cause: error });
+  }
+}
+
+export function encryptInvitationEmailPayload(
+  identity: InvitationEmailIdentity,
+  payload: InvitationEmailPayload,
+  env: NodeJS.ProcessEnv = process.env,
+): InvitationEmailEncryptionEnvelope {
+  if (!Number.isSafeInteger(identity.tokenVersion) || identity.tokenVersion <= 0) {
+    throw new AuthEmailEncryptionError("Invitation email token version must be a positive integer");
+  }
+  const normalized = normalizePayload(payload);
+  const { keyring, activeVersion } = loadKeyring(env);
+  const initializationVector = randomBytes(12);
+  const cipher = createCipheriv("aes-256-gcm", keyring.get(activeVersion)!, initializationVector);
+  cipher.setAAD(invitationAad(identity, activeVersion));
+  const encrypted = Buffer.concat([cipher.update(JSON.stringify(normalized), "utf8"), cipher.final()]);
+  return {
+    encryptedPayload: encrypted.toString("base64"),
+    initializationVector: initializationVector.toString("base64"),
+    authenticationTag: cipher.getAuthTag().toString("base64"),
+    encryptionAlgorithm: "aes-256-gcm",
+    encryptionKeyVersion: activeVersion,
+  };
+}
+
+export function decryptInvitationEmailPayload(
+  identity: InvitationEmailIdentity,
+  envelope: InvitationEmailEncryptionEnvelope,
+  env: NodeJS.ProcessEnv = process.env,
+) {
+  const { keyring } = loadKeyring(env);
+  const key = keyring.get(envelope.encryptionKeyVersion);
+  if (!key) throw new AuthEmailEncryptionError("The invitation email encryption key version is unavailable");
+  try {
+    const decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(envelope.initializationVector, "base64"));
+    decipher.setAAD(invitationAad(identity, envelope.encryptionKeyVersion));
+    decipher.setAuthTag(Buffer.from(envelope.authenticationTag, "base64"));
+    const plaintext = Buffer.concat([
+      decipher.update(Buffer.from(envelope.encryptedPayload, "base64")),
+      decipher.final(),
+    ]).toString("utf8");
+    return normalizePayload(JSON.parse(plaintext) as InvitationEmailPayload);
+  } catch (error) {
+    if (error instanceof AuthEmailEncryptionError) throw error;
+    throw new AuthEmailEncryptionError("Invitation email payload authentication failed", { cause: error });
   }
 }

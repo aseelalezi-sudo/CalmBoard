@@ -3,22 +3,26 @@ import { attachmentCleanupJobName } from "./attachment-cleanup.js";
 import { automationDailyJobName, automationEventJobName } from "./automation-events.js";
 import { formSubmissionJobName } from "./form-submissions.js";
 import { authEmailJobName } from "./auth-email.js";
+import { invitationEmailJobName } from "./invitation-email.js";
 import { notificationEmailJobName } from "./notification-email.js";
 import { taskReminderJobName } from "./task-reminders.js";
 import { workspaceExportJobName } from "./workspace-exports.js";
 import { scheduledReportJobName } from "./scheduled-reports.js";
 import { billingGracePeriodJobName } from "./billing-grace-periods.js";
+import { dataLifecycleJobName } from "./data-lifecycle.js";
 
 export const attachmentCleanupSchedulerId = "attachment-orphan-cleanup-schedule";
 export const taskReminderSchedulerId = "task-reminder-dispatch-schedule";
 export const notificationEmailSchedulerId = "notification-email-delivery-schedule";
 export const authEmailSchedulerId = "auth-email-delivery-schedule";
+export const invitationEmailSchedulerId = "invitation-email-delivery-schedule";
 export const automationEventSchedulerId = "automation-event-processing-schedule";
 export const automationDailySchedulerId = "automation-daily-enqueue-schedule";
 export const formSubmissionSchedulerId = "form-submission-task-creation-schedule";
 export const workspaceExportSchedulerId = "workspace-export-processing-schedule";
 export const scheduledReportSchedulerId = "scheduled-report-enqueue-schedule";
 export const billingGracePeriodSchedulerId = "billing-grace-period-expiry-schedule";
+export const dataLifecycleSchedulerId = "data-lifecycle-processing-schedule";
 
 export async function registerAttachmentCleanupSchedule(queue: Queue, env: NodeJS.ProcessEnv = process.env) {
   const interval = Number(env.ATTACHMENT_CLEANUP_INTERVAL_MS ?? 15 * 60 * 1000);
@@ -93,6 +97,27 @@ export async function registerAuthEmailSchedule(queue: Queue, env: NodeJS.Proces
     { every: interval },
     {
       name: authEmailJobName,
+      data: {},
+      opts: {
+        attempts: 5,
+        backoff: { type: "exponential", delay: 5_000 },
+        removeOnComplete: 500,
+        removeOnFail: 1_000,
+      },
+    },
+  );
+}
+
+export async function registerInvitationEmailSchedule(queue: Queue, env: NodeJS.ProcessEnv = process.env) {
+  const interval = Number(env.INVITATION_EMAIL_INTERVAL_MS ?? 15_000);
+  if (!Number.isInteger(interval) || interval < 5_000 || interval > 15 * 60 * 1000) {
+    throw new Error("INVITATION_EMAIL_INTERVAL_MS must be between 5000 and 900000");
+  }
+  await queue.upsertJobScheduler(
+    invitationEmailSchedulerId,
+    { every: interval },
+    {
+      name: invitationEmailJobName,
       data: {},
       opts: {
         attempts: 5,
@@ -219,6 +244,26 @@ export async function registerBillingGracePeriodSchedule(queue: Queue, env: Node
       opts: {
         attempts: 5,
         backoff: { type: "exponential", delay: 30_000 },
+        removeOnComplete: 500,
+        removeOnFail: 1_000,
+      },
+    },
+  );
+}
+
+export async function registerDataLifecycleSchedule(queue: Queue, env: NodeJS.ProcessEnv = process.env) {
+  const interval = Number(env.DATA_LIFECYCLE_INTERVAL_MS ?? 60_000);
+  if (!Number.isInteger(interval) || interval < 10_000 || interval > 15 * 60 * 1000) {
+    throw new Error("DATA_LIFECYCLE_INTERVAL_MS must be between 10000 and 900000");
+  }
+  await queue.upsertJobScheduler(
+    dataLifecycleSchedulerId,
+    { every: interval },
+    {
+      name: dataLifecycleJobName,
+      data: {},
+      opts: {
+        attempts: 1,
         removeOnComplete: 500,
         removeOnFail: 1_000,
       },

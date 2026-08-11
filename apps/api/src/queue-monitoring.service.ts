@@ -116,6 +116,21 @@ export class QueueMonitoringService implements OnModuleDestroy {
     return `bullmq:${job.id}`;
   }
 
+  async retryDataLifecycle(subjectType: "account" | "organization", requestId: string) {
+    const job = await this.getQueue().add(
+      "data-lifecycle.process",
+      { action: "retry", subjectType, requestId },
+      {
+        jobId: `data-lifecycle-retry-${subjectType}-${requestId}-${randomUUID()}`,
+        attempts: 3,
+        backoff: { type: "exponential", delay: 5_000 },
+        removeOnComplete: 500,
+        removeOnFail: 1_000,
+      },
+    );
+    return `bullmq:${job.id}`;
+  }
+
   async onModuleDestroy() {
     await this.queue?.close();
   }

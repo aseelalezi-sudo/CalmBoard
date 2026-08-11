@@ -46,9 +46,9 @@ async function enqueueLockedSchedules(client: PoolClient, options: ScheduledRepo
     const occurrence = new Date(schedule.next_run_at);
     const inserted = await client.query(
       `insert into export_jobs (
-         organization_id, workspace_id, requested_by, report_schedule_id, scheduled_for,
+         organization_id, workspace_id, export_scope, requested_by, report_schedule_id, scheduled_for,
          format, idempotency_key
-       ) values ($1, $2, $3, $4, $5, $6, $7)
+       ) values ($1, $2, 'workspace', $3, $4, $5, $6, $7)
        on conflict (idempotency_key) do nothing
        returning id`,
       [

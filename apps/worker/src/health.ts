@@ -3,6 +3,20 @@ import { db, sql } from "@calmboard/database";
 import { collectDefaultMetrics, Counter, Gauge, Histogram, register } from "prom-client";
 import { validMetricsAuthorization } from "./metrics-auth.js";
 
+const HEALTH_CHECK_TIMEOUT_MS = 2_000;
+
+function withHealthCheckTimeout<T>(check: Promise<T>) {
+  let timer: NodeJS.Timeout | undefined;
+  return Promise.race([
+    check,
+    new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error("Health check timed out")), HEALTH_CHECK_TIMEOUT_MS);
+    }),
+  ]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
+
 collectDefaultMetrics();
 
 export const workerHealth = {
@@ -29,7 +43,7 @@ export const workerQueueJobs = new Gauge({
   labelNames: ["state"] as const,
 });
 
-export function startHealthServer(port: number) {
+export function startHealthServer(port: number, redisReady: () => Promise<unknown>) {
   const server = createServer(async (req, res) => {
     if (req.method !== "GET") {
       res.writeHead(405);
@@ -49,7 +63,7 @@ export function startHealthServer(port: number) {
 
     if (req.url === "/health/readiness") {
       try {
-        await db.execute(sql`select 1`);
+        await Promise.all([withHealthCheckTimeout(db.execute(sql`select 1`)), withHealthCheckTimeout(redisReady())]);
         res.writeHead(200, { "Content-Type": "application/json" });
         return res.end(
           JSON.stringify({
@@ -64,7 +78,7 @@ export function startHealthServer(port: number) {
           JSON.stringify({
             ...workerHealth,
             status: "error",
-            message: "Database health check failed",
+            message: "Required dependency health check failed",
             timestamp: new Date().toISOString(),
           }),
         );

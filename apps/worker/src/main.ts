@@ -11,6 +11,7 @@ import {
 } from "./attachment-cleanup.js";
 import {
   registerAuthEmailSchedule,
+  registerInvitationEmailSchedule,
   registerAttachmentCleanupSchedule,
   registerAutomationDailySchedule,
   registerAutomationEventSchedule,
@@ -20,8 +21,14 @@ import {
   registerWorkspaceExportSchedule,
   registerScheduledReportSchedule,
   registerBillingGracePeriodSchedule,
+  registerDataLifecycleSchedule,
 } from "./job-scheduler.js";
 import { authEmailJobName, createResendAuthEmailTransport, deliverAuthEmails } from "./auth-email.js";
+import {
+  createResendInvitationEmailTransport,
+  deliverInvitationEmails,
+  invitationEmailJobName,
+} from "./invitation-email.js";
 import {
   automationDailyJobName,
   automationEventJobName,
@@ -35,9 +42,16 @@ import {
   notificationEmailJobName,
 } from "./notification-email.js";
 import { dispatchDueTaskReminders, taskReminderJobName } from "./task-reminders.js";
-import { createWorkspaceExportStorage, processWorkspaceExports, workspaceExportJobName } from "./workspace-exports.js";
+import {
+  cleanupExpiredExports,
+  createWorkspaceExportStorage,
+  processWorkspaceExports,
+  readWorkspaceExportOptions,
+  workspaceExportJobName,
+} from "./workspace-exports.js";
 import { enqueueScheduledReports, scheduledReportJobName } from "./scheduled-reports.js";
 import { billingGracePeriodJobName, expireBillingGracePeriods } from "./billing-grace-periods.js";
+import { dataLifecycleJobName, processDataLifecycle, retryFailedDataLifecycleRequest } from "./data-lifecycle.js";
 
 const queueName = process.env.CALMBOARD_QUEUE_NAME ?? "calmboard-default";
 const redisUrl = process.env.REDIS_URL ?? "redis://127.0.0.1:6379/0";
@@ -62,6 +76,7 @@ type WorkerDependencies = {
   storage: ReturnType<typeof createCleanupStorage>;
   notificationEmail: ReturnType<typeof createResendNotificationEmailTransport>;
   authEmail: ReturnType<typeof createResendAuthEmailTransport>;
+  invitationEmail: ReturnType<typeof createResendInvitationEmailTransport>;
   workspaceExport: ReturnType<typeof createWorkspaceExportStorage>;
 };
 
@@ -83,18 +98,52 @@ export function createWorker(dependencies: WorkerDependencies) {
           );
         case authEmailJobName:
           return deliverAuthEmails(dependencies.pool, dependencies.authEmail);
+        case invitationEmailJobName:
+          return deliverInvitationEmails(dependencies.pool, dependencies.invitationEmail);
         case automationEventJobName:
           return processAutomationEvents(dependencies.pool);
         case automationDailyJobName:
           return enqueueDailyAutomationEvents(dependencies.pool);
         case formSubmissionJobName:
           return processFormSubmissionTasks(dependencies.pool);
-        case workspaceExportJobName:
-          return processWorkspaceExports(dependencies.pool, dependencies.workspaceExport);
+        case workspaceExportJobName: {
+          const options = readWorkspaceExportOptions();
+          const processing = await processWorkspaceExports(dependencies.pool, dependencies.workspaceExport, options);
+          const cleanup =
+            dependencies.workspaceExport.deleteObject && dependencies.workspaceExport.objectExists
+              ? await cleanupExpiredExports(dependencies.pool, dependencies.workspaceExport, options)
+              : { selected: 0, cleaned: 0, failed: 0 };
+          return { processing, cleanup };
+        }
         case scheduledReportJobName:
           return enqueueScheduledReports(dependencies.pool);
         case billingGracePeriodJobName:
           return expireBillingGracePeriods(dependencies.pool);
+        case dataLifecycleJobName:
+          if (!dependencies.workspaceExport.deleteObject || !dependencies.workspaceExport.objectExists) {
+            throw new Error("Workspace export storage deletion verification is unavailable");
+          }
+          if (job.data?.action === "retry") {
+            const subjectType = job.data.subjectType;
+            const requestId = job.data.requestId;
+            if (
+              (subjectType !== "account" && subjectType !== "organization") ||
+              typeof requestId !== "string" ||
+              !/^[0-9a-f-]{36}$/i.test(requestId)
+            ) {
+              throw new Error("Invalid trusted data lifecycle retry payload");
+            }
+            const retried = await retryFailedDataLifecycleRequest(dependencies.pool, subjectType, requestId);
+            if (!retried) throw new Error("Failed data lifecycle request is unavailable");
+          }
+          return processDataLifecycle(dependencies.pool, undefined, {
+            organizationStorage: {
+              deleteReference: dependencies.storage.deleteReference,
+              referenceExists: dependencies.storage.referenceExists,
+              deleteObject: dependencies.workspaceExport.deleteObject,
+              objectExists: dependencies.workspaceExport.objectExists,
+            },
+          });
         default:
           throw new Error(`Unsupported job: ${job.name}`);
       }
@@ -116,6 +165,7 @@ async function startWorker() {
   const storage = createCleanupStorage();
   const notificationEmail = createResendNotificationEmailTransport();
   const authEmail = createResendAuthEmailTransport();
+  const invitationEmail = createResendInvitationEmailTransport();
   const workspaceExport = createWorkspaceExportStorage();
   const queue = new Queue(queueName, { connection: { url: redisUrl } });
   await Promise.all([
@@ -123,14 +173,16 @@ async function startWorker() {
     registerTaskReminderSchedule(queue),
     registerNotificationEmailSchedule(queue),
     registerAuthEmailSchedule(queue),
+    registerInvitationEmailSchedule(queue),
     registerAutomationEventSchedule(queue),
     registerAutomationDailySchedule(queue),
     registerFormSubmissionSchedule(queue),
     registerWorkspaceExportSchedule(queue),
     registerScheduledReportSchedule(queue),
     registerBillingGracePeriodSchedule(queue),
+    registerDataLifecycleSchedule(queue),
   ]);
-  const worker = createWorker({ pool, storage, notificationEmail, authEmail, workspaceExport });
+  const worker = createWorker({ pool, storage, notificationEmail, authEmail, invitationEmail, workspaceExport });
   worker.on("failed", (job, error) => {
     workerJobsTotal.inc({ job_name: job?.name ?? "unknown", result: "failed" });
     if (job?.processedOn && job.finishedOn) {
@@ -167,8 +219,12 @@ async function startWorker() {
   const queueMetricsTimer = setInterval(() => void collectQueueMetrics(), 30_000);
   queueMetricsTimer.unref();
 
-  const healthPort = process.env.PORT ? parseInt(process.env.PORT, 10) : 3002;
-  const healthServer = startHealthServer(healthPort);
+  // PORT belongs to the web process in the shared root .env. The worker must
+  // use its own setting so local `dev:all` never competes with Next.js.
+  const healthPort = process.env.WORKER_HEALTH_PORT ? parseInt(process.env.WORKER_HEALTH_PORT, 10) : 3002;
+  const healthServer = startHealthServer(healthPort, async () => {
+    await queue.getJobCounts("waiting");
+  });
 
   const shutdown = async () => {
     clearInterval(queueMetricsTimer);

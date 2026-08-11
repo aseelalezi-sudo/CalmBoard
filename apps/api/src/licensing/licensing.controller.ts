@@ -1,17 +1,21 @@
-import { Body, Controller, Get, HttpCode, Post } from "@nestjs/common";
+import { Body, Controller, Get, HttpCode, Inject, Post } from "@nestjs/common";
 import { PublicRoute } from "../public-route.decorator.js";
+import { PlatformAdmin } from "../platform-admin.guard.js";
+import { SkipLicenseCheck } from "./licensing.guard.js";
 import { LicensingService } from "./licensing.service.js";
 
 /**
- * Public endpoint so the web client can surface the instance license status
- * (and trigger a revalidation / runtime activation) without authenticating.
+ * License status is public so the web client can explain why an installation
+ * is unavailable. Every mutation is restricted to an authenticated platform
+ * administrator, while remaining reachable when the current license is not
+ * usable so that an administrator can activate or repair the installation.
  */
-@PublicRoute()
 @Controller("licensing")
 export class LicensingController {
-  constructor(private readonly licensing: LicensingService) {}
+  constructor(@Inject(LicensingService) private readonly licensing: LicensingService) {}
 
   @Get("status")
+  @PublicRoute()
   async status() {
     const check = await this.licensing.status();
     return {
@@ -29,6 +33,8 @@ export class LicensingController {
 
   @Post("refresh")
   @HttpCode(200)
+  @SkipLicenseCheck()
+  @PlatformAdmin()
   async refresh() {
     const check = await this.licensing.refresh();
     return {
@@ -45,6 +51,8 @@ export class LicensingController {
 
   @Post("activate")
   @HttpCode(200)
+  @SkipLicenseCheck()
+  @PlatformAdmin()
   async activate(@Body() body: { license_key?: string }) {
     const key = typeof body?.license_key === "string" ? body.license_key.trim() : "";
     if (!key) {
@@ -73,6 +81,8 @@ export class LicensingController {
 
   @Post("deactivate")
   @HttpCode(200)
+  @SkipLicenseCheck()
+  @PlatformAdmin()
   async deactivate() {
     const check = await this.licensing.deactivate();
     return {

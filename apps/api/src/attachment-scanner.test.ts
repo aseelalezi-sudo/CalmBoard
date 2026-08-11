@@ -44,4 +44,41 @@ describe("attachment scanner hook", () => {
     );
     await assert.rejects(() => scanner.scan(input), /invalid verdict/);
   });
+
+  it("fails closed when the scanner is unavailable, times out, or rejects the request", async () => {
+    const environment = {
+      NODE_ENV: "production",
+      ATTACHMENT_SCAN_MODE: "webhook",
+      ATTACHMENT_SCANNER_URL: "https://scanner.example/scan",
+      ATTACHMENT_SCANNER_TOKEN: "scanner-token",
+    };
+    const unavailable = createAttachmentScanner(environment, async () => {
+      throw new TypeError("connection refused");
+    });
+    const timedOut = createAttachmentScanner(environment, async () => {
+      throw new DOMException("timed out", "AbortError");
+    });
+    const rejected = createAttachmentScanner(environment, async () => new Response(null, { status: 503 }));
+
+    await assert.rejects(() => unavailable.scan(input), /unavailable/);
+    await assert.rejects(() => timedOut.scan(input), /unavailable/);
+    await assert.rejects(() => rejected.scan(input), /rejected/);
+  });
+
+  it("returns an explicit malicious verdict without treating it as clean", async () => {
+    const scanner = createAttachmentScanner(
+      {
+        NODE_ENV: "production",
+        ATTACHMENT_SCAN_MODE: "webhook",
+        ATTACHMENT_SCANNER_URL: "https://scanner.example/scan",
+        ATTACHMENT_SCANNER_TOKEN: "scanner-token",
+      },
+      async () => Response.json({ status: "infected", engine: "clamav", signature: "Eicar-Test-Signature" }),
+    );
+    assert.deepEqual(await scanner.scan(input), {
+      status: "infected",
+      engine: "clamav",
+      signature: "Eicar-Test-Signature",
+    });
+  });
 });

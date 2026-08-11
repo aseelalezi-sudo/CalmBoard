@@ -1,11 +1,28 @@
-import { Controller, Get, ServiceUnavailableException } from "@nestjs/common";
+import { Controller, Get, Inject, ServiceUnavailableException } from "@nestjs/common";
 import type { HealthResponse } from "@calmboard/types";
 import { db, sql } from "@calmboard/database";
 import { PublicRoute } from "./public-route.decorator.js";
+import { RedisRateLimitStore } from "./rate-limit.service.js";
+
+const HEALTH_CHECK_TIMEOUT_MS = 2_000;
+
+function withHealthCheckTimeout<T>(check: Promise<T>) {
+  let timer: NodeJS.Timeout | undefined;
+  return Promise.race([
+    check,
+    new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error("Health check timed out")), HEALTH_CHECK_TIMEOUT_MS);
+    }),
+  ]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
 
 @PublicRoute()
 @Controller("health")
 export class HealthController {
+  constructor(@Inject(RedisRateLimitStore) private readonly redis: RedisRateLimitStore) {}
+
   @Get()
   async getHealth(): Promise<HealthResponse> {
     try {
@@ -33,7 +50,7 @@ export class HealthController {
   @Get("readiness")
   async getReadiness() {
     try {
-      await db.execute(sql`select 1`);
+      await Promise.all([withHealthCheckTimeout(db.execute(sql`select 1`)), withHealthCheckTimeout(this.redis.ping())]);
       return {
         ok: true,
         service: "api",
@@ -41,7 +58,7 @@ export class HealthController {
         timestamp: new Date().toISOString(),
       };
     } catch {
-      throw new ServiceUnavailableException("Database not ready");
+      throw new ServiceUnavailableException("Required dependency not ready");
     }
   }
 }

@@ -80,6 +80,56 @@ describe("distributed rate limit guard", () => {
     });
     await assert.rejects(() => guard.canActivate(oauthStart.context), ServiceUnavailableException);
     await assert.rejects(() => guard.canActivate(oauthCallback.context), ServiceUnavailableException);
+    const invitationInspect = executionContext({
+      method: "POST",
+      url: "/invitations/inspect",
+      ip: "203.0.113.23",
+      body: { token: "redacted" },
+    });
+    const invitationAccept = executionContext({
+      method: "POST",
+      url: "/invitations/accept",
+      ip: "203.0.113.24",
+      userId: "user-1",
+    });
+    await assert.rejects(() => guard.canActivate(invitationInspect.context), ServiceUnavailableException);
+    await assert.rejects(() => guard.canActivate(invitationAccept.context), ServiceUnavailableException);
+    const accountDeletion = executionContext({
+      method: "POST",
+      url: "/profile/deletion",
+      ip: "203.0.113.25",
+      userId: "user-1",
+    });
+    const organizationDeletion = executionContext({
+      method: "DELETE",
+      url: "/organizations/organization-1/deletion",
+      ip: "203.0.113.26",
+      userId: "user-1",
+    });
+    await assert.rejects(() => guard.canActivate(accountDeletion.context), ServiceUnavailableException);
+    await assert.rejects(() => guard.canActivate(organizationDeletion.context), ServiceUnavailableException);
+    const workspaceExport = executionContext({
+      method: "POST",
+      url: "/workspaces/export",
+      ip: "203.0.113.27",
+      userId: "user-1",
+    });
+    const organizationExport = executionContext({
+      method: "POST",
+      url: "/organizations/organization-1/export",
+      ip: "203.0.113.28",
+      userId: "user-1",
+    });
+    await assert.rejects(() => guard.canActivate(workspaceExport.context), ServiceUnavailableException);
+    await assert.rejects(() => guard.canActivate(organizationExport.context), ServiceUnavailableException);
+  });
+
+  it("keeps health probes independent from the rate-limit store", async () => {
+    const store: RateLimitStore = { hit: async () => Promise.reject(new Error("offline")) };
+    const guard = new RateLimitGuard(store);
+    for (const url of ["/health", "/health/liveness", "/health/readiness", "/metrics"]) {
+      assert.equal(await guard.canActivate(executionContext({ method: "GET", url, ip: "127.0.0.1" }).context), true);
+    }
   });
 
   it("allows ordinary development traffic when Redis is unavailable", async () => {

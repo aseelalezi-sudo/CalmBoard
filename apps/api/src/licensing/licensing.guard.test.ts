@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { ForbiddenException, HttpException, type ExecutionContext } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
-import { LicensingGuard } from "./licensing.guard.js";
+import { LicensingGuard, SKIP_LICENSE_CHECK } from "./licensing.guard.js";
 import { LicensingService, type AppLicenseCheck } from "./licensing.service.js";
 import { PUBLIC_ROUTE } from "../public-route.decorator.js";
 
@@ -35,6 +35,15 @@ describe("LicensingGuard", () => {
     const licensing = fakeLicensing({ status: "not_activated" } as AppLicenseCheck);
     const guard = new LicensingGuard(new Reflector(), licensing);
     assert.equal(await guard.canActivate(executionContext(handler)), true);
+  });
+
+  it("can bypass only the license gate without making the route public", async () => {
+    const handler = () => undefined;
+    Reflect.defineMetadata(SKIP_LICENSE_CHECK, true, handler);
+    const licensing = fakeLicensing({ status: "not_activated" } as AppLicenseCheck);
+    const guard = new LicensingGuard(new Reflector(), licensing);
+    assert.equal(await guard.canActivate(executionContext(handler)), true);
+    assert.equal(Reflect.getMetadata(PUBLIC_ROUTE, handler), undefined);
   });
 
   it("passes a valid license", async () => {

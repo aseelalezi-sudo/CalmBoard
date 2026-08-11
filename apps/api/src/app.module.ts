@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common";
 import { LoggerModule } from "nestjs-pino";
 import { PrometheusModule } from "@willsoto/nestjs-prometheus";
 import { APP_GUARD, APP_INTERCEPTOR } from "@nestjs/core";
+import { db } from "@calmboard/database";
 import { HealthController } from "./health.controller.js";
 import { AuthController } from "./auth.controller.js";
 import { AuthService } from "./auth.service.js";
@@ -11,7 +12,7 @@ import { ActivitiesController } from "./activities.controller.js";
 import { AutomationsController } from "./automations.controller.js";
 import { CommentsController } from "./comments.controller.js";
 import { CustomFieldsController } from "./custom-fields.controller.js";
-import { MembersController } from "./members.controller.js";
+import { InvitationsController, MembersController } from "./members.controller.js";
 import { NotificationsController } from "./notifications.controller.js";
 import { AttachmentsController } from "./attachments.controller.js";
 import { TasksController } from "./tasks.controller.js";
@@ -26,6 +27,7 @@ import {
 } from "./workspace-modules.controller.js";
 import {
   ProfilePreferencesController,
+  OnboardingController,
   ProfileMfaController,
   ProfileSessionsController,
   UserSkillsController,
@@ -35,6 +37,7 @@ import { DocumentsController, FormsController } from "./content.controller.js";
 import {
   DigestController,
   IntegrationSyncController,
+  OrganizationExportController,
   SearchController,
   SecurityDiagnosticsController,
   WorkspaceExportController,
@@ -78,11 +81,20 @@ import { HttpMetricsInterceptor } from "./http-metrics.interceptor.js";
 import { LicensingModule } from "./licensing/licensing.module.js";
 import { LicensingGuard } from "./licensing/licensing.guard.js";
 import { correlationId, CorrelationIdInterceptor } from "./correlation-id.interceptor.js";
+import { RequestScopeService } from "./request-scope.service.js";
+import { SprintsController } from "./sprints.controller.js";
+import { SprintAnalyticsController, SprintAnalyticsOverviewController } from "./sprint-analytics.controller.js";
+import { AccountDeletionController, OrganizationDeletionController } from "./data-lifecycle.controller.js";
+import { serializeLogRequest, serializeLogResponse } from "./log-security.js";
 
 @Module({
   imports: [
     LoggerModule.forRoot({
       pinoHttp: {
+        serializers: {
+          req: serializeLogRequest,
+          res: serializeLogResponse,
+        },
         genReqId: (req, response) => {
           const id = correlationId(req.headers["x-correlation-id"]);
           response.setHeader("x-correlation-id", id);
@@ -113,9 +125,13 @@ import { correlationId, CorrelationIdInterceptor } from "./correlation-id.interc
     CommentsController,
     CustomFieldsController,
     MembersController,
+    InvitationsController,
     NotificationsController,
     AttachmentsController,
     TasksController,
+    SprintsController,
+    SprintAnalyticsController,
+    SprintAnalyticsOverviewController,
     ProjectBaselinesController,
     WorkloadController,
     BranchesController,
@@ -128,8 +144,11 @@ import { correlationId, CorrelationIdInterceptor } from "./correlation-id.interc
     WorkspaceResourceController,
     UserSkillsController,
     ProfilePreferencesController,
+    OnboardingController,
     ProfileMfaController,
     ProfileSessionsController,
+    AccountDeletionController,
+    OrganizationDeletionController,
     DocumentsController,
     FormsController,
     SearchController,
@@ -140,6 +159,7 @@ import { correlationId, CorrelationIdInterceptor } from "./correlation-id.interc
     IntegrationWebhookReceiverController,
     DigestController,
     WorkspaceExportController,
+    OrganizationExportController,
     ReportSchedulesController,
     SecurityDiagnosticsController,
     AIController,
@@ -154,6 +174,8 @@ import { correlationId, CorrelationIdInterceptor } from "./correlation-id.interc
     OAuthService,
     IntegrationOAuthService,
     AuthorizationService,
+    RequestScopeService,
+    { provide: "REQUEST_SCOPE_DATABASE", useValue: db },
     PlatformAdministrationService,
     RedisRateLimitStore,
     QueueMonitoringService,

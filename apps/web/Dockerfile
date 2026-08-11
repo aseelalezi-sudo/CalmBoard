@@ -20,11 +20,13 @@ WORKDIR /app
 COPY --from=installer /app/ .
 COPY --from=builder /app/out/full/ .
 ARG NEXT_PUBLIC_API_URL
+ARG NEXT_PUBLIC_REALTIME_URL
 ARG NEXT_PUBLIC_SENTRY_DSN
 ARG NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE=0.1
 ARG NEXT_PUBLIC_TELEMETRY_UI_ENABLED=false
 ARG NEXT_PUBLIC_WEBAUTHN_UI_ENABLED=false
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+ENV NEXT_PUBLIC_REALTIME_URL=${NEXT_PUBLIC_REALTIME_URL}
 ENV NEXT_PUBLIC_SENTRY_DSN=${NEXT_PUBLIC_SENTRY_DSN}
 ENV NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE=${NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE}
 ENV NEXT_PUBLIC_TELEMETRY_UI_ENABLED=${NEXT_PUBLIC_TELEMETRY_UI_ENABLED}
@@ -39,7 +41,8 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
-RUN apk add --no-cache dumb-init
+RUN apk add --no-cache dumb-init \
+    && rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
 RUN addgroup --system --gid 1001 nodejs && adduser --system --uid 1001 nextjs
 
 COPY --from=sourcer /app/apps/web/public ./apps/web/public

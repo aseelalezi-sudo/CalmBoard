@@ -14,6 +14,8 @@ import {
   taskReminders,
   tasks,
   users,
+  sprints,
+  taskSprintAssignments,
 } from "../schema.js";
 import { allocateTaskSerialNumbers, FIRST_TASK_SERIAL_NUMBER, formatTaskSerial } from "../task-serials.js";
 import { assertWorkspaceTenantContext, type DatabaseTenantContext } from "../tenant-context.js";
@@ -1186,6 +1188,29 @@ export function createTasksRepository(context: DatabaseTenantContext) {
               .insert(automationEvents)
               .values(automationEventValues(movedTask, "task_status_changed", lockedTask));
           }
+          if (movedTask.sprintId) {
+            const { deriveSprintTaskAnalyticsEvents, appendSprintAnalyticsEvents } =
+              await import("./sprint-analytics.js");
+            const analyticsEvents = deriveSprintTaskAnalyticsEvents(before, movedTask);
+            if (analyticsEvents.length > 0) {
+              const [sprint] = await transaction
+                .select({ status: sprints.status })
+                .from(sprints)
+                .where(and(eq(sprints.id, movedTask.sprintId), eq(sprints.organizationId, organizationId)));
+              if (sprint?.status === "active") {
+                await appendSprintAnalyticsEvents(
+                  { db: transaction, organizationId, workspaceId },
+                  analyticsEvents.map((e) => ({
+                    ...e,
+                    projectId: movedTask.projectId,
+                    sprintId: movedTask.sprintId!,
+                    taskId: movedTask.id,
+                    actorId: actorId ?? undefined,
+                  })),
+                );
+              }
+            }
+          }
           return movedTask;
         }
 
@@ -1262,6 +1287,29 @@ export function createTasksRepository(context: DatabaseTenantContext) {
           await transaction
             .insert(automationEvents)
             .values(automationEventValues(movedTask, "task_status_changed", lockedTask));
+        }
+        if (movedTask.sprintId) {
+          const { deriveSprintTaskAnalyticsEvents, appendSprintAnalyticsEvents } =
+            await import("./sprint-analytics.js");
+          const analyticsEvents = deriveSprintTaskAnalyticsEvents(before, movedTask);
+          if (analyticsEvents.length > 0) {
+            const [sprint] = await transaction
+              .select({ status: sprints.status })
+              .from(sprints)
+              .where(and(eq(sprints.id, movedTask.sprintId), eq(sprints.organizationId, organizationId)));
+            if (sprint?.status === "active") {
+              await appendSprintAnalyticsEvents(
+                { db: transaction, organizationId, workspaceId },
+                analyticsEvents.map((e) => ({
+                  ...e,
+                  projectId: movedTask.projectId,
+                  sprintId: movedTask.sprintId!,
+                  taskId: movedTask.id,
+                  actorId: actorId ?? undefined,
+                })),
+              );
+            }
+          }
         }
         return movedTask;
       });
@@ -1496,6 +1544,31 @@ export function createTasksRepository(context: DatabaseTenantContext) {
               await transaction.insert(automationEvents).values(events);
             }
           }
+
+          if (updated.sprintId) {
+            const { deriveSprintTaskAnalyticsEvents, appendSprintAnalyticsEvents } =
+              await import("./sprint-analytics.js");
+            const analyticsEvents = deriveSprintTaskAnalyticsEvents(before, updated);
+            if (analyticsEvents.length > 0) {
+              const [sprint] = await transaction
+                .select({ status: sprints.status })
+                .from(sprints)
+                .where(and(eq(sprints.id, updated.sprintId), eq(sprints.organizationId, organizationId)));
+              if (sprint?.status === "active") {
+                await appendSprintAnalyticsEvents(
+                  { db: transaction, organizationId, workspaceId },
+                  analyticsEvents.map((e) => ({
+                    ...e,
+                    projectId: updated.projectId,
+                    sprintId: updated.sprintId!,
+                    taskId: updated.id,
+                    actorId: actorId ?? undefined,
+                  })),
+                );
+              }
+            }
+          }
+
           return updated;
         });
       } catch (error) {
@@ -1514,11 +1587,55 @@ export function createTasksRepository(context: DatabaseTenantContext) {
 
     async softDelete(taskId: string) {
       const before = await getById(taskId);
-      const [task] = await db
-        .update(tasks)
-        .set({ deletedAt: new Date(), updatedAt: new Date() })
-        .where(and(eq(tasks.id, taskId), tenantScope, isNull(tasks.deletedAt)))
-        .returning();
+      const now = new Date();
+      const task = await db.transaction(async (transaction) => {
+        const [updated] = await transaction
+          .update(tasks)
+          .set({ deletedAt: now, updatedAt: now, sprintId: null })
+          .where(and(eq(tasks.id, taskId), tenantScope, isNull(tasks.deletedAt)))
+          .returning();
+
+        if (!updated) return undefined;
+
+        if (before.sprintId) {
+          await transaction
+            .update(taskSprintAssignments)
+            .set({ removedAt: now })
+            .where(
+              and(
+                eq(taskSprintAssignments.organizationId, organizationId),
+                eq(taskSprintAssignments.workspaceId, workspaceId),
+                eq(taskSprintAssignments.taskId, taskId),
+                eq(taskSprintAssignments.sprintId, before.sprintId),
+                isNull(taskSprintAssignments.removedAt),
+              ),
+            );
+
+          const [sprint] = await transaction
+            .select({ status: sprints.status })
+            .from(sprints)
+            .where(and(eq(sprints.id, before.sprintId), eq(sprints.organizationId, organizationId)));
+
+          if (sprint?.status === "active") {
+            const { appendSprintAnalyticsEvent } = await import("./sprint-analytics.js");
+            await appendSprintAnalyticsEvent(
+              { db: transaction, organizationId, workspaceId },
+              {
+                projectId: before.projectId,
+                sprintId: before.sprintId,
+                taskId,
+                actorId: actorId ?? undefined,
+                eventType: "task_removed",
+                storyPointsAtEvent: before.storyPoints,
+                isCompletedAtEvent: before.status === "done", // Using the literal since the helper is in sprint-analytics
+                occurredAt: now,
+              },
+            );
+          }
+        }
+
+        return updated;
+      });
 
       if (!task) {
         throw new TenantResourceNotFoundError("task");

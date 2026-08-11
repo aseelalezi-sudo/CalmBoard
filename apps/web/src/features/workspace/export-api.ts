@@ -1,4 +1,5 @@
 import { apiServiceUrl, createIdempotencyKey, jsonRequest, requestJson } from "@/lib/client-api";
+import type { AuthorizationCapabilities } from "@/lib/types";
 
 export type WorkspaceExportScope = {
   organizationId: string;
@@ -24,7 +25,7 @@ export type WorkspaceExportJob = {
   downloadReady: boolean;
 };
 
-type WorkspaceExportDownload = {
+type ExportDownload = {
   url: string;
   fileName: string;
   contentType: string;
@@ -50,9 +51,7 @@ export function getWorkspaceExport(scope: WorkspaceExportScope, jobId: string) {
 }
 
 export function getWorkspaceExportDownload(scope: WorkspaceExportScope, jobId: string) {
-  return requestJson<WorkspaceExportDownload>(
-    scopedUrl(`/workspaces/export/${encodeURIComponent(jobId)}/download`, scope),
-  );
+  return requestJson<ExportDownload>(scopedUrl(`/workspaces/export/${encodeURIComponent(jobId)}/download`, scope));
 }
 
 export async function prepareWorkspaceExport(
@@ -84,7 +83,58 @@ export async function prepareWorkspaceExport(
   return getWorkspaceExportDownload(scope, job.id);
 }
 
-export function downloadPreparedWorkspaceExport(download: WorkspaceExportDownload) {
+export type OrganizationExportScope = { organizationId: string };
+
+function organizationExportUrl(scope: OrganizationExportScope, jobId?: string, download = false) {
+  const suffix = jobId ? `/${encodeURIComponent(jobId)}${download ? "/download" : ""}` : "";
+  return apiServiceUrl(`/organizations/${encodeURIComponent(scope.organizationId)}/export${suffix}`);
+}
+
+export function getOrganizationAuthorization(scope: OrganizationExportScope) {
+  const query = new URLSearchParams({ organizationId: scope.organizationId });
+  return requestJson<AuthorizationCapabilities>(`${apiServiceUrl("/authorization/me")}?${query.toString()}`);
+}
+
+export function requestOrganizationExport(scope: OrganizationExportScope) {
+  return requestJson<WorkspaceExportJob>(
+    organizationExportUrl(scope),
+    jsonRequest("POST", {}, { "Idempotency-Key": createIdempotencyKey() }),
+  );
+}
+
+export function getOrganizationExport(scope: OrganizationExportScope, jobId: string) {
+  return requestJson<WorkspaceExportJob>(organizationExportUrl(scope, jobId));
+}
+
+export function getOrganizationExportDownload(scope: OrganizationExportScope, jobId: string) {
+  return requestJson<ExportDownload>(organizationExportUrl(scope, jobId, true));
+}
+
+export async function prepareOrganizationExport(
+  scope: OrganizationExportScope,
+  options: {
+    timeoutMs?: number;
+    pollIntervalMs?: number;
+    onStatus?: (job: WorkspaceExportJob) => void;
+  } = {},
+) {
+  const timeoutAt = Date.now() + (options.timeoutMs ?? 5 * 60_000);
+  const pollIntervalMs = options.pollIntervalMs ?? 1_000;
+  let job = await requestOrganizationExport(scope);
+  options.onStatus?.(job);
+  while (job.status === "pending" || job.status === "processing") {
+    if (Date.now() >= timeoutAt) throw new Error("Organization export is still processing. Please try again shortly.");
+    await new Promise((resolve) => globalThis.setTimeout(resolve, pollIntervalMs));
+    job = await getOrganizationExport(scope, job.id);
+    options.onStatus?.(job);
+  }
+  if (job.status !== "completed" || !job.downloadReady) {
+    throw new Error(job.lastError || `Organization export ended with status ${job.status}.`);
+  }
+  return getOrganizationExportDownload(scope, job.id);
+}
+
+export function downloadPreparedWorkspaceExport(download: ExportDownload) {
   const anchor = document.createElement("a");
   anchor.href = download.url;
   anchor.download = download.fileName;

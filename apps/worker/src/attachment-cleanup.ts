@@ -1,4 +1,4 @@
-import { DeleteObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { DeleteObjectCommand, HeadObjectCommand, NotFound, S3Client } from "@aws-sdk/client-s3";
 import { Pool, type PoolClient } from "pg";
 
 export const attachmentCleanupJobName = "attachments.cleanup-orphans";
@@ -107,8 +107,9 @@ export async function claimAttachmentCleanupBatch(
   }
 }
 
-type CleanupStorage = {
+export type CleanupStorage = {
   deleteReference(reference: string): Promise<void>;
+  referenceExists(reference: string): Promise<boolean>;
 };
 
 export function createCleanupStorage(env: NodeJS.ProcessEnv = process.env): CleanupStorage {
@@ -134,6 +135,18 @@ export function createCleanupStorage(env: NodeJS.ProcessEnv = process.env): Clea
       const key = reference.slice(prefix.length);
       if (!key) throw new Error("Attachment storage key is empty");
       await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
+    },
+    async referenceExists(reference: string) {
+      if (!reference.startsWith(prefix)) throw new Error("Attachment points outside the configured storage bucket");
+      const key = reference.slice(prefix.length);
+      if (!key) throw new Error("Attachment storage key is empty");
+      try {
+        await client.send(new HeadObjectCommand({ Bucket: bucket, Key: key }));
+        return true;
+      } catch (error) {
+        if (error instanceof NotFound || (error as { name?: string }).name === "NotFound") return false;
+        throw error;
+      }
     },
   };
 }

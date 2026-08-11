@@ -11,6 +11,8 @@ overrides:
   fast-uri@>=3.0.0 <3.1.5: 3.1.5
   fast-uri@>=4.0.0 <4.1.2: 4.1.2
   find-my-way@<=9.6.0: 9.7.0
+  js-yaml@>=4.0.0 <4.3.1: 4.3.1
+  nanoid@<3.3.17: 3.3.17
   postcss@<8.5.23: 8.5.23
   sharp@<0.35.0: 0.35.3
   uuid@<11.1.1: 11.1.1
@@ -56,6 +58,9 @@ importers:
       '@types/react-dom':
         specifier: 19.2.3
         version: 19.2.3(@types/react@19.2.14)
+      cross-env:
+        specifier: 10.1.0
+        version: 10.1.0
       drizzle-kit:
         specifier: 0.31.10
         version: 0.31.10
@@ -295,6 +300,12 @@ importers:
       eslint-config-next:
         specifier: 16.2.11
         version: 16.2.11(@typescript-eslint/parser@8.65.0(eslint@9.39.4(jiti@2.7.0))(typescript@5.9.3))(eslint@9.39.4(jiti@2.7.0))(typescript@5.9.3)
+      playwright:
+        specifier: 1.62.0
+        version: 1.62.0
+      playwright-core:
+        specifier: 1.62.0
+        version: 1.62.0
       postcss:
         specifier: 8.5.23
         version: 8.5.23
@@ -334,6 +345,9 @@ importers:
       '@sentry/profiling-node':
         specifier: ^10.69.0
         version: 10.69.0(@opentelemetry/core@2.10.0(@opentelemetry/api@1.9.1))(@opentelemetry/exporter-trace-otlp-http@0.221.0(@opentelemetry/api@1.9.1))
+      archiver:
+        specifier: 5.3.2
+        version: 5.3.2
       bullmq:
         specifier: ^5.81.2
         version: 5.81.2
@@ -346,6 +360,9 @@ importers:
       ioredis:
         specifier: ^5.11.1
         version: 5.11.1
+      jszip:
+        specifier: 3.10.1
+        version: 3.10.1
       pdfkit:
         specifier: ^0.19.1
         version: 0.19.1
@@ -4390,8 +4407,8 @@ packages:
   js-tokens@4.0.0:
     resolution: {integrity: sha512-RdJUflcE3cUzKiMqQgsCu06FPu9UdIJO0beYbPhHN4k6apgJtifcoCtT9bcxOpYBtpD2kCM6Sbzg4CausW/PKQ==}
 
-  js-yaml@4.3.0:
-    resolution: {integrity: sha512-1td788aAnnZ5qs7V2QIRl1owjtYpbKt749Y3xauqQgwIIGF/xXWz1wMTEBx5O3LK3lXLVuqXPdPxj2BoFHaW9Q==}
+  js-yaml@4.3.1:
+    resolution: {integrity: sha512-CY6crGq313MX8GkwvB7tzgp99vjQxY1++5y10/BKN/GUfHqWaOGQMNZkBvqSzsZKWk/ijwHlWzzkLulsGHhjWQ==}
     hasBin: true
 
   jsesc@3.1.0:
@@ -4740,8 +4757,8 @@ packages:
   msgpackr@2.0.4:
     resolution: {integrity: sha512-o1C5KRmuRt+apqMr1HuGSqWStZoRBUpEsCsl15uM9VdAF1qHLtvMOU2En747EnTyEl6c4pzPewRMFF31s1CNbA==}
 
-  nanoid@3.3.16:
-    resolution: {integrity: sha512-bzlKTyNJ7+LdGIIwy8ijFpIqEQIvafahV7eYykJ8Cvh42EdJeODoJ6gUJXpQJvej1BddH8OqTXZNE/KfbWAu8Q==}
+  nanoid@3.3.17:
+    resolution: {integrity: sha512-xQLf0A3HOMlgHq0n247/LRuAOYmB7dXJ/DvAxGvsSBij45XtBSmQycu+F8ODbHwns/XyFZagyL1+J0Offw1E0g==}
     engines: {node: ^10 || ^12 || ^13.7 || ^14 || >=15.0.1}
     hasBin: true
 
@@ -6450,7 +6467,7 @@ snapshots:
       globals: 14.0.0
       ignore: 5.3.2
       import-fresh: 3.3.1
-      js-yaml: 4.3.0
+      js-yaml: 4.3.1
       minimatch: 3.1.5
       strip-json-comments: 3.1.1
     transitivePeerDependencies:
@@ -10119,7 +10136,7 @@ snapshots:
 
   js-tokens@4.0.0: {}
 
-  js-yaml@4.3.0:
+  js-yaml@4.3.1:
     dependencies:
       argparse: 2.0.1
 
@@ -10391,7 +10408,7 @@ snapshots:
     optionalDependencies:
       msgpackr-extract: 3.0.4
 
-  nanoid@3.3.16: {}
+  nanoid@3.3.17: {}
 
   napi-postinstall@0.3.4: {}
 
@@ -10690,7 +10707,7 @@ snapshots:
 
   postcss@8.5.23:
     dependencies:
-      nanoid: 3.3.16
+      nanoid: 3.3.17
       picocolors: 1.1.1
       source-map-js: 1.2.1
 

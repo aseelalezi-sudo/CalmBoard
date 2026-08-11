@@ -16,6 +16,7 @@ import {
 import type { FastifyReply } from "fastify";
 import {
   createUserProfileRepository,
+  createOnboardingRepository,
   createUserSkillsRepository,
   createWorkspaceRepository,
   type NotificationPreferenceUpdate,
@@ -118,6 +119,42 @@ export class ProfilePreferencesController {
     return createUserProfileRepository(authenticatedIdentity(request).userId).updatePreferences(
       parsePreferenceUpdate(body),
     );
+  }
+}
+
+@Controller("onboarding")
+@SelfService()
+export class OnboardingController {
+  @Get()
+  get(
+    @Query("organizationId") organizationId: string,
+    @Query("workspaceId") workspaceId: string,
+    @Query("userId") userId: string,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    const identity = authenticatedIdentity(request);
+    const requestedUserId = requiredString(userId, "userId");
+    return createOnboardingRepository(tenantContext(organizationId, workspaceId, identity.userId)).get(requestedUserId);
+  }
+
+  @Patch()
+  update(@Body() body: JsonObject, @Req() request: AuthenticatedRequest) {
+    const completedSteps = body.completedSteps;
+    if (
+      completedSteps !== undefined &&
+      (!Array.isArray(completedSteps) || completedSteps.some((step) => typeof step !== "string"))
+    ) {
+      throw new BadRequestException("completedSteps must be an array of step identifiers");
+    }
+    if (body.dismissed !== undefined && typeof body.dismissed !== "boolean") {
+      throw new BadRequestException("dismissed must be a boolean");
+    }
+    const identity = authenticatedIdentity(request);
+    const context = tenantContextFromBody({ ...body, actorId: identity.userId });
+    return createOnboardingRepository(context).update(requiredString(body.userId, "userId"), {
+      ...(completedSteps === undefined ? {} : { completedSteps: completedSteps as string[] }),
+      ...(body.dismissed === undefined ? {} : { dismissed: body.dismissed }),
+    });
   }
 }
 

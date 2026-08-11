@@ -20,26 +20,31 @@ export type AuthorizationCapabilities = {
 export type Project = {
   id: string;
   name: string;
-  description?: string;
+  description?: string | null;
   color: string;
   icon: string;
-  status: string;
+  status: "planning" | "active" | "on_hold" | "completed" | "archived";
   priority: string;
   progress: number;
   workspaceId: string;
   organizationId: string;
-  ownerId?: string;
-  managerId?: string;
-  coverUrl?: string;
+  ownerId?: string | null;
+  managerId?: string | null;
+  coverUrl?: string | null;
   privacy?: string;
   template?: string;
-  budget?: number;
+  budget?: number | null;
   version: number;
   wipLimits?: Partial<Record<string, number>>;
-  estimatedHours?: number;
+  estimatedHours?: number | null;
   loggedHours?: number;
-  startDate?: string;
-  endDate?: string;
+  startDate?: string | null;
+  endDate?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+  totalTasks?: number;
+  completedTasks?: number;
+  memberCount?: number;
 };
 export type TaskRecurrence = {
   frequency: "daily" | "weekly" | "monthly" | "yearly";
@@ -144,6 +149,7 @@ export type Task = {
   section?: { id: string; name: string } | null;
   createdAt: string;
   parentId?: string | null;
+  sprintId?: string | null;
   subtaskStats?: { total: number; done: number };
   customFields?: Record<string, any>;
   isRecurring?: boolean;
@@ -161,6 +167,9 @@ export type Notification = {
   title: string;
   body?: string;
   type: string;
+  entityType?: string;
+  entityId?: string;
+  actionPath?: string;
   isRead: boolean;
   createdAt: string;
 };
@@ -170,6 +179,8 @@ export type Comment = {
   createdAt: string;
   user?: User;
   userId: string;
+  parentId?: string | null;
+  mentionedUserIds?: string[];
   reactions?: Record<string, string[]>;
   isPinned?: boolean;
 };
@@ -327,7 +338,16 @@ export type WorkloadTimeOff = {
   updatedAt: string;
 };
 export type WorkloadSettings = { capacities: WorkloadCapacity[]; timeOff: WorkloadTimeOff[] };
-export type Invitation = { id: string; email: string; role: string; status: string; createdAt: string };
+export type Invitation = {
+  id: string;
+  email: string;
+  role: string;
+  status: string;
+  tokenVersion?: number;
+  expiresAt?: string | null;
+  lastSentAt?: string | null;
+  createdAt: string;
+};
 export type SavedView = {
   id: string;
   organizationId: string;
@@ -502,6 +522,9 @@ export type ViewCtx = {
   can: (permission: string) => boolean;
   tasks: Task[];
   projects: Project[];
+  workspaces: Workspace[];
+  workspaceDataError: string | null;
+  activeWorkspace: Workspace | null;
   activeProject: Project | null;
   goals: Goal[];
   docs: Doc[];
@@ -515,6 +538,7 @@ export type ViewCtx = {
   members: Member[];
   invitations: Invitation[];
   notifications: Notification[];
+  openNotification: (notification: Notification) => void;
   savedViews: SavedView[];
   forms: Form[];
   invoices: Invoice[];
@@ -543,6 +567,8 @@ export type ViewCtx = {
   setTimerTask: (id: string | null) => void;
   setTimerRunning: (v: boolean) => void;
   openTask: (task: Task) => void;
+  setTaskSprintMembership: (taskId: string, sprintId: string | null) => void;
+  refreshProjectTasks: () => Promise<void>;
   updateTask: (id: string, updates: Partial<Task>) => boolean | Promise<boolean>;
   moveTask: (
     id: string,
@@ -556,6 +582,15 @@ export type ViewCtx = {
   setShowAddTask: (v: boolean) => void;
   setShowNewDoc: (v: boolean) => void;
   setShowNewGoal: (v: boolean) => void;
+  switchProject: (p: Project) => void;
+  switchWorkspace: (workspace: Workspace) => Promise<void>;
+  updateProject: (project: Project, patch: Partial<Project>) => Promise<void>;
+  archiveProject: (project: Project) => Promise<void>;
+  restoreProject: (project: Project) => Promise<void>;
+  deleteProject: (project: Project) => Promise<void>;
+  setShowAddProject?: (v: boolean) => void;
+  setShowAddWorkspace: (v: boolean) => void;
+  activeView?: string;
   setShowNewAutomation: (v: boolean) => void;
   setShowInvite: (v: boolean) => void;
   setShowSaveView: (v: boolean) => void;
@@ -567,8 +602,10 @@ export type ViewCtx = {
   unlinkGoalTask: (goalId: string, taskId: string) => void;
   toggleAutomation: (id: string, enabled: boolean) => void;
   updateMemberRole: (id: string, role: string) => void;
+  resendInvitation: (id: string) => Promise<void>;
+  revokeInvitation: (id: string) => Promise<void>;
   updateUserSkills: (userId: string, skills: string[]) => void;
-  updateWorkspace: (patch: Partial<Workspace>) => void;
+  updateWorkspace: (patch: Partial<Workspace>, workspace?: Workspace) => void | Promise<void>;
   createCustomField: (field: {
     name: string;
     type: string;
@@ -584,16 +621,32 @@ export type ViewCtx = {
   togglePinComment: (id: string, isPinned: boolean) => void;
   deleteComment: (id: string) => void;
   activeOrg: Organization | null;
-  activeWorkspace: Workspace | null;
   taskFilter: Record<string, string | undefined>;
   setActiveView: (v: string) => void;
   notify: (msg: string, kind?: "success" | "error") => void;
 };
 
 export const fmtDate = (d: string | Date | null | undefined, locale: string) => {
-  if (!d) return "—";
-  const date = typeof d === "string" ? new Date(d) : d;
-  return date.toLocaleDateString(locale === "ar" ? "ar-EG" : "en-US", { month: "short", day: "numeric" });
+  if (!d) return "";
+  return new Intl.DateTimeFormat(locale, { month: "short", day: "numeric", year: "numeric" }).format(new Date(d));
+};
+
+export type Sprint = {
+  id: string;
+  name: string;
+  goal?: string | null;
+  startsAt?: string | null;
+  endsAt?: string | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  cancelledAt?: string | null;
+  status: "planned" | "active" | "completed" | "cancelled";
+  projectId: string;
+  workspaceId: string;
+  organizationId: string;
+  createdBy?: string | null;
+  createdAt: string;
+  updatedAt: string;
 };
 
 export const fmtMinutes = (mins: number) => `${Math.floor(mins / 60)}h ${mins % 60}m`;

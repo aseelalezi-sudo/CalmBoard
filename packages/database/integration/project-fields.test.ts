@@ -13,6 +13,8 @@ import {
   projectSections,
   projectTeams,
   tasks,
+  TenantConflictError,
+  TenantResourceNotFoundError,
   teams,
   users,
   workspaces,
@@ -26,6 +28,7 @@ describe("complete project fields", () => {
   it("creates project fields, participants, teams, and template sections atomically", async () => {
     const organizationId = randomUUID();
     const workspaceId = randomUUID();
+    const otherWorkspaceId = randomUUID();
     const ownerId = randomUUID();
     const managerId = randomUUID();
     const memberId = randomUUID();
@@ -49,6 +52,12 @@ describe("complete project fields", () => {
         organizationId,
         name: "Project fields workspace",
         slug: `project-fields-${workspaceId}`,
+      });
+      await db.insert(workspaces).values({
+        id: otherWorkspaceId,
+        organizationId,
+        name: "Other workspace",
+        slug: `project-fields-other-${otherWorkspaceId}`,
       });
       await db.insert(memberships).values(
         [ownerId, managerId, memberId].map((userId) => ({
@@ -105,6 +114,37 @@ describe("complete project fields", () => {
         [teamId],
       );
       assert.equal(sectionRows.length, 4);
+
+      const repository = createProjectsRepository({ organizationId, workspaceId, actorId: ownerId });
+      const summary = await repository.list();
+      assert.equal(summary[0]?.totalTasks, 3);
+      assert.equal(summary[0]?.completedTasks, 0);
+      assert.equal(summary[0]?.memberCount, 3);
+
+      const updated = await repository.update(project.id, 1, { name: "Launch updated", progress: 40 });
+      assert.equal(updated.version, 2);
+      assert.equal(updated.name, "Launch updated");
+      await assert.rejects(() => repository.update(project.id, 1, { name: "Stale update" }), TenantConflictError);
+      await assert.rejects(
+        () =>
+          createProjectsRepository({ organizationId, workspaceId: otherWorkspaceId, actorId: ownerId }).update(
+            project.id,
+            2,
+            { name: "Cross-workspace update" },
+          ),
+        TenantResourceNotFoundError,
+      );
+
+      const archived = await repository.archive(project.id, 2);
+      assert.equal(archived.status, "archived");
+      assert.equal(archived.version, 3);
+      await assert.rejects(() => repository.update(project.id, 3, { status: "active" }), TenantConflictError);
+      const restored = await repository.restore(project.id, 3);
+      assert.equal(restored.status, "active");
+      assert.equal(restored.version, 4);
+      const deleted = await repository.softDelete(project.id, 4);
+      assert.ok(deleted.deletedAt);
+      assert.deepEqual(await repository.list(), []);
     } finally {
       if (projectId) {
         await db
@@ -131,6 +171,10 @@ describe("complete project fields", () => {
       await db
         .delete(workspaces)
         .where(eq(workspaces.id, workspaceId))
+        .catch(() => undefined);
+      await db
+        .delete(workspaces)
+        .where(eq(workspaces.id, otherWorkspaceId))
         .catch(() => undefined);
       await db
         .delete(organizations)

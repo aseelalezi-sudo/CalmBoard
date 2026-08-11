@@ -54,9 +54,13 @@ describe("database-backed authorization", () => {
       });
       const roleKeys = ["owner", "admin", "manager", "member", "guest", "viewer"] as const;
       for (let index = 0; index < roleKeys.length; index += 1) {
-        await db
-          .insert(memberships)
-          .values({ userId: userIds[index], organizationId, role: roleKeys[index], status: "active" });
+        await db.insert(memberships).values({
+          userId: userIds[index],
+          organizationId,
+          workspaceId: roleKeys[index] === "manager" ? workspaceId : undefined,
+          role: roleKeys[index],
+          status: "active",
+        });
       }
       await db
         .insert(projects)
@@ -67,12 +71,14 @@ describe("database-backed authorization", () => {
       assert.equal((await repository.resolve(userIds[1], scope, "billing.manage")).allowed, false);
       assert.equal((await repository.resolve(userIds[1], scope, "organization.manage")).allowed, false);
       assert.equal((await repository.resolve(userIds[2], scope, "data.export")).allowed, true);
+      assert.equal((await repository.resolve(userIds[0], { organizationId }, "data.export")).allowed, true);
+      assert.equal((await repository.resolve(userIds[2], { organizationId }, "data.export")).allowed, false);
       assert.equal((await repository.resolve(userIds[3], scope, "tasks.create")).allowed, true);
       assert.equal((await repository.resolve(userIds[3], scope, "tasks.update")).allowed, true);
       assert.equal((await repository.resolve(userIds[4], scope, "tasks.create")).allowed, false);
-      assert.deepEqual((await repository.resolve(userIds[4], scope)).permissions, []);
+      assert.deepEqual((await repository.resolve(userIds[4], scope)).permissions, ["sprints.view"]);
       assert.equal((await repository.resolve(userIds[5], scope, "tasks.create")).allowed, false);
-      assert.deepEqual((await repository.resolve(userIds[5], scope)).permissions, []);
+      assert.deepEqual((await repository.resolve(userIds[5], scope)).permissions, ["sprints.view"]);
       assert.equal((await repository.resolve(randomUUID(), scope, "tasks.create")).member, false);
 
       const [viewerMembership] = await db.select().from(memberships).where(eq(memberships.userId, userIds[5]));

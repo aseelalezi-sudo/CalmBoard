@@ -1,6 +1,6 @@
-import { and, desc, eq, inArray, isNull, or } from "drizzle-orm";
+import { and, count, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { db } from "../client.js";
-import { TenantResourceNotFoundError } from "../errors.js";
+import { TenantConflictError, TenantResourceNotFoundError } from "../errors.js";
 import {
   memberships,
   projects,
@@ -42,6 +42,27 @@ export type CreateProjectInput = {
   estimatedHours?: number | null;
   loggedHours?: number;
 };
+
+export type UpdateProjectInput = Partial<
+  Pick<
+    ProjectRecord,
+    | "name"
+    | "description"
+    | "color"
+    | "icon"
+    | "coverUrl"
+    | "status"
+    | "priority"
+    | "ownerId"
+    | "managerId"
+    | "startDate"
+    | "endDate"
+    | "privacy"
+    | "progress"
+    | "budget"
+    | "estimatedHours"
+  >
+>;
 
 type SectionTemplate = {
   name: string;
@@ -243,27 +264,95 @@ export function createProjectsRepository(context: DatabaseTenantContext) {
     if (teamRows.length !== uniqueTeamIds.length) throw new TenantResourceNotFoundError("project team");
   }
 
+  async function performUpdate(
+    projectId: string,
+    expectedVersion: number,
+    input: UpdateProjectInput,
+    options: { allowArchivedTransition?: boolean; requiredStatus?: ProjectStatus } = {},
+  ) {
+    await requireWorkspace();
+    await requireMembers([input.ownerId, input.managerId].filter(Boolean) as string[]);
+    const [existing] = await db
+      .select({ status: projects.status, version: projects.version })
+      .from(projects)
+      .where(and(eq(projects.id, projectId), tenantScope))
+      .limit(1);
+    if (!existing) throw new TenantResourceNotFoundError("project");
+    if (existing.version !== expectedVersion) throw new TenantConflictError("Project version is stale");
+    if (options.requiredStatus && existing.status !== options.requiredStatus) {
+      throw new TenantConflictError(`Project must be ${options.requiredStatus} for this operation`);
+    }
+    if (
+      !options.allowArchivedTransition &&
+      input.status !== undefined &&
+      (existing.status === "archived" || input.status === "archived")
+    ) {
+      throw new TenantConflictError("Archive and restore must use their dedicated project operations");
+    }
+    const [project] = await db
+      .update(projects)
+      .set({ ...input, version: sql`${projects.version} + 1`, updatedAt: new Date() })
+      .where(and(eq(projects.id, projectId), tenantScope, eq(projects.version, expectedVersion)))
+      .returning();
+    if (!project) throw new TenantConflictError("Project version is stale");
+    return project;
+  }
+
   return {
     async list() {
       await requireWorkspace();
       const rows = await db.select().from(projects).where(tenantScope).orderBy(desc(projects.createdAt));
-      const limits = rows.length
-        ? await db
-            .select()
-            .from(projectWipLimits)
-            .where(
-              and(
-                eq(projectWipLimits.organizationId, organizationId),
-                eq(projectWipLimits.workspaceId, workspaceId),
-                inArray(
-                  projectWipLimits.projectId,
-                  rows.map((project) => project.id),
-                ),
-              ),
-            )
-        : [];
+      if (!rows.length) return [];
+      const projectIds = rows.map((project) => project.id);
+      const [limits, taskSummaries, memberSummaries] = await Promise.all([
+        db
+          .select()
+          .from(projectWipLimits)
+          .where(
+            and(
+              eq(projectWipLimits.organizationId, organizationId),
+              eq(projectWipLimits.workspaceId, workspaceId),
+              inArray(projectWipLimits.projectId, projectIds),
+            ),
+          ),
+        db
+          .select({
+            projectId: tasks.projectId,
+            totalTasks: count(),
+            completedTasks: sql<number>`count(*) filter (where ${tasks.status} = 'done')`,
+          })
+          .from(tasks)
+          .where(
+            and(
+              eq(tasks.organizationId, organizationId),
+              eq(tasks.workspaceId, workspaceId),
+              inArray(tasks.projectId, projectIds),
+              isNull(tasks.deletedAt),
+            ),
+          )
+          .groupBy(tasks.projectId),
+        db
+          .select({ projectId: projectMembers.projectId, memberCount: count() })
+          .from(projectMembers)
+          .where(
+            and(
+              eq(projectMembers.organizationId, organizationId),
+              eq(projectMembers.workspaceId, workspaceId),
+              inArray(projectMembers.projectId, projectIds),
+              isNull(projectMembers.deletedAt),
+            ),
+          )
+          .groupBy(projectMembers.projectId),
+      ]);
+      const taskSummaryByProject = new Map(taskSummaries.map((summary) => [summary.projectId, summary]));
+      const memberCountByProject = new Map(
+        memberSummaries.map((summary) => [summary.projectId, Number(summary.memberCount)]),
+      );
       return rows.map((project) => ({
         ...project,
+        totalTasks: Number(taskSummaryByProject.get(project.id)?.totalTasks ?? 0),
+        completedTasks: Number(taskSummaryByProject.get(project.id)?.completedTasks ?? 0),
+        memberCount: memberCountByProject.get(project.id) ?? 0,
         wipLimits: Object.fromEntries(
           limits.filter((limit) => limit.projectId === project.id).map((limit) => [limit.status, limit.limit]),
         ),
@@ -399,6 +488,40 @@ export function createProjectsRepository(context: DatabaseTenantContext) {
 
         return project;
       });
+    },
+
+    async update(projectId: string, expectedVersion: number, input: UpdateProjectInput) {
+      return performUpdate(projectId, expectedVersion, input);
+    },
+
+    async archive(projectId: string, expectedVersion: number) {
+      return performUpdate(projectId, expectedVersion, { status: "archived" }, { allowArchivedTransition: true });
+    },
+
+    async restore(projectId: string, expectedVersion: number) {
+      return performUpdate(
+        projectId,
+        expectedVersion,
+        { status: "active" },
+        { allowArchivedTransition: true, requiredStatus: "archived" },
+      );
+    },
+
+    async softDelete(projectId: string, expectedVersion: number) {
+      await requireWorkspace();
+      const [project] = await db
+        .update(projects)
+        .set({ deletedAt: new Date(), version: sql`${projects.version} + 1`, updatedAt: new Date() })
+        .where(and(eq(projects.id, projectId), tenantScope, eq(projects.version, expectedVersion)))
+        .returning();
+      if (project) return project;
+      const [existing] = await db
+        .select({ version: projects.version })
+        .from(projects)
+        .where(and(eq(projects.id, projectId), tenantScope))
+        .limit(1);
+      if (!existing) throw new TenantResourceNotFoundError("project");
+      throw new TenantConflictError("Project version is stale");
     },
   };
 }

@@ -19,6 +19,7 @@ const publicUserSelection = {
   email: users.email,
   name: users.name,
   avatarUrl: users.avatarUrl,
+  lifecycleState: users.lifecycleState,
   locale: users.locale,
   theme: users.theme,
   emailVerifiedAt: users.emailVerifiedAt,

@@ -6,6 +6,7 @@ import { attachmentCleanupJobName } from "./attachment-cleanup.js";
 import {
   attachmentCleanupSchedulerId,
   authEmailSchedulerId,
+  invitationEmailSchedulerId,
   automationDailySchedulerId,
   automationEventSchedulerId,
   billingGracePeriodSchedulerId,
@@ -14,6 +15,7 @@ import {
   registerAttachmentCleanupSchedule,
   registerAutomationDailySchedule,
   registerAuthEmailSchedule,
+  registerInvitationEmailSchedule,
   registerAutomationEventSchedule,
   registerBillingGracePeriodSchedule,
   registerFormSubmissionSchedule,
@@ -26,6 +28,7 @@ import {
   workspaceExportSchedulerId,
 } from "./job-scheduler.js";
 import { authEmailJobName } from "./auth-email.js";
+import { invitationEmailJobName } from "./invitation-email.js";
 import { automationDailyJobName, automationEventJobName } from "./automation-events.js";
 import { formSubmissionJobName } from "./form-submissions.js";
 import { notificationEmailJobName } from "./notification-email.js";
@@ -52,6 +55,7 @@ describe("attachment cleanup scheduler", () => {
       await registerTaskReminderSchedule(queue, { TASK_REMINDER_INTERVAL_MS: "60000" });
       await registerNotificationEmailSchedule(queue, { NOTIFICATION_EMAIL_INTERVAL_MS: "30000" });
       await registerAuthEmailSchedule(queue, { AUTH_EMAIL_INTERVAL_MS: "15000" });
+      await registerInvitationEmailSchedule(queue, { INVITATION_EMAIL_INTERVAL_MS: "15000" });
       await registerAutomationEventSchedule(queue, { AUTOMATION_EVENT_INTERVAL_MS: "10000" });
       await registerAutomationDailySchedule(queue);
       await registerFormSubmissionSchedule(queue, { FORM_SUBMISSION_INTERVAL_MS: "10000" });
@@ -62,6 +66,7 @@ describe("attachment cleanup scheduler", () => {
       const reminderScheduler = await queue.getJobScheduler(taskReminderSchedulerId);
       const emailScheduler = await queue.getJobScheduler(notificationEmailSchedulerId);
       const authEmailScheduler = await queue.getJobScheduler(authEmailSchedulerId);
+      const invitationEmailScheduler = await queue.getJobScheduler(invitationEmailSchedulerId);
       const automationScheduler = await queue.getJobScheduler(automationEventSchedulerId);
       const automationDailyScheduler = await queue.getJobScheduler(automationDailySchedulerId);
       const formSubmissionScheduler = await queue.getJobScheduler(formSubmissionSchedulerId);
@@ -76,6 +81,8 @@ describe("attachment cleanup scheduler", () => {
       assert.equal(emailScheduler?.every, 30_000);
       assert.equal(authEmailScheduler?.name, authEmailJobName);
       assert.equal(authEmailScheduler?.every, 15_000);
+      assert.equal(invitationEmailScheduler?.name, invitationEmailJobName);
+      assert.equal(invitationEmailScheduler?.every, 15_000);
       assert.equal(automationScheduler?.name, automationEventJobName);
       assert.equal(automationScheduler?.every, 10_000);
       assert.equal(automationDailyScheduler?.name, automationDailyJobName);
@@ -93,6 +100,7 @@ describe("attachment cleanup scheduler", () => {
       await queue.removeJobScheduler(taskReminderSchedulerId);
       await queue.removeJobScheduler(notificationEmailSchedulerId);
       await queue.removeJobScheduler(authEmailSchedulerId);
+      await queue.removeJobScheduler(invitationEmailSchedulerId);
       await queue.removeJobScheduler(automationEventSchedulerId);
       await queue.removeJobScheduler(automationDailySchedulerId);
       await queue.removeJobScheduler(formSubmissionSchedulerId);
@@ -175,6 +183,31 @@ describe("attachment cleanup scheduler", () => {
       { every: 15_000 },
       {
         name: authEmailJobName,
+        data: {},
+        opts: {
+          attempts: 5,
+          backoff: { type: "exponential", delay: 5_000 },
+          removeOnComplete: 500,
+          removeOnFail: 1_000,
+        },
+      },
+    ]);
+  });
+
+  it("registers invitation email retries with exponential backoff", async () => {
+    let scheduler: unknown;
+    const queue = {
+      async upsertJobScheduler(...args: unknown[]) {
+        scheduler = args;
+      },
+    } as unknown as Queue;
+
+    await registerInvitationEmailSchedule(queue, { INVITATION_EMAIL_INTERVAL_MS: "15000" });
+    assert.deepEqual(scheduler, [
+      invitationEmailSchedulerId,
+      { every: 15_000 },
+      {
+        name: invitationEmailJobName,
         data: {},
         opts: {
           attempts: 5,

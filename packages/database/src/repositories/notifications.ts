@@ -12,14 +12,18 @@ export type CreateNotificationInput = {
   body?: string | null;
   entityType?: string | null;
   entityId?: string | null;
+  deduplicationKey?: string | null;
+  actionPath?: string | null;
 };
 
-export function createNotificationsRepository(context: DatabaseTenantContext) {
+type NotificationDatabase = Pick<typeof db, "select" | "insert" | "update">;
+
+export function createNotificationsRepository(context: DatabaseTenantContext, database: NotificationDatabase = db) {
   assertWorkspaceTenantContext(context);
   const { organizationId, workspaceId } = context;
 
   async function requireRecipient(userId: string) {
-    const [membership] = await db
+    const [membership] = await database
       .select({ id: memberships.id })
       .from(memberships)
       .where(
@@ -41,7 +45,7 @@ export function createNotificationsRepository(context: DatabaseTenantContext) {
   return {
     async listForUser(userId: string, limit = 50) {
       await requireRecipient(userId);
-      return db
+      return database
         .select()
         .from(notifications)
         .where(and(tenantScope, eq(notifications.userId, userId)))
@@ -51,7 +55,7 @@ export function createNotificationsRepository(context: DatabaseTenantContext) {
 
     async create(input: CreateNotificationInput) {
       await requireRecipient(input.userId);
-      const [notification] = await db
+      const [notification] = await database
         .insert(notifications)
         .values({
           organizationId,
@@ -62,16 +66,36 @@ export function createNotificationsRepository(context: DatabaseTenantContext) {
           body: input.body ?? null,
           entityType: input.entityType ?? null,
           entityId: input.entityId ?? null,
+          deduplicationKey: input.deduplicationKey ?? null,
+          actionPath: input.actionPath ?? null,
           isRead: false,
         })
+        .onConflictDoNothing()
         .returning();
-      return notification;
+      if (notification) return notification;
+      if (!input.deduplicationKey) throw new Error("Notification insert did not return a row");
+      const [existing] = await database
+        .select()
+        .from(notifications)
+        .where(
+          and(
+            tenantScope,
+            eq(notifications.userId, input.userId),
+            eq(notifications.deduplicationKey, input.deduplicationKey),
+          ),
+        )
+        .limit(1);
+      if (!existing) throw new Error("Notification deduplication lookup failed");
+      return existing;
     },
 
     async enqueueEmail(input: CreateNotificationInput, notificationId?: string | null) {
       await requireRecipient(input.userId);
       const id = randomUUID();
-      const [email] = await db
+      const idempotencyKey = input.deduplicationKey
+        ? `notification-email/${organizationId}/${input.userId}/${input.deduplicationKey}`
+        : `notification-email/${id}`;
+      const [email] = await database
         .insert(notificationEmailOutbox)
         .values({
           id,
@@ -81,15 +105,23 @@ export function createNotificationsRepository(context: DatabaseTenantContext) {
           notificationId: notificationId ?? null,
           subject: input.title,
           body: input.body ?? null,
-          idempotencyKey: `notification-email/${id}`,
+          idempotencyKey,
         })
+        .onConflictDoNothing()
         .returning();
-      return email;
+      if (email) return email;
+      const [existing] = await database
+        .select()
+        .from(notificationEmailOutbox)
+        .where(eq(notificationEmailOutbox.idempotencyKey, idempotencyKey))
+        .limit(1);
+      if (!existing) throw new Error("Notification email deduplication lookup failed");
+      return existing;
     },
 
     async markAllRead(userId: string) {
       await requireRecipient(userId);
-      await db
+      await database
         .update(notifications)
         .set({ isRead: true })
         .where(and(tenantScope, eq(notifications.userId, userId)));
@@ -97,7 +129,7 @@ export function createNotificationsRepository(context: DatabaseTenantContext) {
 
     async markRead(notificationId: string, userId: string) {
       await requireRecipient(userId);
-      const [notification] = await db
+      const [notification] = await database
         .update(notifications)
         .set({ isRead: true })
         .where(and(tenantScope, eq(notifications.id, notificationId), eq(notifications.userId, userId)))
@@ -110,11 +142,11 @@ export function createNotificationsRepository(context: DatabaseTenantContext) {
 
     async getDeliveryProfile(userId: string) {
       await requireRecipient(userId);
-      const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+      const [user] = await database.select().from(users).where(eq(users.id, userId)).limit(1);
       if (!user) {
         throw new TenantResourceNotFoundError("user");
       }
-      const [preferences] = await db
+      const [preferences] = await database
         .select()
         .from(notificationPreferences)
         .where(eq(notificationPreferences.userId, userId))

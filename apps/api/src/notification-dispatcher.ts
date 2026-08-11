@@ -21,13 +21,13 @@ export async function dispatchNotification(
   const delivered: NotificationChannel[] = [];
   const queued: NotificationChannel[] = [];
   let notificationId: string | null = null;
-  if (channels === "in_app" || channels === "all") {
+  const { user, preferences } = await repository.getDeliveryProfile(input.userId);
+  if ((channels === "in_app" || channels === "all") && preferences?.inAppEnabled !== false) {
     const notification = await repository.create(input);
     notificationId = notification.id;
     delivered.push("in_app");
   }
   if (channels === "email" || channels === "all") {
-    const { user, preferences } = await repository.getDeliveryProfile(input.userId);
     if (user.email && preferences?.emailEnabled !== false) {
       await repository.enqueueEmail(input, notificationId);
       queued.push("email");

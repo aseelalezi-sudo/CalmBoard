@@ -22,7 +22,9 @@ COPY --from=builder /app/out/full/ .
 RUN corepack enable && pnpm turbo run build --filter=@calmboard/api
 
 FROM sourcer AS deployer
-RUN pnpm --filter=@calmboard/api deploy --prod --legacy /prod/api
+RUN --mount=type=cache,id=calmboard-pnpm,target=/pnpm/store \
+    pnpm config set store-dir /pnpm/store && \
+    pnpm --filter=@calmboard/api deploy --prod --legacy --prefer-offline /prod/api
 
 FROM sourcer AS migrator
 ENV NODE_ENV=production
@@ -37,12 +39,16 @@ ENV NODE_ENV=production
 ENV PORT=4000
 ENV HOSTNAME="0.0.0.0"
 
-RUN apk add --no-cache dumb-init
+RUN apk add --no-cache dumb-init \
+    && rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
 RUN addgroup --system --gid 1001 nodejs && adduser --system --uid 1001 api_user
+RUN mkdir -p /app/data && chown api_user:nodejs /app/data
 
 COPY --from=deployer --chown=api_user:nodejs /prod/api ./
+COPY --from=builder --chown=api_user:nodejs /app/scripts/check-env.mjs /app/check-env.mjs
 
 USER api_user
 EXPOSE 4000
 
-CMD ["dumb-init", "node", "dist/main.js"]
+ENTRYPOINT ["dumb-init", "--"]
+CMD ["sh", "-c", "node /app/check-env.mjs --service=api && exec node dist/main.js"]

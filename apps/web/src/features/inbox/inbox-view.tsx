@@ -14,27 +14,33 @@ export function InboxView({ ctx }: { ctx: ViewCtx }) {
         {ctx.notifications.map((n) => (
           <Card
             key={n.id}
-            className={`flex gap-3.5 p-4 bg-white dark:bg-white/[0.025] ${!n.isRead ? "border-indigo-200 bg-indigo-50/50 dark:border-indigo-500/30 dark:bg-indigo-500/[0.05]" : ""}`}
+            className={`p-0 bg-white dark:bg-white/[0.025] ${!n.isRead ? "border-indigo-200 bg-indigo-50/50 dark:border-indigo-500/30 dark:bg-indigo-500/[0.05]" : ""}`}
           >
-            <span
-              className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl border ${!n.isRead ? "border-indigo-200 bg-indigo-100 text-indigo-700 dark:border-indigo-500/30 dark:bg-indigo-500/10 dark:text-indigo-300" : "border-slate-200 bg-slate-50 text-slate-500 dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-500"}`}
+            <button
+              type="button"
+              onClick={() => ctx.openNotification(n)}
+              className="flex w-full gap-3.5 rounded-[inherit] p-4 text-start transition hover:bg-slate-50/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:hover:bg-white/[0.04]"
             >
-              <IconMail size={15} />
-            </span>
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
-                <span className="text-[13px] font-semibold text-slate-900 dark:text-zinc-100">{n.title}</span>
-                {!n.isRead && (
-                  <span className="h-1.5 w-1.5 rounded-full bg-indigo-500 dark:bg-cyan-400 shadow-sm dark:shadow-[0_0_6px_rgba(34,211,238,0.8)]" />
+              <span
+                className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl border ${!n.isRead ? "border-indigo-200 bg-indigo-100 text-indigo-700 dark:border-indigo-500/30 dark:bg-indigo-500/10 dark:text-indigo-300" : "border-slate-200 bg-slate-50 text-slate-500 dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-500"}`}
+              >
+                <IconMail size={15} />
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-[13px] font-semibold text-slate-900 dark:text-zinc-100">{n.title}</span>
+                  {!n.isRead && (
+                    <span className="h-1.5 w-1.5 rounded-full bg-indigo-500 shadow-sm dark:bg-cyan-400 dark:shadow-[0_0_6px_rgba(34,211,238,0.8)]" />
+                  )}
+                </div>
+                {n.body && (
+                  <div className="mt-0.5 text-[12px] leading-relaxed text-slate-500 dark:text-zinc-500">{n.body}</div>
                 )}
+                <div className="mt-1 text-[10.5px] text-slate-400 dark:text-zinc-600">
+                  {new Date(n.createdAt).toLocaleString(dateLocale(ctx.locale))}
+                </div>
               </div>
-              {n.body && (
-                <div className="mt-0.5 text-[12px] leading-relaxed text-slate-500 dark:text-zinc-500">{n.body}</div>
-              )}
-              <div className="mt-1 text-[10.5px] text-slate-400 dark:text-zinc-600">
-                {new Date(n.createdAt).toLocaleString(dateLocale(ctx.locale))}
-              </div>
-            </div>
+            </button>
           </Card>
         ))}
         {ctx.notifications.length === 0 && (

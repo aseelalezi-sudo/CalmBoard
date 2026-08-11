@@ -1,0 +1,198 @@
+"use client";
+
+import { useMemo, useState } from "react";
+import { Btn, Field, Modal, inputCls } from "@/components/ui";
+import { IconCheck, IconFolder, IconPlus, IconSearch, IconSettings, IconUsers } from "@/components/icons";
+import type { ViewCtx, Workspace } from "@/lib/types";
+
+export function WorkspacesView({ ctx }: { ctx: ViewCtx }) {
+  const [search, setSearch] = useState("");
+  const [workspaceToEdit, setWorkspaceToEdit] = useState<Workspace | null>(null);
+  const [saving, setSaving] = useState(false);
+  const normalizedSearch = search.trim().toLocaleLowerCase(ctx.locale);
+  const visibleWorkspaces = useMemo(
+    () =>
+      ctx.workspaces.filter((workspace) => {
+        if (!normalizedSearch) return true;
+        return `${workspace.name} ${workspace.description ?? ""}`
+          .toLocaleLowerCase(ctx.locale)
+          .includes(normalizedSearch);
+      }),
+    [ctx.locale, ctx.workspaces, normalizedSearch],
+  );
+
+  const openWorkspace = async (workspace: Workspace, view?: "settings" | "members") => {
+    await ctx.switchWorkspace(workspace);
+    ctx.setActiveView(view ?? "projects");
+  };
+
+  return (
+    <div className="mx-auto w-full max-w-7xl space-y-6">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h1 className="font-display text-2xl font-bold text-ink">{ctx.t("مساحات العمل", "Workspaces")}</h1>
+          <p className="mt-1 text-[13px] text-ink-faint">
+            {ctx.t("تصفح مساحات العمل المتاحة لك وإدارتها.", "Browse and manage the workspaces available to you.")}
+          </p>
+        </div>
+        {ctx.can("workspace.manage") && (
+          <Btn variant="glow" onClick={() => ctx.setShowAddWorkspace(true)}>
+            <IconPlus size={15} />
+            {ctx.t("مساحة عمل جديدة", "New Workspace")}
+          </Btn>
+        )}
+      </div>
+
+      <label className="relative block max-w-md">
+        <span className="sr-only">{ctx.t("البحث في مساحات العمل", "Search workspaces")}</span>
+        <IconSearch className="absolute start-3 top-1/2 -translate-y-1/2 text-ink-faint" size={15} />
+        <input
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          placeholder={ctx.t("ابحث بالاسم أو الوصف…", "Search by name or description…")}
+          className={`${inputCls} ps-9`}
+        />
+      </label>
+
+      {ctx.workspaceDataError ? (
+        <div role="alert" className="rounded-2xl border border-rose-500/20 bg-rose-500/10 px-6 py-12 text-center">
+          <IconFolder className="mx-auto text-rose-500" size={28} />
+          <h2 className="mt-3 text-[14px] font-semibold text-rose-700 dark:text-rose-300">
+            {ctx.t("تعذر تحميل مساحات العمل", "Failed to load workspaces")}
+          </h2>
+          <p className="mt-1 text-[12px] text-rose-700/80 dark:text-rose-200/80">{ctx.workspaceDataError}</p>
+        </div>
+      ) : visibleWorkspaces.length ? (
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {visibleWorkspaces.map((workspace) => {
+            const current = workspace.id === ctx.activeWorkspace?.id;
+            return (
+              <article key={workspace.id} className="rounded-2xl border border-line bg-surface p-5 shadow-sm">
+                <div className="flex items-start gap-3">
+                  <div
+                    className="grid h-11 w-11 shrink-0 place-items-center rounded-xl text-white shadow-sm"
+                    style={{ backgroundColor: workspace.color || "#6366f1" }}
+                  >
+                    {workspace.icon && workspace.icon !== "folder" ? workspace.icon : <IconFolder size={18} />}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <h2 className="truncate text-[14px] font-semibold text-ink">{workspace.name}</h2>
+                      {current && (
+                        <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:text-emerald-300">
+                          <IconCheck size={11} />
+                          {ctx.t("الحالية", "Current")}
+                        </span>
+                      )}
+                    </div>
+                    <p className="mt-1 line-clamp-2 min-h-9 text-[12px] leading-relaxed text-ink-faint">
+                      {workspace.description || ctx.t("لا يوجد وصف لمساحة العمل.", "No workspace description.")}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mt-5 flex flex-wrap gap-2 border-t border-line pt-4">
+                  <Btn size="sm" onClick={() => void openWorkspace(workspace)}>
+                    {current ? ctx.t("فتح", "Open") : ctx.t("تبديل وفتح", "Switch & Open")}
+                  </Btn>
+                  {ctx.can("workspace.manage") && (
+                    <>
+                      <Btn size="sm" variant="outline" onClick={() => setWorkspaceToEdit(workspace)}>
+                        {ctx.t("تعديل", "Edit")}
+                      </Btn>
+                      <Btn size="sm" variant="outline" onClick={() => void openWorkspace(workspace, "settings")}>
+                        <IconSettings size={13} />
+                        {ctx.t("الإعدادات", "Settings")}
+                      </Btn>
+                    </>
+                  )}
+                  <Btn size="sm" variant="outline" onClick={() => void openWorkspace(workspace, "members")}>
+                    <IconUsers size={13} />
+                    {ctx.t("الأعضاء", "Members")}
+                  </Btn>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="rounded-2xl border border-dashed border-line bg-surface px-6 py-16 text-center">
+          <IconFolder className="mx-auto text-ink-faint" size={28} />
+          <h2 className="mt-3 text-[14px] font-semibold text-ink">
+            {search ? ctx.t("لا توجد نتائج", "No results") : ctx.t("لا توجد مساحات عمل", "No workspaces")}
+          </h2>
+          <p className="mt-1 text-[12px] text-ink-faint">
+            {search
+              ? ctx.t("جرّب عبارة بحث أخرى.", "Try a different search term.")
+              : ctx.t("لا توجد مساحة عمل متاحة لهذا الحساب.", "No workspace is available to this account.")}
+          </p>
+        </div>
+      )}
+
+      <Modal
+        open={Boolean(workspaceToEdit)}
+        onClose={() => !saving && setWorkspaceToEdit(null)}
+        title={ctx.t("تعديل مساحة العمل", "Edit Workspace")}
+      >
+        {workspaceToEdit && (
+          <form
+            className="space-y-4"
+            onSubmit={async (event) => {
+              event.preventDefault();
+              const form = new FormData(event.currentTarget);
+              setSaving(true);
+              try {
+                await ctx.updateWorkspace(
+                  {
+                    name: String(form.get("name") ?? "").trim(),
+                    description: String(form.get("description") ?? "").trim() || null,
+                    color: String(form.get("color") ?? "#6366f1"),
+                  },
+                  workspaceToEdit,
+                );
+                setWorkspaceToEdit(null);
+              } catch (error) {
+                ctx.notify(
+                  error instanceof Error
+                    ? error.message
+                    : ctx.t("تعذر تحديث مساحة العمل", "Failed to update workspace"),
+                  "error",
+                );
+              } finally {
+                setSaving(false);
+              }
+            }}
+          >
+            <Field label={ctx.t("الاسم", "Name")}>
+              <input name="name" required maxLength={255} defaultValue={workspaceToEdit.name} className={inputCls} />
+            </Field>
+            <Field label={ctx.t("الوصف", "Description")}>
+              <textarea
+                name="description"
+                rows={4}
+                defaultValue={workspaceToEdit.description ?? ""}
+                className={`${inputCls} h-auto py-2`}
+              />
+            </Field>
+            <Field label={ctx.t("اللون", "Color")}>
+              <input
+                name="color"
+                type="color"
+                defaultValue={workspaceToEdit.color || "#6366f1"}
+                className="h-10 w-full"
+              />
+            </Field>
+            <div className="flex justify-end gap-2 pt-2">
+              <Btn type="button" variant="outline" disabled={saving} onClick={() => setWorkspaceToEdit(null)}>
+                {ctx.t("إلغاء", "Cancel")}
+              </Btn>
+              <Btn type="submit" disabled={saving}>
+                {saving ? ctx.t("جارٍ الحفظ…", "Saving…") : ctx.t("حفظ", "Save")}
+              </Btn>
+            </div>
+          </form>
+        )}
+      </Modal>
+    </div>
+  );
+}

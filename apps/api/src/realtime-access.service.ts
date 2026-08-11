@@ -47,30 +47,30 @@ export class RealtimeAccessService {
         actorId: userId,
       },
       async () => {
+        let projectId = requested.projectId;
+        if (requested.workspaceId) {
+          const context = {
+            organizationId: requested.organizationId,
+            workspaceId: requested.workspaceId,
+            actorId: userId,
+          };
+          await createWorkspaceRepository(context).get();
+          if (requested.taskId) {
+            const task = await createTasksRepository(context).getById(requested.taskId);
+            if (projectId && task.projectId !== projectId) {
+              throw new ForbiddenException("Realtime task scope does not belong to the project");
+            }
+            projectId = task.projectId;
+          }
+          if (projectId) await createProjectsRepository(context).getById(projectId);
+        }
+
         const decision = await this.authorization.resolve(userId, {
           organizationId: requested.organizationId,
           workspaceId: requested.workspaceId,
-          projectId: requested.projectId,
+          projectId,
         });
         if (!decision.member) throw new ForbiddenException("Realtime tenant access is denied");
-        if (!requested.workspaceId) return requested;
-
-        const context = {
-          organizationId: requested.organizationId,
-          workspaceId: requested.workspaceId,
-          actorId: userId,
-        };
-        await createWorkspaceRepository(context).get();
-
-        let projectId = requested.projectId;
-        if (requested.taskId) {
-          const task = await createTasksRepository(context).getById(requested.taskId);
-          if (projectId && task.projectId !== projectId) {
-            throw new ForbiddenException("Realtime task scope does not belong to the project");
-          }
-          projectId = task.projectId;
-        }
-        if (projectId) await createProjectsRepository(context).getById(projectId);
 
         return { ...requested, ...(projectId ? { projectId } : {}) };
       },

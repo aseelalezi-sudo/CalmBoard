@@ -105,9 +105,14 @@ export function Avatar({
 }
 
 /* ---------- Kbd ---------- */
-export function Kbd({ children }: { children: ReactNode }) {
+export function Kbd({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <kbd className="inline-flex h-5 min-w-5 items-center justify-center rounded-md border border-slate-200 bg-slate-100 px-1.5 font-mono text-[10px] text-slate-600 dark:border-white/10 dark:bg-white/6 dark:text-zinc-400">
+    <kbd
+      className={cn(
+        "inline-flex h-5 min-w-5 items-center justify-center rounded-md border border-slate-200 bg-slate-100 px-1.5 font-mono text-[10px] text-slate-600 dark:border-white/10 dark:bg-white/6 dark:text-zinc-400",
+        className,
+      )}
+    >
       {children}
     </kbd>
   );

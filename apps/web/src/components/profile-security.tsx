@@ -5,9 +5,10 @@ import { Card, Btn, Toggle, Badge, inputCls } from "./ui";
 import { IconShield } from "./icons";
 import { useProfileSecurity } from "@/features/profile/use-profile-security";
 import { webAuthnUiEnabled } from "@/lib/feature-flags";
+import { AccountLifecycleCard } from "@/features/data-lifecycle/lifecycle-cards";
 
 export function ProfileSecurityView({ ctx }: { ctx: ViewCtx }) {
-  const [activeTab, setActiveTab] = useState<"security" | "sessions" | "prefs" | "branches">("security");
+  const [activeTab, setActiveTab] = useState<"security" | "sessions" | "prefs" | "branches" | "lifecycle">("security");
   const {
     sessions,
     branches,
@@ -58,6 +59,7 @@ export function ProfileSecurityView({ ctx }: { ctx: ViewCtx }) {
             ["sessions", "💻 الجلسات والأجهزة", "Sessions"],
             ["prefs", "🔔 الإشعارات و DND", "Notifications & DND"],
             ["branches", "🏢 فروع المؤسسة", "Branches"],
+            ["lifecycle", "⚠️ دورة حياة الحساب", "Account lifecycle"],
           ].map(([k, ar, en]) => (
             <button
               key={k}
@@ -389,6 +391,8 @@ export function ProfileSecurityView({ ctx }: { ctx: ViewCtx }) {
           </div>
         </Card>
       )}
+
+      {activeTab === "lifecycle" && <AccountLifecycleCard ctx={ctx} />}
 
       {/* TOTP setup modal */}
       {showQrModal && mfaSetup && (

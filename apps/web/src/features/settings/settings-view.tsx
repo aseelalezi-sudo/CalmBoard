@@ -1,10 +1,16 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { ViewCtx } from "@/lib/types";
 import { areaCls, Badge, Btn, Card, inputCls, selectCls } from "@/components/ui";
-import { downloadPreparedWorkspaceExport, prepareWorkspaceExport } from "@/features/workspace/export-api";
+import {
+  downloadPreparedWorkspaceExport,
+  getOrganizationAuthorization,
+  prepareOrganizationExport,
+  prepareWorkspaceExport,
+} from "@/features/workspace/export-api";
 import type { WorkspaceExportFormat } from "@/features/workspace/export-api";
 import { ScheduledReportsPanel } from "./scheduled-reports-panel";
+import { OrganizationLifecycleCard } from "@/features/data-lifecycle/lifecycle-cards";
 
 /* ================= Workspace Settings View ================= */
 export function SettingsView({ ctx }: { ctx: ViewCtx }) {
@@ -15,6 +21,28 @@ export function SettingsView({ ctx }: { ctx: ViewCtx }) {
   const [fieldType, setFieldType] = useState("short_text");
   const [fieldDescription, setFieldDescription] = useState("");
   const [exporting, setExporting] = useState<WorkspaceExportFormat | null>(null);
+  const [exportStatus, setExportStatus] = useState<string | null>(null);
+  const [organizationExporting, setOrganizationExporting] = useState(false);
+  const [organizationExportAllowed, setOrganizationExportAllowed] = useState(false);
+
+  useEffect(() => {
+    const organizationId = ctx.activeOrg?.id;
+    if (!organizationId || tab !== "data") {
+      setOrganizationExportAllowed(false);
+      return;
+    }
+    let active = true;
+    void getOrganizationAuthorization({ organizationId })
+      .then((authorization) => {
+        if (active) setOrganizationExportAllowed(authorization.permissions.includes("data.export"));
+      })
+      .catch(() => {
+        if (active) setOrganizationExportAllowed(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [ctx.activeOrg?.id, tab]);
 
   const saveGeneral = () => {
     ctx.updateWorkspace({ name, description });
@@ -44,7 +72,7 @@ export function SettingsView({ ctx }: { ctx: ViewCtx }) {
           organizationId: ctx.activeWorkspace.organizationId,
           workspaceId: ctx.activeWorkspace.id,
         },
-        { format },
+        { format, onStatus: (job) => setExportStatus(job.status) },
       );
       downloadPreparedWorkspaceExport(download);
       ctx.notify(ctx.t("أصبح ملف التصدير جاهزاً للتنزيل", "Workspace export is ready to download"));
@@ -55,6 +83,29 @@ export function SettingsView({ ctx }: { ctx: ViewCtx }) {
       );
     } finally {
       setExporting(null);
+    }
+  };
+
+  const exportOrganization = async () => {
+    if (!ctx.activeOrg || organizationExporting || !organizationExportAllowed) return;
+    setOrganizationExporting(true);
+    ctx.notify(ctx.t("جارٍ تجهيز أرشيف المؤسسة على الخادم…", "Preparing organization archive…"));
+    try {
+      const download = await prepareOrganizationExport(
+        { organizationId: ctx.activeOrg.id },
+        { onStatus: (job) => setExportStatus(job.status) },
+      );
+      downloadPreparedWorkspaceExport(download);
+      ctx.notify(ctx.t("أصبح أرشيف المؤسسة جاهزاً للتنزيل", "Organization export is ready to download"));
+    } catch (error) {
+      ctx.notify(
+        error instanceof Error
+          ? error.message
+          : ctx.t("تعذر إنشاء أرشيف المؤسسة", "Could not create organization export"),
+        "error",
+      );
+    } finally {
+      setOrganizationExporting(false);
     }
   };
 
@@ -248,8 +299,8 @@ export function SettingsView({ ctx }: { ctx: ViewCtx }) {
           </h3>
           <p className="mt-1 text-[12px] text-slate-500 dark:text-zinc-400">
             {ctx.t(
-              "أنشئ أرشيف JSON للنسخ الاحتياطي، أو تقرير PDF، أو ملف Excel متعدد الأوراق من الخادم.",
-              "Create a JSON backup, PDF report, or multi-sheet Excel workbook on the server.",
+              "أنشئ أرشيف ZIP قابل للنقل يتضمن البيانات والملفات، أو تقرير PDF، أو ملف Excel متعدد الأوراق.",
+              "Create a portable ZIP archive with data and files, a PDF report, or a multi-sheet Excel workbook.",
             )}
           </p>
           <div className="mt-5 flex flex-wrap gap-3">
@@ -259,8 +310,8 @@ export function SettingsView({ ctx }: { ctx: ViewCtx }) {
               onClick={() => void exportWorkspace("json")}
             >
               {exporting === "json"
-                ? ctx.t("جارٍ تجهيز JSON…", "Preparing JSON…")
-                : ctx.t("تنزيل أرشيف JSON", "Download JSON archive")}
+                ? ctx.t("جارٍ تجهيز ZIP…", "Preparing ZIP…")
+                : ctx.t("تنزيل أرشيف ZIP الكامل", "Download full ZIP archive")}
             </Btn>
             <Btn
               variant="outline"
@@ -281,6 +332,33 @@ export function SettingsView({ ctx }: { ctx: ViewCtx }) {
                 : ctx.t("تنزيل ملف Excel", "Download Excel workbook")}
             </Btn>
           </div>
+          {organizationExportAllowed && (
+            <div className="mt-5 rounded-xl border border-indigo-200 bg-indigo-50/60 p-4 dark:border-indigo-500/25 dark:bg-indigo-500/[0.06]">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="text-[13px] font-bold text-slate-900 dark:text-white">
+                    {ctx.t("تصدير المؤسسة بالكامل", "Full organization export")}
+                  </div>
+                  <p className="mt-1 text-[11.5px] text-slate-500 dark:text-zinc-400">
+                    {ctx.t(
+                      "أرشيف ZIP/JSON خاص يشمل جميع مساحات العمل المؤهلة. يتطلب صلاحية تصدير على مستوى المؤسسة.",
+                      "A private ZIP/JSON archive covering every eligible workspace. Organization-level export permission is required.",
+                    )}
+                  </p>
+                </div>
+                <Btn variant="outline" disabled={organizationExporting} onClick={() => void exportOrganization()}>
+                  {organizationExporting
+                    ? ctx.t("جارٍ تجهيز أرشيف المؤسسة…", "Preparing organization archive…")
+                    : ctx.t("تنزيل أرشيف المؤسسة", "Download organization archive")}
+                </Btn>
+              </div>
+            </div>
+          )}
+          {exporting && exportStatus && (
+            <p className="mt-3 text-xs text-indigo-700 dark:text-indigo-300" role="status" aria-live="polite">
+              {ctx.t(`حالة التصدير: ${exportStatus}`, `Export status: ${exportStatus}`)}
+            </p>
+          )}
           <div className="mt-6 grid gap-3 sm:grid-cols-3">
             <div className="rounded-xl bg-slate-50 p-4 dark:bg-white/[0.03]">
               <div className="text-[11px] text-slate-500">{ctx.t("المشاريع", "Projects")}</div>
@@ -296,6 +374,7 @@ export function SettingsView({ ctx }: { ctx: ViewCtx }) {
             </div>
           </div>
           <ScheduledReportsPanel ctx={ctx} />
+          <OrganizationLifecycleCard ctx={ctx} />
         </Card>
       )}
     </div>

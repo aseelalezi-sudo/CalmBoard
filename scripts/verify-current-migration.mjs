@@ -150,7 +150,7 @@ try {
        (select count(*)::int from drizzle.__drizzle_migrations) as migration_count`,
   );
   assert.deepEqual(migratedState.rows[0], {
-    table_count: 79,
+    table_count: 91,
     migration_count: journal.entries.length,
   });
   console.log(

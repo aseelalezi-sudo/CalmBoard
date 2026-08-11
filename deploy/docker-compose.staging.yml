@@ -1,5 +1,6 @@
 services:
   web:
+    profiles: !reset []
     image: ${CALMBOARD_WEB_IMAGE:-calmboard-web:staging}
     build: !reset null
     restart: unless-stopped
@@ -12,6 +13,7 @@ services:
       NEXT_PUBLIC_SENTRY_DSN: ${NEXT_PUBLIC_SENTRY_DSN:-}
 
   api:
+    profiles: !reset []
     image: ${CALMBOARD_API_IMAGE:-calmboard-api:staging}
     build: !reset null
     restart: unless-stopped
@@ -20,9 +22,11 @@ services:
     environment:
       NODE_ENV: production
       DEPLOY_ENV: staging
-      DATABASE_URL: postgresql://${POSTGRES_APP_USER:?POSTGRES_APP_USER is required}:${POSTGRES_APP_PASSWORD:?POSTGRES_APP_PASSWORD is required}@postgres:5432/${POSTGRES_DB:?POSTGRES_DB is required}
       DATABASE_APP_URL: postgresql://${POSTGRES_APP_USER:?POSTGRES_APP_USER is required}:${POSTGRES_APP_PASSWORD:?POSTGRES_APP_PASSWORD is required}@postgres:5432/${POSTGRES_DB:?POSTGRES_DB is required}
       AUTH_TOKEN_SECRET: ${AUTH_TOKEN_SECRET:?AUTH_TOKEN_SECRET is required}
+      AUTH_EMAIL_ENCRYPTION_KEY: ${AUTH_EMAIL_ENCRYPTION_KEY:-}
+      AUTH_EMAIL_ENCRYPTION_KEYS: ${AUTH_EMAIL_ENCRYPTION_KEYS:-}
+      AUTH_EMAIL_ENCRYPTION_ACTIVE_KEY_VERSION: ${AUTH_EMAIL_ENCRYPTION_ACTIVE_KEY_VERSION:-1}
       WEBHOOK_SIGNING_SECRET: ${WEBHOOK_SIGNING_SECRET:?WEBHOOK_SIGNING_SECRET is required}
       INTEGRATION_CREDENTIALS_KEY: ${INTEGRATION_CREDENTIALS_KEY:?INTEGRATION_CREDENTIALS_KEY is required}
       MFA_ENCRYPTION_KEY: ${MFA_ENCRYPTION_KEY:?MFA_ENCRYPTION_KEY is required}
@@ -30,6 +34,13 @@ services:
       APP_URL: ${APP_URL:?APP_URL is required for staging}
       API_PUBLIC_URL: ${API_PUBLIC_URL:?API_PUBLIC_URL is required for staging}
       AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-true}
+      TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:?TRUST_PROXY_HOPS is required}
+      ATTACHMENT_SCAN_MODE: ${ATTACHMENT_SCAN_MODE:?ATTACHMENT_SCAN_MODE is required}
+      ATTACHMENT_SCANNER_URL: ${ATTACHMENT_SCANNER_URL:?ATTACHMENT_SCANNER_URL is required}
+      ATTACHMENT_SCANNER_TOKEN: ${ATTACHMENT_SCANNER_TOKEN:?ATTACHMENT_SCANNER_TOKEN is required}
+      TURNSTILE_SITE_KEY: ${TURNSTILE_SITE_KEY:?TURNSTILE_SITE_KEY is required}
+      TURNSTILE_SECRET_KEY: ${TURNSTILE_SECRET_KEY:?TURNSTILE_SECRET_KEY is required}
+      TURNSTILE_EXPECTED_HOSTNAMES: ${TURNSTILE_EXPECTED_HOSTNAMES:-}
     depends_on:
       database-roles:
         condition: service_completed_successfully
@@ -37,6 +48,7 @@ services:
         condition: service_completed_successfully
 
   worker:
+    profiles: !reset []
     image: ${CALMBOARD_WORKER_IMAGE:-calmboard-worker:staging}
     build: !reset null
     restart: unless-stopped
@@ -54,6 +66,7 @@ services:
         condition: service_completed_successfully
 
   migrations:
+    profiles: !reset []
     image: ${CALMBOARD_MIGRATIONS_IMAGE:-calmboard-migrations:staging}
     build: !reset null
     restart: "no"
