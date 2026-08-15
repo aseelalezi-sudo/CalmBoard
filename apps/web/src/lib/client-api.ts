@@ -9,8 +9,73 @@ export class ApiError extends Error {
   }
 }
 
+function usesArabic() {
+  return typeof document !== "undefined" && document.documentElement.lang === "ar";
+}
+
+function statusMessage(status: number) {
+  const ar = usesArabic();
+  if (status === 400)
+    return ar
+      ? "تعذر تنفيذ الطلب. راجع البيانات المدخلة وحاول مجدداً."
+      : "The request could not be completed. Check the entered data and try again.";
+  if (status === 401)
+    return ar ? "انتهت جلسة تسجيل الدخول. سجّل الدخول للمتابعة." : "Your session has expired. Sign in to continue.";
+  if (status === 403)
+    return ar ? "ليست لديك صلاحية لتنفيذ هذا الإجراء." : "You do not have permission to perform this action.";
+  if (status === 404)
+    return ar
+      ? "تعذر العثور على العنصر المطلوب، وربما تم حذفه."
+      : "The requested item could not be found and may have been removed.";
+  if (status === 409)
+    return ar
+      ? "تعارضت العملية مع تغيير أحدث. حدّث الصفحة وحاول مجدداً."
+      : "This action conflicts with a newer change. Refresh and try again.";
+  if (status === 413)
+    return ar ? "حجم البيانات المرسلة أكبر من الحد المسموح." : "The submitted data exceeds the allowed size.";
+  if (status === 422)
+    return ar
+      ? "بعض البيانات غير صالحة. راجع الحقول وحاول مجدداً."
+      : "Some data is invalid. Review the fields and try again.";
+  if (status === 429)
+    return ar
+      ? "تم إرسال طلبات كثيرة. انتظر قليلاً ثم حاول مجدداً."
+      : "Too many requests were sent. Wait a moment and try again.";
+  if (status >= 500)
+    return ar
+      ? "حدث خطأ في الخادم. لم تُفقد بياناتك؛ حاول مجدداً بعد قليل."
+      : "A server error occurred. Your data was not lost; try again shortly.";
+  return ar ? "تعذر إكمال الطلب. حاول مجدداً." : "The request could not be completed. Try again.";
+}
+
+function payloadMessage(payload: unknown) {
+  if (!payload || typeof payload !== "object") return null;
+  const value = "message" in payload ? payload.message : "error" in payload ? payload.error : null;
+  if (typeof value === "string" && value.trim()) return value.trim();
+  if (Array.isArray(value)) {
+    const messages = value.filter((item): item is string => typeof item === "string" && Boolean(item.trim()));
+    if (messages.length) return messages.join(" • ");
+  }
+  return null;
+}
+
+function localizedResponseMessage(payload: unknown, status: number) {
+  const message = payloadMessage(payload);
+  if (!message) return statusMessage(status);
+  // API validation and framework errors are often emitted in English. Do not leak
+  // those implementation messages into an Arabic interface.
+  if (usesArabic() && !/[\u0600-\u06ff]/u.test(message)) return statusMessage(status);
+  return message;
+}
+
+export function readableError(error: unknown, fallback?: string) {
+  if (error instanceof ApiError) return error.message;
+  if (error instanceof Error && error.message.trim()) return error.message;
+  return fallback ?? statusMessage(0);
+}
+
 export function apiServiceUrl(path: string) {
-  const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:5500";
+  const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
   return `${baseUrl.replace(/\/$/, "")}/${path.replace(/^\//, "")}`;
 }
 
@@ -43,9 +108,9 @@ function isApiServiceRequest(url: string) {
 async function csrfToken() {
   if (csrfState && csrfState.refreshAt > Date.now()) return csrfState.token;
   const response = await fetch(apiServiceUrl("/auth/csrf"), { credentials: "include" });
-  if (!response.ok) throw new ApiError("Could not initialize request protection", response.status);
+  if (!response.ok) throw new ApiError(statusMessage(response.status), response.status);
   const payload = (await response.json()) as { token?: string };
-  if (!payload.token) throw new ApiError("Request protection token is missing", 500);
+  if (!payload.token) throw new ApiError(statusMessage(500), 500);
   csrfState = { token: payload.token, refreshAt: Date.now() + 7 * 60 * 60 * 1_000 };
   return payload.token;
 }
@@ -68,7 +133,7 @@ function canRefresh(url: string) {
 async function refreshSession() {
   if (!refreshInFlight) {
     refreshInFlight = requestInit(apiServiceUrl("/auth/refresh"), { method: "POST" })
-      .then((request) => fetch(apiServiceUrl("/auth/refresh"), request))
+      .then((request) => networkFetch(apiServiceUrl("/auth/refresh"), request))
       .then((response) => response.ok)
       .catch(() => false)
       .finally(() => {
@@ -78,18 +143,25 @@ async function refreshSession() {
   return refreshInFlight;
 }
 
+async function networkFetch(url: string, request: RequestInit) {
+  try {
+    return await fetch(url, request);
+  } catch (error) {
+    throw new ApiError(
+      usesArabic()
+        ? "تعذر الاتصال بالخادم. تحقق من اتصال الشبكة وتأكد من تشغيل خدمة API، ثم حاول مجدداً."
+        : "Could not connect to the server. Check your network and make sure the API service is running, then try again.",
+      0,
+      { originalError: error instanceof Error ? error.message : String(error) },
+    );
+  }
+}
+
 async function authenticatedFetch(url: string, init?: RequestInit) {
   const request = await requestInit(url, init);
-  let response: Response;
-  try {
-    response = await fetch(url, request);
-  } catch (error) {
-    throw new ApiError(`تعذّر الاتصال بالخادم (${apiServiceUrl("/")}). تأكد من أن خادم الـ API يعمل.`, 0, {
-      originalError: error instanceof Error ? error.message : String(error),
-    });
-  }
+  let response = await networkFetch(url, request);
   if (response.status === 401 && canRefresh(url) && (await refreshSession())) {
-    response = await fetch(url, request);
+    response = await networkFetch(url, request);
   }
   return response;
 }
@@ -97,13 +169,7 @@ async function authenticatedFetch(url: string, init?: RequestInit) {
 export async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await authenticatedFetch(url, init);
   const payload = await response.json().catch(() => undefined);
-  if (!response.ok) {
-    const message =
-      payload && typeof payload === "object" && "error" in payload && typeof payload.error === "string"
-        ? payload.error
-        : `Request failed with status ${response.status}: ${url}`;
-    throw new ApiError(message, response.status, payload);
-  }
+  if (!response.ok) throw new ApiError(localizedResponseMessage(payload, response.status), response.status, payload);
   return payload as T;
 }
 
@@ -111,10 +177,6 @@ export async function request(url: string, init?: RequestInit): Promise<void> {
   const response = await authenticatedFetch(url, init);
   if (!response.ok) {
     const payload = await response.json().catch(() => undefined);
-    const message =
-      payload && typeof payload === "object" && "error" in payload && typeof payload.error === "string"
-        ? payload.error
-        : `Request failed with status ${response.status}: ${url}`;
-    throw new ApiError(message, response.status, payload);
+    throw new ApiError(localizedResponseMessage(payload, response.status), response.status, payload);
   }
 }

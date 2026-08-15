@@ -539,6 +539,7 @@ export type ViewCtx = {
   invitations: Invitation[];
   notifications: Notification[];
   openNotification: (notification: Notification) => void;
+  markAllNotificationsRead: () => Promise<void>;
   savedViews: SavedView[];
   forms: Form[];
   invoices: Invoice[];
@@ -546,9 +547,9 @@ export type ViewCtx = {
   attachments: Attachment[];
   addAttachment: (taskId: string, file: File) => Promise<void>;
   toggleReaction: (commentId: string, emoji: string) => void;
-  createForm: (input: FormInput) => void;
-  updateForm: (id: string, input: FormInput) => void;
-  toggleForm: (id: string, isActive: boolean) => void;
+  createForm: (input: FormInput) => void | Promise<void>;
+  updateForm: (id: string, input: FormInput) => void | Promise<void>;
+  toggleForm: (id: string, isActive: boolean) => void | Promise<void>;
   stats: { total: number; done: number; inProgress: number; overdue: number; progress: number };
   groupedByStatus: Record<string, Task[]>;
   taskPagination: {
@@ -577,7 +578,7 @@ export type ViewCtx = {
     anchors: { beforeTaskId: string | null; afterTaskId: string | null },
   ) => Promise<void>;
   setProjectWipLimit: (status: string, limit: number | null) => Promise<void>;
-  createTask: (data: Partial<Task> & { title: string }) => void;
+  createTask: (data: Partial<Task> & { title: string }) => boolean | Promise<boolean>;
   setTaskFilter: (f: Record<string, string | undefined>) => void;
   setShowAddTask: (v: boolean) => void;
   setShowNewDoc: (v: boolean) => void;
@@ -597,14 +598,17 @@ export type ViewCtx = {
   setActiveDoc: (d: Doc | null) => void;
   activeDoc: Doc | null;
   patchDoc: (id: string, patch: Partial<Doc>) => void;
-  addGoalCheckin: (id: string, input: { note: string; progress?: number; currentValue?: number }) => void;
-  linkGoalTask: (goalId: string, taskId: string, weight?: number) => void;
-  unlinkGoalTask: (goalId: string, taskId: string) => void;
-  toggleAutomation: (id: string, enabled: boolean) => void;
-  updateMemberRole: (id: string, role: string) => void;
+  addGoalCheckin: (
+    id: string,
+    input: { note: string; progress?: number; currentValue?: number },
+  ) => void | Promise<void>;
+  linkGoalTask: (goalId: string, taskId: string, weight?: number) => void | Promise<void>;
+  unlinkGoalTask: (goalId: string, taskId: string) => void | Promise<void>;
+  toggleAutomation: (id: string, enabled: boolean) => void | Promise<void>;
+  updateMemberRole: (id: string, role: string) => void | Promise<void>;
   resendInvitation: (id: string) => Promise<void>;
   revokeInvitation: (id: string) => Promise<void>;
-  updateUserSkills: (userId: string, skills: string[]) => void;
+  updateUserSkills: (userId: string, skills: string[]) => void | Promise<void>;
   updateWorkspace: (patch: Partial<Workspace>, workspace?: Workspace) => void | Promise<void>;
   createCustomField: (field: {
     name: string;
@@ -615,21 +619,28 @@ export type ViewCtx = {
     options?: Array<{ label: string; value: string }>;
   }) => void;
   deleteCustomField: (id: string) => void;
-  logTime: (taskId: string, minutes: number, description: string) => void;
-  submitTimesheet: (timesheet: Timesheet) => void;
-  reviewTimesheet: (timesheet: Timesheet, decision: "approved" | "rejected", reason?: string) => void;
+  logTime: (taskId: string, minutes: number, description: string) => void | Promise<void>;
+  submitTimesheet: (timesheet: Timesheet) => void | Promise<void>;
+  reviewTimesheet: (timesheet: Timesheet, decision: "approved" | "rejected", reason?: string) => void | Promise<void>;
   togglePinComment: (id: string, isPinned: boolean) => void;
   deleteComment: (id: string) => void;
   activeOrg: Organization | null;
   taskFilter: Record<string, string | undefined>;
   setActiveView: (v: string) => void;
-  notify: (msg: string, kind?: "success" | "error") => void;
+  notify: (msg: string, kind?: "success" | "error" | "warning" | "info") => void;
 };
 
 export const fmtDate = (d: string | Date | null | undefined, locale: string) => {
   if (!d) return "";
-  return new Intl.DateTimeFormat(locale, { month: "short", day: "numeric", year: "numeric" }).format(new Date(d));
+  return new Intl.DateTimeFormat(locale === "ar" ? "ar-SA" : "en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(new Date(d));
 };
+
+export const fmtNumber = (value: number, locale: string, options?: Intl.NumberFormatOptions) =>
+  new Intl.NumberFormat(locale === "ar" ? "ar-SA" : "en-US", options).format(value);
 
 export type Sprint = {
   id: string;
@@ -649,4 +660,10 @@ export type Sprint = {
   updatedAt: string;
 };
 
-export const fmtMinutes = (mins: number) => `${Math.floor(mins / 60)}h ${mins % 60}m`;
+export const fmtMinutes = (mins: number, locale = "en") => {
+  const safeMinutes = Math.max(0, Math.round(mins));
+  const hours = Math.floor(safeMinutes / 60);
+  const minutes = safeMinutes % 60;
+  const number = (value: number) => fmtNumber(value, locale);
+  return locale === "ar" ? `${number(hours)} س ${number(minutes)} د` : `${number(hours)}h ${number(minutes)}m`;
+};

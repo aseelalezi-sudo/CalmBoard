@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { AppProviders } from "./providers";
+import { FeedbackHost } from "@/components/feedback";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -28,7 +29,10 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         />
       </head>
       <body className="min-h-screen bg-slate-50 text-slate-900 dark:bg-[#08080d] dark:text-zinc-100 antialiased selection:bg-indigo-500/20 selection:text-indigo-600 dark:selection:text-indigo-300">
-        <AppProviders>{children}</AppProviders>
+        <AppProviders>
+          {children}
+          <FeedbackHost />
+        </AppProviders>
       </body>
     </html>
   );

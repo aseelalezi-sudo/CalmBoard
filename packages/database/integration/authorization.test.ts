@@ -97,6 +97,17 @@ describe("database-backed authorization", () => {
         roleId: customRole.id,
         scope: "workspace",
       });
+      await assert.rejects(
+        () =>
+          repository.assignRole(userIds[0], {
+            organizationId,
+            workspaceId,
+            membershipId: viewerMembership.id,
+            roleId: customRole.id,
+            scope: "workspace",
+          }),
+        /already assigned/i,
+      );
       assert.equal((await repository.resolve(userIds[5], scope, "reports.view")).allowed, true);
       const updatedRole = await repository.updateCustomRole(userIds[0], organizationId, customRole.id, {
         name: "Security analyst",
@@ -105,11 +116,25 @@ describe("database-backed authorization", () => {
       assert.deepEqual(updatedRole?.permissionKeys, ["audit.view"]);
       assert.equal((await repository.resolve(userIds[5], scope, "reports.view")).allowed, false);
       assert.equal((await repository.resolve(userIds[5], scope, "audit.view")).allowed, true);
+      assert.deepEqual(await repository.archiveCustomRole(userIds[0], organizationId, customRole.id), {
+        status: "in_use",
+      });
       assert.ok(await repository.removeRoleAssignment(userIds[0], organizationId, binding.id));
       assert.equal((await repository.resolve(userIds[5], scope, "audit.view")).allowed, false);
-      assert.ok(await repository.archiveCustomRole(userIds[0], organizationId, customRole.id));
+      assert.equal((await repository.archiveCustomRole(userIds[0], organizationId, customRole.id)).status, "archived");
 
       const [memberMembership] = await db.select().from(memberships).where(eq(memberships.userId, userIds[3]));
+      await assert.rejects(
+        () =>
+          repository.setPermissionOverride(userIds[0], {
+            organizationId,
+            membershipId: memberMembership.id,
+            permissionKey: "organization.manage",
+            scope: "organization",
+            effect: "deny",
+          }),
+        /cannot be explicitly denied/i,
+      );
       const [taskCreatePermission] = await db.select().from(permissions).where(eq(permissions.key, "tasks.create"));
       await db.insert(membershipPermissionOverrides).values({
         organizationId,

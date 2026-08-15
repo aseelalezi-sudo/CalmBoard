@@ -9,6 +9,7 @@ import { Markdown } from "@tiptap/markdown";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { cn } from "@/lib/utils";
+import { notify, promptAction } from "@/components/feedback";
 
 type TiptapEditorInstance = ReturnType<typeof useEditor> | null;
 type Translator = (arabic: string, english: string) => string;
@@ -70,9 +71,18 @@ function RichTextToolbar({
 }) {
   if (!editor) return null;
   const disabled = !editable;
-  const setLink = () => {
+  const setLink = async () => {
     const previous = String(editor.getAttributes("link").href ?? "");
-    const requested = window.prompt(t("أدخل رابطاً آمناً", "Enter a safe link"), previous || "https://");
+    const requested = await promptAction({
+      title: t("إضافة رابط", "Add link"),
+      message: t("يُسمح بروابط HTTP وHTTPS والبريد الإلكتروني فقط.", "Only HTTP, HTTPS, and email links are allowed."),
+      label: t("عنوان الرابط", "Link address"),
+      defaultValue: previous || "https://",
+      type: "url",
+      inputMode: "url",
+      confirmLabel: t("إضافة الرابط", "Add link"),
+      required: false,
+    });
     if (requested === null) return;
     if (!requested.trim()) {
       editor.chain().focus().unsetLink().run();
@@ -80,19 +90,34 @@ function RichTextToolbar({
     }
     const href = safeWebUrl(requested.trim());
     if (!href) {
-      window.alert(
-        t("يُسمح فقط بروابط HTTP وHTTPS والبريد الإلكتروني.", "Only HTTP, HTTPS, and email links are allowed."),
+      notify(
+        t("استخدم رابط HTTP أو HTTPS أو عنوان بريد إلكتروني صالحاً.", "Use a valid HTTP, HTTPS, or email address."),
+        "error",
       );
       return;
     }
     editor.chain().focus().extendMarkRange("link").setLink({ href }).run();
   };
-  const addImage = () => {
-    const requested = window.prompt(t("رابط الصورة (HTTPS)", "Image URL (HTTPS)"), "https://");
+  const addImage = async () => {
+    const requested = await promptAction({
+      title: t("إضافة صورة", "Add image"),
+      message: t(
+        "لحماية المستند، يجب أن تستخدم الصورة اتصال HTTPS آمناً.",
+        "For document safety, the image must use a secure HTTPS connection.",
+      ),
+      label: t("رابط الصورة", "Image URL"),
+      defaultValue: "https://",
+      type: "url",
+      inputMode: "url",
+      confirmLabel: t("إضافة الصورة", "Add image"),
+    });
     if (requested === null) return;
     const src = safeWebUrl(requested.trim());
     if (!src || !src.startsWith("https://")) {
-      window.alert(t("رابط الصورة يجب أن يستخدم HTTPS.", "Image URLs must use HTTPS."));
+      notify(
+        t("رابط الصورة غير صالح. استخدم رابط HTTPS كاملاً.", "The image URL is invalid. Use a complete HTTPS URL."),
+        "error",
+      );
       return;
     }
     editor.chain().focus().setImage({ src }).run();

@@ -101,7 +101,7 @@ test.describe("CalmBoard core acceptance", () => {
 
   test("public OpenAPI reference exposes the core task and AI contracts", async ({ page }) => {
     await page.goto("/api-reference");
-    await expect(page.getByRole("heading", { name: /REST API/ })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "مرجع واجهة برمجة التطبيقات" })).toBeVisible();
     await expect(page.getByRole("button", { name: "/tasks get" })).toBeVisible();
     await expect(page.getByRole("button", { name: "/ai post" })).toBeVisible();
   });

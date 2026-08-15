@@ -165,6 +165,15 @@ export const IconFolder = make(
   <path d="M3 7a2 2 0 0 1 2-2h4l2.5 2.5H19a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z" />,
   "IconFolder",
 );
+export const IconBriefcase = make(
+  <>
+    <rect x="3" y="7" width="18" height="13" rx="2.5" />
+    <path d="M8 7V5.5A2.5 2.5 0 0 1 10.5 3h3A2.5 2.5 0 0 1 16 5.5V7" />
+    <path d="M3 12.5c5.7 2 12.3 2 18 0" />
+    <path d="M10 13.5h4" />
+  </>,
+  "IconBriefcase",
+);
 export const IconRocket = make(
   <>
     <path d="M12 15c5-3 6.5-7.5 6.5-11.5-4 0-8.5 1.5-11.5 6.5" />
@@ -207,6 +216,7 @@ export const IconBell = make(
 );
 export const IconPlus = make(<path d="M12 5v14M5 12h14" />, "IconPlus");
 export const IconX = make(<path d="M6 6l12 12M18 6 6 18" />, "IconX");
+export const IconMenu = make(<path d="M4 7h16M4 12h16M4 17h16" />, "IconMenu");
 export const IconCheck = make(<path d="M4.5 12.5 9.5 17.5 19.5 7" />, "IconCheck");
 export const IconChevron = make(<path d="m9 5 7 7-7 7" />, "IconChevron");
 export const IconSparkle = make(

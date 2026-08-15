@@ -189,7 +189,7 @@ export function createCommentsRepository(context: DatabaseTenantContext) {
         {
           userId: relation.mentionedUserId,
           type: "comment_mention",
-          title: "تمت الإشارة إليك | You were mentioned",
+          title: "تمت الإشارة إليك",
           body: input.content.slice(0, 500),
           taskId: input.taskId,
           commentId: input.commentId,
@@ -290,7 +290,7 @@ export function createCommentsRepository(context: DatabaseTenantContext) {
             {
               userId: parent.userId,
               type: "comment_reply",
-              title: "رد جديد على تعليقك | New reply to your comment",
+              title: "رد جديد على تعليقك",
               body: input.content.slice(0, 500),
               taskId: input.taskId,
               commentId: comment.id,

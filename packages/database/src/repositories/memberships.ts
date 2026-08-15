@@ -349,6 +349,21 @@ export function createMembershipsRepository(context: DatabaseTenantContext) {
       if (actorMembership.role !== "owner" && (target.role === "owner" || role === "owner")) {
         throw new TenantPermissionDeniedError("only an owner can manage the owner role");
       }
+      if (target.role === "owner" && role !== "owner") {
+        const owners = await db
+          .select({ userId: memberships.userId })
+          .from(memberships)
+          .where(
+            and(
+              eq(memberships.organizationId, organizationId),
+              eq(memberships.role, "owner"),
+              eq(memberships.status, "active"),
+            ),
+          );
+        if (!owners.some((owner) => owner.userId !== target.userId)) {
+          throw new TenantConflictError("The organization must keep at least one active owner");
+        }
+      }
       const [updated] = await db
         .update(memberships)
         .set({ role })
@@ -459,8 +474,8 @@ export async function acceptInvitation(rawToken: string, userId: string) {
           workspaceId: invitation.workspaceId,
           userId,
           type: "invitation_accepted",
-          title: "تم قبول دعوتك | Invitation accepted",
-          body: "أصبحت عضواً في مساحة العمل | You are now a workspace member",
+          title: "تم قبول دعوتك",
+          body: "أصبحت عضواً في مساحة العمل",
           entityType: "workspace",
           entityId: invitation.workspaceId,
           deduplicationKey: `invitation-accepted:${invitation.id}:${userId}`,

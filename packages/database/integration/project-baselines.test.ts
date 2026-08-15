@@ -52,7 +52,7 @@ describe("immutable project baselines", () => {
             .update(projectBaselineTasks)
             .set({ title: "Changed" })
             .where(eq(projectBaselineTasks.baselineId, baseline.id)),
-        (error: unknown) => (error as { cause?: { code?: string } }).cause?.code === "55000",
+        (error: unknown) => (error as { cause?: { code?: string } }).cause?.code === "40000",
       );
     } finally {
       await db

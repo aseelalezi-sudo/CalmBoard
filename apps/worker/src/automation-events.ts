@@ -406,8 +406,8 @@ async function executeRule(pool: Pool, event: AutomationEventCandidate, ruleId: 
             event.organizationId,
             event.workspaceId,
             recipient,
-            notifyTitle ?? `Automation: ${row.rule.name}`,
-            `Automation rule executed for task ${row.task.serial}`,
+            notifyTitle ?? `أتمتة: ${row.rule.name}`,
+            `نُفذت قاعدة الأتمتة للمهمة ${row.task.serial}`,
             event.taskId,
           ],
         );

@@ -1,4 +1,8 @@
-import type { ReactNode, ButtonHTMLAttributes } from "react";
+"use client";
+
+import { useEffect, useId, useRef } from "react";
+import type { ReactNode, ButtonHTMLAttributes, CSSProperties, HTMLAttributes, KeyboardEvent } from "react";
+import { createPortal } from "react-dom";
 import { cn } from "@/lib/utils";
 import { IconX } from "./icons";
 
@@ -12,17 +16,16 @@ export function Btn({ variant = "outline", size = "md", className, children, ...
     <button
       className={cn(
         "inline-flex items-center justify-center gap-2 rounded-xl font-medium transition-all duration-200 focus-ring disabled:opacity-40 disabled:pointer-events-none active:scale-[0.98]",
-        size === "sm" && "h-8 px-3 text-[12px]",
+        size === "sm" && "h-10 px-3 text-[12px] sm:h-8",
         size === "md" && "h-9 px-4 text-[13px]",
         size === "lg" && "h-11 px-5 text-[14px]",
         variant === "primary" &&
           "bg-linear-to-r from-indigo-600 to-violet-600 text-white shadow-[0_4px_18px_rgba(99,102,241,0.25)] hover:brightness-110 dark:from-indigo-500 dark:to-violet-500 dark:shadow-[0_0_22px_rgba(139,92,246,0.22)]",
         variant === "glow" &&
           "bg-linear-to-r from-indigo-500 to-violet-500 text-white shadow-[0_4px_20px_rgba(99,102,241,0.32)] hover:shadow-[0_4px_28px_rgba(139,92,246,0.38)] hover:brightness-105",
-        variant === "ghost" &&
-          "bg-transparent text-slate-500 hover:text-slate-900 hover:bg-slate-200/60 dark:text-zinc-400 dark:hover:text-zinc-100 dark:hover:bg-white/5",
+        variant === "ghost" && "bg-transparent text-ink-soft hover:bg-raised hover:text-ink",
         variant === "outline" &&
-          "border border-slate-200 bg-white/80 text-slate-700 hover:bg-slate-100 hover:text-slate-950 dark:border-white/10 dark:bg-white/3 dark:text-zinc-300 dark:hover:bg-white/7 dark:hover:text-white dark:hover:border-white/20",
+          "border border-line bg-surface/80 text-ink-soft hover:border-accent/30 hover:bg-raised hover:text-ink",
         variant === "danger" &&
           "bg-red-500/10 border border-red-500/30 text-red-600 dark:text-red-400 hover:bg-red-500/20",
         className,
@@ -45,7 +48,7 @@ export function Badge({
   className?: string;
 }) {
   const tones: Record<string, string> = {
-    neutral: "bg-slate-100 text-slate-600 border-slate-200 dark:bg-white/6 dark:text-zinc-400 dark:border-white/10",
+    neutral: "border-line bg-raised text-ink-soft",
     indigo: "bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border-indigo-500/25",
     cyan: "bg-cyan-500/10 text-cyan-700 dark:text-cyan-300 border-cyan-500/25",
     amber: "bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/25",
@@ -109,7 +112,7 @@ export function Kbd({ children, className }: { children: ReactNode; className?: 
   return (
     <kbd
       className={cn(
-        "inline-flex h-5 min-w-5 items-center justify-center rounded-md border border-slate-200 bg-slate-100 px-1.5 font-mono text-[10px] text-slate-600 dark:border-white/10 dark:bg-white/6 dark:text-zinc-400",
+        "inline-flex h-5 min-w-5 items-center justify-center rounded-md border border-line bg-raised px-1.5 font-mono text-[10px] text-ink-soft",
         className,
       )}
     >
@@ -118,10 +121,206 @@ export function Kbd({ children, className }: { children: ReactNode; className?: 
   );
 }
 
+/* ---------- Screen header ---------- */
+export function ScreenHeader({
+  title,
+  description,
+  icon,
+  meta,
+  actions,
+  className,
+}: {
+  title: ReactNode;
+  description?: ReactNode;
+  icon?: ReactNode;
+  meta?: ReactNode;
+  actions?: ReactNode;
+  className?: string;
+}) {
+  return (
+    <header className={cn("mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between", className)}>
+      <div className="flex min-w-0 items-start gap-3">
+        {icon && (
+          <span
+            aria-hidden="true"
+            className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-accent/20 bg-accent/10 text-accent"
+          >
+            {icon}
+          </span>
+        )}
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="font-display text-xl font-bold tracking-tight text-ink sm:text-[22px]">{title}</h1>
+            {meta}
+          </div>
+          {description && <p className="mt-1 max-w-3xl text-[12.5px] leading-5 text-ink-soft">{description}</p>}
+        </div>
+      </div>
+      {actions && <div className="flex w-full shrink-0 flex-wrap items-center gap-2 sm:w-auto">{actions}</div>}
+    </header>
+  );
+}
+
+/* ---------- Screen toolbar ---------- */
+export function ScreenToolbar({
+  children,
+  className,
+  label,
+}: {
+  children: ReactNode;
+  className?: string;
+  label?: string;
+}) {
+  return (
+    <div
+      role="toolbar"
+      aria-label={label}
+      className={cn(
+        "flex min-w-0 flex-wrap items-center gap-2 rounded-2xl border border-line bg-surface/90 p-2 shadow-sm",
+        className,
+      )}
+    >
+      {children}
+    </div>
+  );
+}
+
+/* ---------- Segmented tabs ---------- */
+export function SegmentedTabs({
+  value,
+  items,
+  onChange,
+  label,
+  className,
+  stretch = false,
+}: {
+  value: string;
+  items: Array<{ value: string; label: ReactNode; icon?: ReactNode; badge?: ReactNode; disabled?: boolean }>;
+  onChange: (value: string) => void;
+  label: string;
+  className?: string;
+  stretch?: boolean;
+}) {
+  const moveFocus = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    const enabled = items.map((item, itemIndex) => ({ item, itemIndex })).filter(({ item }) => !item.disabled);
+    const current = enabled.findIndex(({ itemIndex }) => itemIndex === index);
+    if (current < 0) return;
+    const rtl = document.documentElement.dir === "rtl";
+    const delta = event.key === "ArrowRight" ? (rtl ? -1 : 1) : event.key === "ArrowLeft" ? (rtl ? 1 : -1) : 0;
+    const nextIndex =
+      event.key === "Home"
+        ? 0
+        : event.key === "End"
+          ? enabled.length - 1
+          : (current + delta + enabled.length) % enabled.length;
+    const next = enabled[nextIndex];
+    if (!next) return;
+    onChange(next.item.value);
+    event.currentTarget.parentElement
+      ?.querySelectorAll<HTMLButtonElement>('[role="tab"]')
+      [next.itemIndex]?.focus({ preventScroll: true });
+  };
+
+  return (
+    <div
+      role="tablist"
+      aria-label={label}
+      className={cn(
+        "flex max-w-full overflow-x-auto rounded-xl border border-line bg-raised p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+        stretch && "w-full",
+        className,
+      )}
+    >
+      {items.map((item, index) => (
+        <button
+          key={item.value}
+          type="button"
+          role="tab"
+          aria-selected={value === item.value}
+          tabIndex={value === item.value ? 0 : -1}
+          disabled={item.disabled}
+          onClick={() => onChange(item.value)}
+          onKeyDown={(event) => moveFocus(event, index)}
+          className={cn(
+            "flex h-10 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-lg px-3 text-[12.5px] font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 disabled:opacity-40",
+            stretch && "flex-1",
+            value === item.value ? "bg-surface text-accent shadow-sm" : "text-ink-soft hover:text-ink",
+          )}
+        >
+          {item.icon}
+          <span>{item.label}</span>
+          {item.badge}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/* ---------- Screen state ---------- */
+export function ScreenState({
+  title,
+  description,
+  icon,
+  action,
+  tone = "empty",
+  framed = true,
+  className,
+}: {
+  title: ReactNode;
+  description?: ReactNode;
+  icon?: ReactNode;
+  action?: ReactNode;
+  tone?: "loading" | "empty" | "error" | "permission";
+  framed?: boolean;
+  className?: string;
+}) {
+  const isError = tone === "error";
+  return (
+    <div
+      role={isError ? "alert" : "status"}
+      aria-live={isError ? "assertive" : "polite"}
+      className={cn(
+        "px-5 py-10 text-center",
+        framed && "rounded-2xl border border-line bg-surface shadow-sm",
+        framed && isError && "border-rose-500/25 bg-rose-500/5",
+        framed && tone === "permission" && "border-amber-500/25 bg-amber-500/5",
+        className,
+      )}
+    >
+      {tone === "loading" ? (
+        <span
+          className="mx-auto block h-8 w-8 animate-spin rounded-full border-2 border-accent/20 border-t-accent"
+          aria-hidden
+        />
+      ) : (
+        icon && (
+          <span
+            aria-hidden="true"
+            className={cn(
+              "mx-auto grid h-11 w-11 place-items-center rounded-xl border border-line bg-raised text-ink-soft",
+              isError && "border-rose-500/20 bg-rose-500/10 text-rose-600 dark:text-rose-300",
+              tone === "permission" && "border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+            )}
+          >
+            {icon}
+          </span>
+        )
+      )}
+      <h2 className={cn("mt-3 text-[14px] font-semibold text-ink", isError && "text-rose-700 dark:text-rose-300")}>
+        {title}
+      </h2>
+      {description && <p className="mx-auto mt-1 max-w-xl text-[12.5px] leading-5 text-ink-soft">{description}</p>}
+      {action && <div className="mt-4 flex justify-center">{action}</div>}
+    </div>
+  );
+}
+
 /* ---------- Progress bar ---------- */
 export function Bar({ value, className, gradient = true }: { value: number; className?: string; gradient?: boolean }) {
   return (
-    <div className={cn("h-1.5 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-white/6", className)}>
+    <div className={cn("h-1.5 w-full overflow-hidden rounded-full bg-line", className)}>
       <div
         className={cn(
           "h-full rounded-full transition-all duration-700 ease-out",
@@ -156,7 +355,7 @@ export function Ring({
           cy={size / 2}
           r={r}
           stroke="currentColor"
-          className="text-slate-200 dark:text-white/7"
+          className="text-line"
           strokeWidth={stroke}
           fill="none"
         />
@@ -180,13 +379,7 @@ export function Ring({
         </defs>
       </svg>
       <div className="absolute inset-0 grid place-items-center text-center">
-        <div>
-          {label ?? (
-            <span className="text-[15px] font-bold text-slate-900 dark:text-white tabular-nums">
-              {Math.round(value)}%
-            </span>
-          )}
-        </div>
+        <div>{label ?? <span className="text-[15px] font-bold text-ink tabular-nums">{Math.round(value)}%</span>}</div>
       </div>
     </div>
   );
@@ -198,46 +391,149 @@ export function Modal({
   onClose,
   title,
   icon,
+  description,
   children,
+  footer,
   wide,
+  size,
+  contentScrollable = true,
+  contentClassName,
+  panelClassName,
+  panelStyle,
+  closeLabel = "Close",
 }: {
   open: boolean;
   onClose: () => void;
   title: string;
   icon?: ReactNode;
+  description?: string;
   children: ReactNode;
+  footer?: ReactNode;
   wide?: boolean;
+  size?: "default" | "wide" | "large" | "workspace";
+  contentScrollable?: boolean;
+  contentClassName?: string;
+  panelClassName?: string;
+  panelStyle?: CSSProperties;
+  closeLabel?: string;
 }) {
+  const panelRef = useRef<HTMLDivElement>(null);
+  const titleId = useId();
+  const onCloseRef = useRef(onClose);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  useEffect(() => {
+    if (!open) return;
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    const frame = requestAnimationFrame(() => panelRef.current?.focus({ preventScroll: true }));
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onCloseRef.current();
+        return;
+      }
+      if (event.key !== "Tab" || !panelRef.current) return;
+      const focusable = Array.from(
+        panelRef.current.querySelectorAll<HTMLElement>(
+          'button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])',
+        ),
+      ).filter((element) => element.offsetParent !== null);
+      if (focusable.length === 0) {
+        event.preventDefault();
+        panelRef.current.focus();
+        return;
+      }
+      const first = focusable[0]!;
+      const last = focusable.at(-1)!;
+      if (event.shiftKey && (document.activeElement === first || document.activeElement === panelRef.current)) {
+        event.preventDefault();
+        last.focus();
+      } else if (
+        !event.shiftKey &&
+        (document.activeElement === last || !panelRef.current.contains(document.activeElement))
+      ) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      cancelAnimationFrame(frame);
+      document.removeEventListener("keydown", handleKeyDown);
+      document.body.style.overflow = previousOverflow;
+      previousFocus?.focus({ preventScroll: true });
+    };
+  }, [open]);
+
   if (!open) return null;
-  return (
-    <div className="fixed inset-0 z-60 flex items-center justify-center p-4">
+  if (typeof document === "undefined") return null;
+
+  return createPortal(
+    <div className="fixed inset-0 z-60 flex items-center justify-center p-2 sm:p-4">
       <div
+        aria-hidden="true"
         className="absolute inset-0 bg-slate-900/60 dark:bg-zinc-950/70 backdrop-blur-md animate-fade"
         onClick={onClose}
       />
       <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+        style={panelStyle}
         className={cn(
-          "relative w-full rounded-2xl border border-slate-200 bg-white/95 dark:border-white/10 dark:bg-zinc-900/95 shadow-[0_24px_80px_rgba(0,0,0,0.2)] dark:shadow-[0_24px_80px_rgba(0,0,0,0.6),0_0_40px_rgba(99,102,241,0.08)] backdrop-blur-xl animate-pop",
-          wide ? "max-w-[560px]" : "max-w-[460px]",
+          "relative flex max-h-[calc(100dvh-1rem)] w-full flex-col overflow-hidden rounded-2xl border border-line bg-surface/98 shadow-[0_24px_80px_rgba(0,0,0,0.2)] backdrop-blur-xl animate-pop sm:max-h-[calc(100dvh-2rem)] dark:shadow-[0_24px_80px_rgba(0,0,0,0.6),0_0_40px_rgba(99,102,241,0.08)]",
+          size === "workspace"
+            ? "max-w-[980px]"
+            : size === "large"
+              ? "max-w-[900px]"
+              : size === "wide" || wide
+                ? "max-w-[560px]"
+                : "max-w-[460px]",
+          panelClassName,
         )}
       >
-        <div className="flex items-center gap-3 border-b border-slate-100 dark:border-white/7 px-5 py-4">
+        <div className="flex shrink-0 items-center gap-3 border-b border-line px-4 py-3.5 sm:px-5 sm:py-4">
           {icon && (
             <span className="grid h-8 w-8 place-items-center rounded-xl bg-linear-to-br from-indigo-500/10 to-violet-500/10 text-indigo-600 dark:from-indigo-500/20 dark:to-violet-500/20 dark:text-violet-300 border border-indigo-200/70 dark:border-white/10">
               {icon}
             </span>
           )}
-          <h3 className="flex-1 text-[15px] font-semibold text-slate-900 dark:text-white">{title}</h3>
+          <div className="min-w-0 flex-1">
+            <h3 id={titleId} className="truncate text-[15px] font-semibold text-ink">
+              {title}
+            </h3>
+            {description && <p className="mt-0.5 truncate text-[11.5px] text-ink-soft">{description}</p>}
+          </div>
           <button
+            type="button"
             onClick={onClose}
-            className="grid h-7 w-7 place-items-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-900 dark:text-zinc-500 dark:hover:bg-white/5 dark:hover:text-white"
+            aria-label={closeLabel}
+            className="grid h-10 w-10 shrink-0 place-items-center rounded-xl text-ink-faint transition hover:bg-raised hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 sm:h-8 sm:w-8"
           >
             <IconX size={15} />
           </button>
         </div>
-        <div className="p-5">{children}</div>
+        <div
+          className={cn(
+            "min-h-0 flex-1 p-4 sm:p-5",
+            contentScrollable && "overflow-y-auto overscroll-contain",
+            contentClassName,
+          )}
+        >
+          {children}
+        </div>
+        {footer && <div className="shrink-0 border-t border-line bg-surface px-4 py-3 sm:px-5">{footer}</div>}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -253,28 +549,69 @@ export function Field({
 }) {
   return (
     <Component className="block">
-      <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-zinc-500">
-        {label}
-      </span>
+      <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-ink-faint">{label}</span>
       {children}
     </Component>
   );
 }
 export const inputCls =
-  "w-full h-10 rounded-xl border border-slate-200 bg-white px-3.5 text-[13.5px] text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-indigo-500 focus:shadow-[0_0_0_3px_rgba(99,102,241,0.12)] dark:border-white/10 dark:bg-white/4 dark:text-white dark:placeholder:text-zinc-600 dark:focus:border-indigo-400/50 dark:focus:bg-white/6";
+  "h-10 w-full rounded-xl border border-line bg-surface px-3.5 text-[13.5px] text-ink outline-none transition placeholder:text-ink-faint focus:border-accent focus:shadow-[0_0_0_3px_color-mix(in_srgb,var(--color-accent)_14%,transparent)] aria-invalid:border-rose-500 aria-invalid:shadow-[0_0_0_3px_color-mix(in_srgb,#f43f5e_14%,transparent)] disabled:cursor-not-allowed disabled:bg-raised disabled:text-ink-faint";
 export const areaCls =
-  "w-full min-h-[90px] rounded-xl border border-slate-200 bg-white p-3.5 text-[13.5px] leading-relaxed text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-indigo-500 focus:shadow-[0_0_0_3px_rgba(99,102,241,0.12)] dark:border-white/10 dark:bg-white/4 dark:text-white dark:placeholder:text-zinc-600 dark:focus:border-indigo-400/50 dark:focus:bg-white/6 resize-none";
+  "min-h-[90px] w-full resize-none rounded-xl border border-line bg-surface p-3.5 text-[13.5px] leading-relaxed text-ink outline-none transition placeholder:text-ink-faint focus:border-accent focus:shadow-[0_0_0_3px_color-mix(in_srgb,var(--color-accent)_14%,transparent)] aria-invalid:border-rose-500 aria-invalid:shadow-[0_0_0_3px_color-mix(in_srgb,#f43f5e_14%,transparent)] disabled:cursor-not-allowed disabled:bg-raised disabled:text-ink-faint";
 export const selectCls =
-  "w-full h-10 rounded-xl border border-slate-200 bg-white px-3 text-[13px] text-slate-900 outline-none transition focus:border-indigo-500 dark:border-white/10 dark:bg-zinc-900 dark:text-white dark:focus:border-indigo-400/50 [&>option]:bg-white dark:[&>option]:bg-zinc-900";
+  "h-10 w-full cursor-pointer rounded-xl border border-line bg-surface px-3 text-[13px] text-ink shadow-sm outline-none transition hover:border-accent/45 focus:border-accent focus:shadow-[0_0_0_3px_color-mix(in_srgb,var(--color-accent)_14%,transparent)] aria-invalid:border-rose-500 aria-invalid:shadow-[0_0_0_3px_color-mix(in_srgb,#f43f5e_14%,transparent)] disabled:cursor-not-allowed disabled:bg-raised disabled:text-ink-faint [&>option]:bg-surface [&>option]:text-ink";
+
+export const dropdownSurfaceCls =
+  "dropdown-surface max-w-[calc(100vw-1rem)] overflow-hidden overscroll-contain rounded-2xl border border-accent/15 bg-surface opacity-100 shadow-[0_18px_52px_rgba(15,23,42,0.18)] ring-1 ring-line dark:shadow-[0_22px_60px_rgba(0,0,0,0.62)]";
+
+export const dropdownItemCls =
+  "dropdown-option flex min-h-9 w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-start text-[12.5px] font-medium text-ink-soft hover:bg-indigo-50 hover:text-indigo-950 focus-visible:outline-none focus-visible:bg-indigo-50 focus-visible:text-indigo-950 focus-visible:ring-2 focus-visible:ring-indigo-500/40 dark:hover:bg-indigo-400/10 dark:hover:text-white dark:focus-visible:bg-indigo-400/10 dark:focus-visible:text-white";
+
+export const dropdownDangerItemCls =
+  "dropdown-option flex min-h-9 w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-start text-[12.5px] font-medium text-rose-600 hover:bg-rose-50 focus-visible:outline-none focus-visible:bg-rose-50 focus-visible:ring-2 focus-visible:ring-rose-400/40 dark:text-rose-400 dark:hover:bg-rose-500/10 dark:focus-visible:bg-rose-500/10";
+
+export const dropdownSectionLabelCls =
+  "px-2 text-[10px] font-semibold uppercase tracking-[0.1em] text-indigo-400/90 dark:text-indigo-300/45";
+
+export function handleDropdownMenuKeyDown(event: KeyboardEvent<HTMLElement>) {
+  if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+
+  const items = Array.from(
+    event.currentTarget.querySelectorAll<HTMLButtonElement>(
+      '[role="menuitem"]:not(:disabled), [role="menuitemradio"]:not(:disabled)',
+    ),
+  ).filter((item) => item.offsetParent !== null);
+  if (items.length === 0) return;
+
+  event.preventDefault();
+  const currentIndex = items.findIndex((item) => item === document.activeElement);
+  const nextIndex =
+    event.key === "Home"
+      ? 0
+      : event.key === "End"
+        ? items.length - 1
+        : event.key === "ArrowDown"
+          ? currentIndex < 0
+            ? 0
+            : (currentIndex + 1) % items.length
+          : currentIndex <= 0
+            ? items.length - 1
+            : currentIndex - 1;
+
+  items[nextIndex]?.focus({ preventScroll: true });
+  items[nextIndex]?.scrollIntoView({ block: "nearest" });
+}
 
 /* ---------- Toggle ---------- */
 export function Toggle({
   checked,
   onChange,
+  ariaLabel,
   disabled = false,
 }: {
   checked: boolean;
   onChange: (v: boolean) => void;
+  ariaLabel: string;
   disabled?: boolean;
 }) {
   return (
@@ -282,22 +619,24 @@ export function Toggle({
       type="button"
       role="switch"
       aria-checked={checked}
+      aria-label={ariaLabel}
       disabled={disabled}
       onClick={() => onChange(!checked)}
-      className={cn(
-        "relative h-5.5 w-10 rounded-full transition-colors duration-300 disabled:cursor-not-allowed disabled:opacity-50",
-        checked
-          ? "bg-linear-to-r from-indigo-500 to-violet-500 shadow-[0_0_12px_rgba(99,102,241,0.35)]"
-          : "bg-slate-300 dark:bg-white/10",
-      )}
-      style={{ height: 22 }}
+      className="grid h-10 w-11 shrink-0 place-items-center rounded-xl transition hover:bg-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 disabled:cursor-not-allowed disabled:opacity-50"
     >
       <span
         className={cn(
-          "absolute top-[3px] h-4 w-4 rounded-full bg-white shadow transition-all duration-300",
-          checked ? "start-[21px]" : "start-[3px]",
+          "relative h-[22px] w-10 rounded-full transition-colors duration-300",
+          checked ? "bg-linear-to-r from-indigo-500 to-violet-500 shadow-[0_0_12px_rgba(99,102,241,0.35)]" : "bg-line",
         )}
-      />
+      >
+        <span
+          className={cn(
+            "absolute top-[3px] h-4 w-4 rounded-full bg-white shadow transition-all duration-300",
+            checked ? "start-[21px]" : "start-[3px]",
+          )}
+        />
+      </span>
     </button>
   );
 }
@@ -315,27 +654,34 @@ export function Empty({
   action?: ReactNode;
 }) {
   return (
-    <div className="flex flex-col items-center justify-center py-16 text-center">
-      <div className="grid h-14 w-14 place-items-center rounded-2xl border border-slate-200 bg-white text-slate-400 shadow-sm dark:border-white/10 dark:bg-white/3 dark:text-zinc-500 dark:shadow-[0_0_30px_rgba(99,102,241,0.06)]">
-        {icon}
-      </div>
-      <h4 className="mt-4 text-[14px] font-semibold text-slate-900 dark:text-white">{title}</h4>
-      {hint && (
-        <p className="mt-1 max-w-[300px] text-[12.5px] leading-relaxed text-slate-500 dark:text-zinc-500">{hint}</p>
-      )}
-      {action && <div className="mt-4">{action}</div>}
-    </div>
+    <ScreenState
+      tone="empty"
+      framed={false}
+      icon={icon}
+      title={title}
+      description={hint}
+      action={action}
+      className="py-16"
+    />
   );
 }
 
 /* ---------- Section heading ---------- */
-export function SectionTitle({ children, count, action }: { children: ReactNode; count?: number; action?: ReactNode }) {
+export function SectionTitle({
+  children,
+  count,
+  action,
+}: {
+  children: ReactNode;
+  count?: ReactNode;
+  action?: ReactNode;
+}) {
   return (
     <div className="mb-4 flex items-center justify-between gap-3">
       <div className="flex items-center gap-2.5">
-        <h3 className="text-[15px] font-semibold text-slate-900 dark:text-white">{children}</h3>
+        <h3 className="text-[15px] font-semibold text-ink">{children}</h3>
         {count !== undefined && (
-          <span className="rounded-full border border-slate-200 bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600 dark:border-white/10 dark:bg-white/5 dark:text-zinc-400 tabular-nums">
+          <span className="rounded-full border border-line bg-raised px-2 py-0.5 text-[11px] font-medium text-ink-soft tabular-nums">
             {count}
           </span>
         )}
@@ -346,11 +692,14 @@ export function SectionTitle({ children, count, action }: { children: ReactNode;
 }
 
 /* ---------- Glass card ---------- */
-export function Card({ children, className, glow }: { children: ReactNode; className?: string; glow?: boolean }) {
+type CardProps = HTMLAttributes<HTMLDivElement> & { glow?: boolean };
+
+export function Card({ children, className, glow, ...rest }: CardProps) {
   return (
     <div
+      {...rest}
       className={cn(
-        "rounded-2xl border border-slate-200/80 bg-white/80 backdrop-blur-sm shadow-sm dark:border-white/7 dark:bg-white/2.5 dark:shadow-none",
+        "rounded-2xl border border-line bg-surface/80 backdrop-blur-sm shadow-sm dark:shadow-none",
         glow && "shadow-[0_8px_30px_rgba(99,102,241,0.08)] dark:shadow-[0_0_40px_rgba(99,102,241,0.07)]",
         className,
       )}

@@ -413,7 +413,7 @@ describe("0062 data lifecycle", () => {
               organizationId,
               `blocked-${randomUUID()}`,
             ]),
-          "55000",
+          "40000",
         );
         await frozenApp.query("rollback");
       } finally {

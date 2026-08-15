@@ -1,91 +1,103 @@
 "use client";
+
+import { IconCheck, IconShield, IconX } from "@/components/icons";
+import { Btn } from "@/components/ui";
 import { useSecurityTests } from "@/features/admin/hooks";
+import { fmtNumber } from "@/lib/types";
+import { cn } from "@/lib/utils";
 
 export function SecurityTestRunner() {
   const { loading, report, error, run: runTests } = useSecurityTests();
 
   return (
-    <div className="mt-8 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-white/[0.07] dark:bg-white/[0.025] dark:shadow-none">
-      <div className="flex flex-wrap items-center justify-between gap-4">
+    <section className="mt-8 rounded-2xl border border-line bg-surface p-4 shadow-sm sm:p-6">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h2 className="text-[16px] font-bold text-slate-900 dark:text-white">
-            حزمة فحص الأمان وعزل المستأجرين (Automated Security & Tenancy Suite)
-          </h2>
-          <p className="mt-1 text-[12px] text-slate-500 dark:text-zinc-400">
-            تحقق مؤتمت فوري من سلامة العزل الأمني (RLS & Cross-Tenant)، سياسات RBAC، وتشفير التوقيع HMAC SHA-256 (قسم 26
-            & 29).
+          <h2 className="text-[16px] font-bold text-ink">حزمة الفحص الآلي للأمان وعزل المستأجرين</h2>
+          <p className="mt-1 max-w-2xl text-[12px] leading-relaxed text-ink-faint">
+            فحص فعلي لسياسات RLS وعزل المؤسسات ومساحات العمل وسلامة سجل التدقيق والتحقق من توقيع HMAC SHA-256 عبر واجهة
+            الإدارة المحمية.
           </p>
         </div>
-        <button
-          onClick={runTests}
-          disabled={loading}
-          className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-indigo-500 to-violet-500 px-4 py-2.5 text-[13px] font-semibold text-white shadow-md transition hover:brightness-105 disabled:opacity-50 dark:shadow-[0_0_20px_rgba(99,102,241,0.3)]"
-        >
-          {loading ? (
-            <>
-              <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
-              <span>جاري الفحص الدقيق...</span>
-            </>
-          ) : (
-            <>
-              <span>🛡️ تشغيل فحص الأمان الآن</span>
-            </>
-          )}
-        </button>
+        <Btn disabled={loading} aria-busy={loading} onClick={() => void runTests()}>
+          <IconShield size={14} />
+          {loading ? "جارٍ تشغيل الفحص…" : "تشغيل فحص الأمان"}
+        </Btn>
       </div>
 
       {error && (
-        <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 p-3.5 text-[13px] text-rose-700 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-300">
-          ⚠️ {error}
+        <div
+          className="mt-4 rounded-xl border border-rose-500/25 bg-rose-500/10 p-3.5 text-[13px] text-rose-700 dark:text-rose-300"
+          role="alert"
+        >
+          {error}
         </div>
       )}
 
       {report && (
-        <div className="mt-6 space-y-4 animate-fade">
-          <div className="flex flex-wrap items-center gap-4 rounded-xl border border-emerald-200 bg-emerald-50/70 p-3.5 text-[12.5px] text-emerald-800 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300">
+        <div className="mt-6 space-y-4 animate-fade" aria-live="polite">
+          <div
+            className={cn(
+              "flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border p-3.5 text-[12.5px]",
+              report.summary.passed === report.summary.total
+                ? "border-emerald-500/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                : "border-rose-500/25 bg-rose-500/10 text-rose-700 dark:text-rose-300",
+            )}
+          >
             <span className="font-bold">
-              ✓ نتيجة الفحص: {report.summary.passed} ناجح / {report.summary.total} إجمالي
+              النتيجة: {fmtNumber(report.summary.passed, "ar")} ناجح من {fmtNumber(report.summary.total, "ar")}
             </span>
             <span>
-              • الزمن المستغرق: <span className="font-mono font-bold tabular-nums">{report.summary.durationMs}ms</span>
+              الزمن:{" "}
+              <span className="font-mono font-bold tabular-nums">
+                {fmtNumber(report.summary.durationMs, "ar")} مللي ثانية
+              </span>
             </span>
-            <span className="text-emerald-600 dark:text-emerald-400">
-              ({new Date(report.summary.timestamp).toLocaleTimeString("ar-EG")})
-            </span>
+            <time dateTime={report.summary.timestamp}>
+              {new Date(report.summary.timestamp).toLocaleTimeString("ar-SA", {
+                hour: "2-digit",
+                minute: "2-digit",
+                second: "2-digit",
+              })}
+            </time>
           </div>
 
           <div className="grid gap-3 md:grid-cols-2">
-            {report.tests.map((t) => (
-              <div
-                key={t.id}
-                className={`rounded-xl border p-4 transition ${
-                  t.status === "passed"
-                    ? "border-slate-200 bg-slate-50/50 dark:border-white/[0.06] dark:bg-white/[0.02]"
-                    : "border-rose-300 bg-rose-50 dark:border-rose-500/30 dark:bg-rose-500/10"
-                }`}
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <div className="font-bold text-slate-900 dark:text-zinc-100 text-[13px]">{t.name_ar}</div>
-                  <span
-                    className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${
-                      t.status === "passed"
-                        ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-300"
-                        : "bg-rose-100 text-rose-800 dark:bg-rose-500/20 dark:text-rose-300"
-                    }`}
-                  >
-                    {t.status === "passed" ? "ناجح ✓" : "فشل ✕"}
-                  </span>
-                </div>
-                <div className="mt-1 text-[11px] font-mono text-slate-400 dark:text-zinc-500">
-                  {t.category} · {t.latencyMs}ms
-                </div>
-                <p className="mt-2 text-[12px] leading-relaxed text-slate-600 dark:text-zinc-300">{t.details_ar}</p>
-                <p className="mt-1 text-[11px] text-slate-400 dark:text-zinc-500">{t.details_en}</p>
-              </div>
-            ))}
+            {report.tests.map((testResult) => {
+              const passed = testResult.status === "passed";
+              return (
+                <article
+                  key={testResult.id}
+                  className={cn(
+                    "rounded-xl border p-4",
+                    passed ? "border-line bg-raised/50" : "border-rose-500/30 bg-rose-500/10",
+                  )}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <h3 className="text-[13px] font-bold text-ink">{testResult.name_ar}</h3>
+                    <span
+                      className={cn(
+                        "inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold",
+                        passed
+                          ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
+                          : "bg-rose-500/15 text-rose-700 dark:text-rose-300",
+                      )}
+                    >
+                      {passed ? <IconCheck size={10} /> : <IconX size={10} />}
+                      {passed ? "ناجح" : "فشل"}
+                    </span>
+                  </div>
+                  <div className="mt-1 font-mono text-[11px] text-ink-faint" dir="ltr">
+                    {testResult.category === "Security & Tenancy" ? "الأمان والعزل" : testResult.category} ·{" "}
+                    {fmtNumber(testResult.latencyMs, "ar")} مللي ثانية
+                  </div>
+                  <p className="mt-2 text-[12px] leading-relaxed text-ink-soft">{testResult.details_ar}</p>
+                </article>
+              );
+            })}
           </div>
         </div>
       )}
-    </div>
+    </section>
   );
 }

@@ -15,6 +15,7 @@ import {
   createOAuthIdentityRepository,
   createSecurityEventsRepository,
   InvalidAuthSessionError,
+  RefreshTokenReuseError,
   type OAuthProfile,
 } from "@calmboard/database";
 import { argon2id, hash, verify } from "argon2";
@@ -479,7 +480,20 @@ export class AuthService {
         },
       };
     } catch (error) {
-      if (error instanceof InvalidAuthSessionError) throw new UnauthorizedException(error.message);
+      if (
+        error instanceof InvalidAuthSessionError ||
+        error instanceof RefreshTokenReuseError ||
+        (error instanceof Error &&
+          (error.name === "InvalidAuthSessionError" ||
+            error.name === "RefreshTokenReuseError" ||
+            error.message === "Authentication session is invalid or expired" ||
+            error.message === "Refresh token has already been consumed" ||
+            error.message === "Refresh token is required"))
+      ) {
+        throw new UnauthorizedException(
+          error instanceof Error && error.message ? error.message : "Authentication session is invalid or expired",
+        );
+      }
       throw error;
     }
   }

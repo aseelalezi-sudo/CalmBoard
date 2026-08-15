@@ -22,10 +22,10 @@
   --color-canvas: #f8fafc;
   --color-surface: #ffffff;
   --color-raised: #f1f5f9;
-  --color-line: rgba(15, 23, 42, 0.08);
+  --color-line: rgba(15, 23, 42, 0.14);
   --color-ink: #0f172a;
   --color-ink-soft: #475569;
-  --color-ink-faint: #94a3b8;
+  --color-ink-faint: #64748b;
   --color-accent: #6366f1;
   --color-accent-2: #8b5cf6;
 }
@@ -34,10 +34,10 @@
   --color-canvas: #08080d;
   --color-surface: #0e0e16;
   --color-raised: #14141f;
-  --color-line: rgba(255, 255, 255, 0.07);
+  --color-line: rgba(255, 255, 255, 0.12);
   --color-ink: #f4f4f7;
   --color-ink-soft: #a1a1b5;
-  --color-ink-faint: #63637a;
+  --color-ink-faint: #8b8ba0;
   --color-accent: #818cf8;
   --color-accent-2: #a78bfa;
 }
@@ -67,6 +67,128 @@ body {
     "rlig" 1,
     "calt" 1,
     "ss01" 1;
+}
+
+/* ---------- Shared page widths ---------- */
+.screen-container-focused,
+.screen-container-standard,
+.screen-container-wide {
+  width: 100%;
+  margin-inline: auto;
+}
+.screen-container-focused {
+  max-width: 56rem;
+}
+.screen-container-standard {
+  max-width: 64rem;
+}
+.screen-container-wide {
+  max-width: 80rem;
+}
+
+select {
+  transition:
+    border-color 160ms ease,
+    background-color 160ms ease,
+    box-shadow 160ms ease;
+}
+select:not(:disabled):hover {
+  border-color: color-mix(in srgb, var(--color-accent) 42%, transparent);
+}
+select:focus-visible {
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 16%, transparent);
+}
+select:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+/* Progressive enhancement for browsers with customizable native selects. */
+@supports (appearance: base-select) {
+  select,
+  select::picker(select) {
+    appearance: base-select;
+  }
+
+  select::picker-icon {
+    color: var(--color-ink-faint);
+    transition: transform 160ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  select:open::picker-icon {
+    transform: rotate(180deg);
+  }
+
+  select::picker(select) {
+    margin-block-start: 6px;
+    max-height: min(320px, 55vh);
+    padding: 6px;
+    border: 1px solid color-mix(in srgb, var(--color-accent) 18%, var(--color-line));
+    border-radius: 16px;
+    background: var(--color-surface);
+    color: var(--color-ink);
+    box-shadow:
+      0 18px 52px rgba(15, 23, 42, 0.18),
+      0 0 0 1px rgba(15, 23, 42, 0.04);
+    opacity: 0;
+    transform: translateY(-6px) scale(0.985);
+    transform-origin: top center;
+    transition:
+      opacity 180ms cubic-bezier(0.16, 1, 0.3, 1),
+      transform 180ms cubic-bezier(0.16, 1, 0.3, 1),
+      display 180ms allow-discrete,
+      overlay 180ms allow-discrete;
+  }
+
+  .dark select::picker(select) {
+    box-shadow:
+      0 22px 60px rgba(0, 0, 0, 0.62),
+      0 0 0 1px rgba(255, 255, 255, 0.05);
+  }
+
+  select:open::picker(select) {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+
+  @starting-style {
+    select:open::picker(select) {
+      opacity: 0;
+      transform: translateY(-6px) scale(0.985);
+    }
+  }
+
+  select option {
+    min-height: 38px;
+    margin-block: 2px;
+    padding: 9px 11px;
+    border-radius: 11px;
+    background: transparent;
+    color: var(--color-ink-soft);
+    font-size: 13px;
+    font-weight: 500;
+    transition:
+      background-color 140ms ease,
+      color 140ms ease;
+  }
+
+  select option:hover,
+  select option:focus-visible {
+    background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+    color: var(--color-ink);
+  }
+
+  select option:checked {
+    background: color-mix(in srgb, var(--color-accent) 15%, transparent);
+    color: var(--color-accent);
+    font-weight: 650;
+  }
+
+  select option::checkmark {
+    color: var(--color-accent);
+  }
 }
 
 /* ---------- Layered ambient background ---------- */
@@ -178,6 +300,36 @@ button:focus-visible {
     transform: scale(1) translateY(0);
   }
 }
+@keyframes dropdown-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+@keyframes dropdown-option-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes feedback-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-10px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
 @keyframes slide-start {
   from {
     opacity: 0;
@@ -230,6 +382,40 @@ button:focus-visible {
 }
 .animate-pop {
   animation: pop 0.3s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.dropdown-surface {
+  transform-origin: top center;
+  animation: dropdown-enter 0.18s cubic-bezier(0.16, 1, 0.3, 1) both;
+  will-change: transform, opacity;
+}
+.dropdown-option {
+  transition:
+    background-color 0.14s ease,
+    color 0.14s ease,
+    box-shadow 0.14s ease,
+    transform 0.14s ease;
+}
+.dropdown-option:hover,
+.dropdown-option:focus-visible {
+  transform: translateY(-1px);
+}
+.dropdown-options > .dropdown-option {
+  animation: dropdown-option-enter 0.18s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.dropdown-options > .dropdown-option:nth-child(2) {
+  animation-delay: 0.018s;
+}
+.dropdown-options > .dropdown-option:nth-child(3) {
+  animation-delay: 0.036s;
+}
+.dropdown-options > .dropdown-option:nth-child(4) {
+  animation-delay: 0.054s;
+}
+.dropdown-options > .dropdown-option:nth-child(n + 5) {
+  animation-delay: 0.07s;
+}
+.feedback-notice {
+  animation: feedback-enter 0.24s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 .animate-slide {
   animation: slide-start 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
@@ -365,6 +551,36 @@ select {
 option {
   background: var(--color-surface);
   color: var(--color-ink);
+}
+
+/* ---------- Responsive safety ---------- */
+html,
+body {
+  max-width: 100%;
+  overflow-x: clip;
+}
+img,
+video,
+canvas,
+svg {
+  max-width: 100%;
+}
+button,
+input,
+select,
+textarea {
+  min-width: 0;
+}
+@media (max-width: 639px) {
+  .tiptap-document h1 {
+    font-size: 1.4rem;
+  }
+  .tiptap-document h2 {
+    font-size: 1.2rem;
+  }
+  .tiptap-document pre {
+    padding: 0.75rem;
+  }
 }
 
 /* ---------- TipTap document editor ---------- */

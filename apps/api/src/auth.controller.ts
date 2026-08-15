@@ -296,9 +296,16 @@ export class AuthController {
   ) {
     const refreshToken = parseCookies(cookieHeader)[REFRESH_COOKIE];
     if (!refreshToken) throw new UnauthorizedException("Refresh token is required");
-    const result = await this.auth.refresh(refreshToken, authClient(request, userAgent));
-    setAuthCookies(response, result.tokens);
-    return { user: result.user };
+    try {
+      const result = await this.auth.refresh(refreshToken, authClient(request, userAgent));
+      setAuthCookies(response, result.tokens);
+      return { user: result.user };
+    } catch (error) {
+      if (error instanceof UnauthorizedException) {
+        response.header("Set-Cookie", [clearCookie(ACCESS_COOKIE), clearCookie(REFRESH_COOKIE)]);
+      }
+      throw error;
+    }
   }
 
   @Post("logout")

@@ -262,7 +262,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dev_postgres_password}
       POSTGRES_DB: ${POSTGRES_DB:-calmboard_db}
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-15432}:5432"
     volumes:
       - pgdata18:/var/lib/postgresql
     healthcheck:

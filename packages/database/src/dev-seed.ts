@@ -43,6 +43,163 @@ async function ensureExtras() {
   const owner = allUserRows.find((user) => user.id === org?.ownerId && activeUserIds.has(user.id)) ?? userRows[0];
   if (!org || !ws || !owner || userRows.length === 0) return added;
 
+  // Translate rows from earlier development seeds without modifying user-created content.
+  await Promise.all([
+    db.update(schema.users).set({ name: "أليكس ريفيرا", locale: "ar" }).where(eq(schema.users.name, "Alex Rivera")),
+    db.update(schema.users).set({ name: "ليام تشين", locale: "ar" }).where(eq(schema.users.name, "Liam Chen")),
+    db
+      .update(schema.workspaces)
+      .set({ description: "مساحة عمل التسويق والمبيعات" })
+      .where(eq(schema.workspaces.description, "Marketing & Sales workspace")),
+    db
+      .update(schema.teams)
+      .set({ description: "فريق الهندسة" })
+      .where(eq(schema.teams.description, "Engineering team")),
+    db.update(schema.teams).set({ description: "فريق التصميم" }).where(eq(schema.teams.description, "Design team")),
+    db
+      .update(schema.projects)
+      .set({
+        name: "إعادة تصميم تطبيق الهاتف",
+        description: "إعادة تصميم تجربة الهاتف بالكامل وفق نظام التصميم الجديد",
+      })
+      .where(eq(schema.projects.name, "Mobile App Redesign")),
+    db
+      .update(schema.projects)
+      .set({ name: "إطلاق منصة CalmBoard 2.0" })
+      .where(eq(schema.projects.name, "إطلاق منصة CalmBord 2.0")),
+    db.update(schema.projectSections).set({ name: "التراكم" }).where(eq(schema.projectSections.name, "Backlog")),
+    db
+      .update(schema.projectSections)
+      .set({ name: "قيد التنفيذ" })
+      .where(eq(schema.projectSections.name, "In Progress")),
+    db.update(schema.projectSections).set({ name: "مراجعة" }).where(eq(schema.projectSections.name, "Review")),
+    db.update(schema.projectSections).set({ name: "مكتمل" }).where(eq(schema.projectSections.name, "Done")),
+    db
+      .update(schema.tasks)
+      .set({ title: "إنشاء لوحة معلومات قابلة للتخصيص", tags: ["لوحة معلومات"] })
+      .where(eq(schema.tasks.title, "Build dashboard builder with widgets")),
+    db
+      .update(schema.tasks)
+      .set({ title: "التنقل السفلي في الهاتف", tags: ["هاتف", "تجربة مستخدم"] })
+      .where(eq(schema.tasks.title, "Mobile bottom navigation")),
+    db
+      .update(schema.tasks)
+      .set({ tags: ["لوحة معلومات"] })
+      .where(eq(schema.tasks.title, "إنشاء لوحة معلومات قابلة للتخصيص")),
+    db
+      .update(schema.tasks)
+      .set({ tags: ["هاتف", "تجربة مستخدم"] })
+      .where(eq(schema.tasks.title, "التنقل السفلي في الهاتف")),
+    db
+      .update(schema.tasks)
+      .set({ title: "تصميم نظام الألوان ورموز التصميم", tags: ["تصميم", "رموز"] })
+      .where(eq(schema.tasks.title, "تصميم نظام الألوان والـ Design Tokens")),
+    db
+      .update(schema.tasks)
+      .set({ title: "بناء مستودع موحد باستخدام توربو ريبّو", tags: ["بنية تحتية", "إعداد"] })
+      .where(eq(schema.tasks.title, "بناء هيكل Monorepo مع Turborepo")),
+    db
+      .update(schema.tasks)
+      .set({ tags: ["مصادقة", "أمان"] })
+      .where(eq(schema.tasks.title, "تنفيذ مصادقة متعددة المستأجرين")),
+    db
+      .update(schema.tasks)
+      .set({ title: "واجهة إدارة المشاريع بنمط القائمة", tags: ["واجهة", "مشاريع"] })
+      .where(eq(schema.tasks.title, "واجهة إدارة المشاريع - List View")),
+    db
+      .update(schema.tasks)
+      .set({ title: "لوحة كانبان مع السحب والإفلات", tags: ["كانبان", "سحب وإفلات"] })
+      .where(eq(schema.tasks.title, "Kanban Board مع dnd-kit")),
+    db
+      .update(schema.tasks)
+      .set({ tags: ["ذكاء اصطناعي", "أتمتة"] })
+      .where(eq(schema.tasks.title, "تكامل الذكاء الاصطناعي لاقتراح المهام")),
+    db
+      .update(schema.tasks)
+      .set({ tags: ["تسويق", "إعلانات"] })
+      .where(eq(schema.tasks.title, "إعداد حملة إعلانية لتيك توك")),
+    db
+      .update(schema.tasks)
+      .set({ tags: ["تحليلات"] })
+      .where(eq(schema.tasks.title, "تحليل أداء العملاء الحاليين")),
+    db
+      .update(schema.tasks)
+      .set({ description: "وصف تفصيلي للمهمة يدعم التنسيق وقوائم التحقق والإشارات." })
+      .where(
+        eq(schema.tasks.description, "Task description with rich details. Supports markdown, checklists, mentions."),
+      ),
+    db.update(schema.tasks).set({ title: "خطة الإطلاق" }).where(eq(schema.tasks.title, "Launch Plan")),
+    db
+      .update(schema.tasks)
+      .set({
+        description:
+          "## الهدف\nتحسين تجربة المستخدم عبر نظام ألوان متناسق يدعم الوضعين الفاتح والداكن\n\n- استخدام رموز ألوان دلالية\n- دعم اتجاهي الكتابة\n- اختبار التباين وفق معيار WCAG AA",
+      })
+      .where(
+        eq(
+          schema.tasks.description,
+          "## الهدف\nتحسين تجربة المستخدم عبر نظام ألوان متناسق يدعم الوضعين الفاتح والداكن\n\n- استخدام semantic tokens\n- دعم RTL/LTR\n- اختبار التباين WCAG AA",
+        ),
+      ),
+    db
+      .update(schema.docs)
+      .set({ title: "دليل نظام التصميم", content: "# نظام تصميم CalmBoard\n## الألوان\nرموز ألوان دلالية ومتناسقة." })
+      .where(eq(schema.docs.title, "دليل التصميم - Design System")),
+    db
+      .update(schema.docs)
+      .set({ content: "# خطة الإطلاق\n- المرحلة صفر: الأساس\n- المرحلة الأولى: المنتج الأولي القابل للاستخدام" })
+      .where(eq(schema.docs.content, "# Launch Plan\n- Phase 0: Foundation\n- Phase 1: MVP")),
+    db
+      .update(schema.notifications)
+      .set({ body: "قام أليكس بتعيين TASK-1045 لك" })
+      .where(eq(schema.notifications.body, "قام Alex بتعيين TASK-1045 لك")),
+    db
+      .update(schema.notifications)
+      .set({ title: "تمت الإشارة إليك" })
+      .where(eq(schema.notifications.title, "تمت الإشارة إليك | You were mentioned")),
+    db
+      .update(schema.notifications)
+      .set({ title: "رد جديد على تعليقك" })
+      .where(eq(schema.notifications.title, "رد جديد على تعليقك | New reply to your comment")),
+    db
+      .update(schema.notifications)
+      .set({ title: "تم قبول دعوتك", body: "أصبحت عضواً في مساحة العمل" })
+      .where(eq(schema.notifications.title, "تم قبول دعوتك | Invitation accepted")),
+    db.update(schema.notifications).set({ body: "خطة الإطلاق" }).where(eq(schema.notifications.body, "Launch Plan")),
+    db
+      .update(schema.notifications)
+      .set({ body: "التنقل السفلي في الهاتف" })
+      .where(eq(schema.notifications.body, "Mobile bottom navigation")),
+    db
+      .update(schema.notifications)
+      .set({ body: "إنشاء لوحة معلومات قابلة للتخصيص" })
+      .where(eq(schema.notifications.body, "Build dashboard builder with widgets")),
+    db
+      .update(schema.notifications)
+      .set({ body: "نُفذت قاعدة الأتمتة للمهمة TASK-1058" })
+      .where(eq(schema.notifications.body, "Automation rule executed for task TASK-1058")),
+    db
+      .update(schema.notifications)
+      .set({ body: "نُفذت قاعدة الأتمتة للمهمة TASK-1049" })
+      .where(eq(schema.notifications.body, "Automation rule executed for task TASK-1049")),
+    db
+      .update(schema.notifications)
+      .set({ title: "أتمتة: عند اكتمال المهمة ← انقلها للمراجعة" })
+      .where(eq(schema.notifications.title, "Automation: عند اكتمال المهمة -> انقل للمراجعة")),
+    db
+      .update(schema.userSessions)
+      .set({ device: "ماك بوك برو M3" })
+      .where(eq(schema.userSessions.device, "MacBook Pro M3 (macOS)")),
+    db
+      .update(schema.userSessions)
+      .set({ device: "آيفون 15 برو" })
+      .where(eq(schema.userSessions.device, "iPhone 15 Pro (iOS)")),
+    db
+      .update(schema.userSessions)
+      .set({ browser: "سفاري للهاتف" })
+      .where(eq(schema.userSessions.browser, "Safari Mobile")),
+  ]);
+
   const scopedTasks = allTasks.filter(
     (task) =>
       task.organizationId === project.organizationId &&
@@ -304,7 +461,7 @@ async function ensureExtras() {
       await db.insert(schema.userSessions).values([
         {
           userId: u.id,
-          device: "MacBook Pro M3 (macOS)",
+          device: "ماك بوك برو M3",
           browser: "Chrome 126.0",
           ip: "192.168.1.10",
           location: "الرياض، السعودية",
@@ -312,8 +469,8 @@ async function ensureExtras() {
         },
         {
           userId: u.id,
-          device: "iPhone 15 Pro (iOS)",
-          browser: "Safari Mobile",
+          device: "آيفون 15 برو",
+          browser: "سفاري للهاتف",
           ip: "172.20.10.2",
           location: "الرياض، السعودية",
           isCurrent: false,
@@ -398,9 +555,9 @@ export async function runDevelopmentSeed() {
       .insert(schema.users)
       .values({
         email: "admin@calmboard.com",
-        name: "Alex Rivera",
+        name: "أليكس ريفيرا",
         avatarUrl: "https://i.pravatar.cc/150?u=admin",
-        locale: "en",
+        locale: "ar",
       })
       .returning();
     const [member1] = await db
@@ -423,8 +580,9 @@ export async function runDevelopmentSeed() {
       .insert(schema.users)
       .values({
         email: "guest@calmboard.com",
-        name: "Liam Chen",
+        name: "ليام تشين",
         avatarUrl: "https://i.pravatar.cc/150?u=guest",
+        locale: "ar",
       })
       .returning();
 
@@ -461,7 +619,7 @@ export async function runDevelopmentSeed() {
         slug: "marketing-sales",
         color: "#0EA5E9",
         icon: "megaphone",
-        description: "Marketing & Sales workspace",
+        description: "مساحة عمل التسويق والمبيعات",
       })
       .returning();
 
@@ -473,7 +631,7 @@ export async function runDevelopmentSeed() {
         workspaceId: ws1.id,
         name: "الهندسة",
         color: "#6366F1",
-        description: "Engineering team",
+        description: "فريق الهندسة",
       })
       .returning();
     const [teamDesign] = await db
@@ -483,7 +641,7 @@ export async function runDevelopmentSeed() {
         workspaceId: ws1.id,
         name: "التصميم",
         color: "#EC4899",
-        description: "Design team",
+        description: "فريق التصميم",
       })
       .returning();
 
@@ -526,8 +684,8 @@ export async function runDevelopmentSeed() {
       .values({
         organizationId: org.id,
         workspaceId: ws1.id,
-        name: "Mobile App Redesign",
-        description: "Complete redesign of mobile experience with new design system",
+        name: "إعادة تصميم تطبيق الهاتف",
+        description: "إعادة تصميم تجربة الهاتف بالكامل وفق نظام التصميم الجديد",
         color: "#0EA5E9",
         icon: "smartphone",
         status: "active",
@@ -583,35 +741,35 @@ export async function runDevelopmentSeed() {
     const sectionsProj2 = await db
       .insert(schema.projectSections)
       .values([
-        { organizationId: org.id, workspaceId: ws1.id, projectId: proj2.id, name: "Backlog", order: 0 },
-        { organizationId: org.id, workspaceId: ws1.id, projectId: proj2.id, name: "In Progress", order: 1 },
-        { organizationId: org.id, workspaceId: ws1.id, projectId: proj2.id, name: "Review", order: 2 },
-        { organizationId: org.id, workspaceId: ws1.id, projectId: proj2.id, name: "Done", order: 3 },
+        { organizationId: org.id, workspaceId: ws1.id, projectId: proj2.id, name: "التراكم", order: 0 },
+        { organizationId: org.id, workspaceId: ws1.id, projectId: proj2.id, name: "قيد التنفيذ", order: 1 },
+        { organizationId: org.id, workspaceId: ws1.id, projectId: proj2.id, name: "مراجعة", order: 2 },
+        { organizationId: org.id, workspaceId: ws1.id, projectId: proj2.id, name: "مكتمل", order: 3 },
       ])
       .returning();
 
     // Tasks seed
     const taskData = [
       {
-        title: "تصميم نظام الألوان والـ Design Tokens",
+        title: "تصميم نظام الألوان ورموز التصميم",
         status: "done",
         priority: "high",
         sectionId: sectionsProj1[3].id,
         projectId: proj1.id,
         assigneeId: member1.id,
-        tags: ["design", "tokens"],
+        tags: ["تصميم", "رموز"],
         progress: 100,
         order: 0,
         serial: "TASK-1042",
       },
       {
-        title: "بناء هيكل Monorepo مع Turborepo",
+        title: "بناء مستودع موحد باستخدام توربو ريبّو",
         status: "done",
         priority: "high",
         sectionId: sectionsProj1[3].id,
         projectId: proj1.id,
         assigneeId: member2.id,
-        tags: ["infra", "setup"],
+        tags: ["بنية تحتية", "إعداد"],
         progress: 100,
         order: 1,
         serial: "TASK-1043",
@@ -623,31 +781,31 @@ export async function runDevelopmentSeed() {
         sectionId: sectionsProj1[1].id,
         projectId: proj1.id,
         assigneeId: admin.id,
-        tags: ["auth", "security"],
+        tags: ["مصادقة", "أمان"],
         progress: 65,
         order: 0,
         serial: "TASK-1044",
       },
       {
-        title: "واجهة إدارة المشاريع - List View",
+        title: "واجهة إدارة المشاريع بنمط القائمة",
         status: "in_progress",
         priority: "high",
         sectionId: sectionsProj1[1].id,
         projectId: proj1.id,
         assigneeId: owner.id,
-        tags: ["frontend", "projects"],
+        tags: ["واجهة", "مشاريع"],
         progress: 45,
         order: 1,
         serial: "TASK-1045",
       },
       {
-        title: "Kanban Board مع dnd-kit",
+        title: "لوحة كانبان مع السحب والإفلات",
         status: "todo",
         priority: "high",
         sectionId: sectionsProj1[0].id,
         projectId: proj1.id,
         assigneeId: member2.id,
-        tags: ["kanban", "dnd"],
+        tags: ["كانبان", "سحب وإفلات"],
         progress: 0,
         order: 2,
         serial: "TASK-1046",
@@ -659,31 +817,31 @@ export async function runDevelopmentSeed() {
         sectionId: sectionsProj1[0].id,
         projectId: proj1.id,
         assigneeId: admin.id,
-        tags: ["ai", "automation"],
+        tags: ["ذكاء اصطناعي", "أتمتة"],
         progress: 0,
         order: 3,
         serial: "TASK-1047",
       },
       {
-        title: "Build dashboard builder with widgets",
+        title: "إنشاء لوحة معلومات قابلة للتخصيص",
         status: "backlog",
         priority: "medium",
         sectionId: sectionsProj2[0].id,
         projectId: proj2.id,
         assigneeId: member1.id,
-        tags: ["dashboard"],
+        tags: ["لوحة معلومات"],
         progress: 0,
         order: 0,
         serial: "TASK-1048",
       },
       {
-        title: "Mobile bottom navigation",
+        title: "التنقل السفلي في الهاتف",
         status: "review",
         priority: "medium",
         sectionId: sectionsProj2[2].id,
         projectId: proj2.id,
         assigneeId: member1.id,
-        tags: ["mobile", "ux"],
+        tags: ["هاتف", "تجربة مستخدم"],
         progress: 90,
         order: 1,
         serial: "TASK-1049",
@@ -695,7 +853,7 @@ export async function runDevelopmentSeed() {
         sectionId: sectionsProj1[0].id,
         projectId: proj3.id,
         assigneeId: member1.id,
-        tags: ["marketing", "ads"],
+        tags: ["تسويق", "إعلانات"],
         progress: 0,
         order: 0,
         serial: "TASK-1050",
@@ -707,7 +865,7 @@ export async function runDevelopmentSeed() {
         sectionId: sectionsProj1[1].id,
         projectId: proj3.id,
         assigneeId: guest.id,
-        tags: ["analytics"],
+        tags: ["تحليلات"],
         progress: 30,
         order: 1,
         serial: "TASK-1051",
@@ -724,8 +882,8 @@ export async function runDevelopmentSeed() {
           sectionId: t.sectionId,
           title: t.title,
           description: t.title.includes("تصميم")
-            ? "## الهدف\nتحسين تجربة المستخدم عبر نظام ألوان متناسق يدعم الوضعين الفاتح والداكن\n\n- استخدام semantic tokens\n- دعم RTL/LTR\n- اختبار التباين WCAG AA"
-            : "Task description with rich details. Supports markdown, checklists, mentions.",
+            ? "## الهدف\nتحسين تجربة المستخدم عبر نظام ألوان متناسق يدعم الوضعين الفاتح والداكن\n\n- استخدام رموز ألوان دلالية\n- دعم اتجاهي الكتابة\n- اختبار التباين وفق معيار WCAG AA"
+            : "وصف تفصيلي للمهمة يدعم التنسيق وقوائم التحقق والإشارات.",
           status: t.status as any,
           priority: t.priority as any,
           assigneeId: t.assigneeId,
@@ -760,8 +918,8 @@ export async function runDevelopmentSeed() {
         organizationId: org.id,
         workspaceId: ws1.id,
         projectId: proj1.id,
-        title: "دليل التصميم - Design System",
-        content: "# CalmBoard Design System\n## الألوان\nsemantic tokens...",
+        title: "دليل نظام التصميم",
+        content: "# نظام تصميم CalmBoard\n## الألوان\nرموز ألوان دلالية ومتناسقة.",
         authorId: owner.id,
         icon: "palette",
       },
@@ -769,7 +927,7 @@ export async function runDevelopmentSeed() {
         organizationId: org.id,
         workspaceId: ws1.id,
         title: "خطة إطلاق المنتج",
-        content: "# Launch Plan\n- Phase 0: Foundation\n- Phase 1: MVP",
+        content: "# خطة الإطلاق\n- المرحلة صفر: الأساس\n- المرحلة الأولى: المنتج الأولي القابل للاستخدام",
         authorId: admin.id,
         icon: "map",
       },
@@ -831,7 +989,7 @@ export async function runDevelopmentSeed() {
         userId: owner.id,
         type: "task_assigned",
         title: "تم تعيين مهمة جديدة لك",
-        body: "قام Alex بتعيين TASK-1045 لك",
+        body: "قام أليكس بتعيين TASK-1045 لك",
         entityType: "task",
         isRead: false,
       },

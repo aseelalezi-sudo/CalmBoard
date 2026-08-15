@@ -13,6 +13,8 @@ type UiStore = {
   hydratePreferences: () => void;
   setCollapsed: (collapsed: boolean) => void;
   setActiveView: (activeView: string) => void;
+  setLocale: (locale: AppLocale) => void;
+  setTheme: (theme: AppTheme) => void;
   toggleLocale: () => void;
   toggleTheme: () => void;
 };
@@ -43,25 +45,40 @@ export const useUiStore = create<UiStore>((set, get) => ({
   hydratePreferences: () => {
     const locale = storedPreference("calmboard-locale", ["ar", "en"] as const, "ar");
     const theme = storedPreference("calmboard-theme", ["dark", "light"] as const, "light");
+    const collapsed =
+      storedPreference("calmboard-sidebar", ["expanded", "collapsed"] as const, "expanded") === "collapsed";
     applyLocale(locale);
     applyTheme(theme);
-    set({ locale, theme });
+    set({ locale, theme, collapsed });
   },
 
-  setCollapsed: (collapsed) => set({ collapsed }),
+  setCollapsed: (collapsed) => {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("calmboard-sidebar", collapsed ? "collapsed" : "expanded");
+    }
+    set({ collapsed });
+  },
   setActiveView: (activeView) => set({ activeView }),
 
-  toggleLocale: () => {
-    const locale: AppLocale = get().locale === "ar" ? "en" : "ar";
+  setLocale: (locale) => {
     if (typeof window !== "undefined") window.localStorage.setItem("calmboard-locale", locale);
     applyLocale(locale);
     set({ locale });
   },
 
-  toggleTheme: () => {
-    const theme: AppTheme = get().theme === "dark" ? "light" : "dark";
+  setTheme: (theme) => {
     if (typeof window !== "undefined") window.localStorage.setItem("calmboard-theme", theme);
     applyTheme(theme);
     set({ theme });
+  },
+
+  toggleLocale: () => {
+    const locale: AppLocale = get().locale === "ar" ? "en" : "ar";
+    get().setLocale(locale);
+  },
+
+  toggleTheme: () => {
+    const theme: AppTheme = get().theme === "dark" ? "light" : "dark";
+    get().setTheme(theme);
   },
 }));

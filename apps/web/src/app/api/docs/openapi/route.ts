@@ -6,19 +6,19 @@ export async function GET() {
   const openapi = {
     openapi: "3.0.3",
     info: {
-      title: "CalmBoard Enterprise API Reference",
+      title: "مرجع واجهة CalmBoard للمؤسسات",
       version: "2.0.0",
       description:
-        "وثائق واجهة برمجة التطبيقات الرسمية لمنصة CalmBoard لإدارة المشاريع والعمل الجماعي (SaaS Work Management REST API). مدعومة بالعزل الكامل للمستأجرين وتوقيع HMAC.",
+        "وثائق واجهة برمجة التطبيقات الرسمية لمنصة CalmBoard لإدارة المشاريع والعمل الجماعي. مدعومة بالعزل الكامل للمستأجرين وتوقيع HMAC.",
       contact: {
-        name: "CalmBoard Engineering & Security",
+        name: "فريق هندسة وأمان CalmBoard",
         email: "engineering@calmboard.internal",
         url: "https://calmboard.internal",
       },
     },
     servers: [
-      { url: "/api", description: "Current Local / Cloud Runtime API Gateway" },
-      { url: "https://api.calmboard.com/v2", description: "Production High-Availability Cluster" },
+      { url: "/api", description: "بوابة واجهة البرمجة للبيئة المحلية أو السحابية الحالية" },
+      { url: "https://api.calmboard.com/v2", description: "عنقود الإنتاج عالي التوافر" },
     ],
     components: {
       securitySchemes: {
@@ -32,8 +32,7 @@ export async function GET() {
           type: "apiKey",
           in: "header",
           name: "x-calmboard-signature",
-          description:
-            "توقيع HMAC SHA-256 للتحقق من مصداقية الأحداث الواردة من التكاملات (GitHub, Slack, Custom Webhooks).",
+          description: "توقيع HMAC SHA-256 للتحقق من مصداقية الأحداث الواردة من GitHub وSlack وخطافات الويب المخصصة.",
         },
       },
       schemas: {
@@ -42,8 +41,8 @@ export async function GET() {
           properties: {
             id: { type: "string", format: "uuid", example: "550e8400-e29b-41d4-a716-446655440000" },
             serial: { type: "string", example: "TASK-1042", description: "رقم تسلسلي فريد وقابل للقراءة للبشر" },
-            title: { type: "string", example: "تصميم نظام الألوان والـ Design Tokens" },
-            description: { type: "string", example: "توصيف تفصيلي يدعم Markdown وقوائم المهام الفرعية والإشارات." },
+            title: { type: "string", example: "تصميم نظام الألوان ورموز التصميم" },
+            description: { type: "string", example: "توصيف تفصيلي يدعم التنسيق وقوائم المهام الفرعية والإشارات." },
             status: {
               type: "string",
               enum: ["backlog", "todo", "in_progress", "review", "done", "canceled"],
@@ -91,7 +90,7 @@ export async function GET() {
                 details: "نريد تحسين ألوان القوائم السفلية في الجوال.",
               },
             },
-            captchaToken: { type: "string", description: "Single-use Cloudflare Turnstile token" },
+            captchaToken: { type: "string", description: "رمز Cloudflare Turnstile صالح للاستخدام مرة واحدة" },
           },
           required: ["values", "captchaToken"],
         },
@@ -120,7 +119,7 @@ export async function GET() {
     paths: {
       "/tasks": {
         get: {
-          summary: "استعراض المهام مع الفلترة والعزل (Get Tasks)",
+          summary: "استعراض المهام مع التصفية والعزل",
           description:
             "يجلب المهام الخاصة بمشروع أو مساحة عمل محددة مع إمكانية التصفية حسب الحالة، الأولوية، والبحث الحرفي.",
           parameters: [
@@ -158,9 +157,9 @@ export async function GET() {
           },
         },
         post: {
-          summary: "إنشاء مهمة جديدة (Create Task)",
+          summary: "إنشاء مهمة جديدة",
           description:
-            "يقوم بإنشاء مهمة جديدة في المشروع، وتوليد رقم تسلسلي تلقائي TASK-xxx، وإطلاق أي قواعد أتمتة مطابقة (When Task Created).",
+            "ينشئ مهمة جديدة في المشروع، ويولد رقماً تسلسلياً تلقائياً، ويطلق أي قواعد أتمتة مطابقة لحدث إنشاء المهمة.",
           requestBody: {
             required: true,
             content: {
@@ -191,7 +190,7 @@ export async function GET() {
       },
       "/projects": {
         get: {
-          summary: "استعراض المشاريع (Get Projects)",
+          summary: "استعراض المشاريع",
           parameters: [
             { name: "workspaceId", in: "query", required: true, schema: { type: "string", format: "uuid" } },
           ],
@@ -206,7 +205,7 @@ export async function GET() {
       },
       "/ai": {
         post: {
-          summary: "تشغيل معالج الذكاء الاصطناعي (AI Provider Layer Adapter)",
+          summary: "تشغيل معالج مزود الذكاء الاصطناعي",
           description:
             "تنفيذ عمليات الذكاء الاصطناعي على البيانات: تقرير القيادة، تلخيص المشاريع، تقسيم المهام، اقتراح الأولوية، أو الترجمة اللحظية.",
           requestBody: {
@@ -237,7 +236,7 @@ export async function GET() {
           },
           responses: {
             "200": {
-              description: "نتيجة المعالجة الذكية المسترجعة من مزود الـ AI",
+              description: "نتيجة المعالجة الذكية المسترجعة من مزود الذكاء الاصطناعي",
               content: {
                 "application/json": { schema: { type: "object", properties: { result: { type: "string" } } } },
               },
@@ -247,9 +246,9 @@ export async function GET() {
       },
       "/integrations/sync": {
         post: {
-          summary: "اختبار اتصال OAuth بالتكامل (Verify Integration OAuth Connection)",
+          summary: "اختبار اتصال OAuth بالتكامل",
           description:
-            "يجدد رمز OAuth المنتهي عند توفر Refresh Token، ثم يستدعي واجهة المزود للتحقق من هوية الحساب المرتبط دون إعادة الرموز السرية للعميل.",
+            "يجدد رمز OAuth المنتهي عند توفر رمز التجديد، ثم يستدعي واجهة المزود للتحقق من هوية الحساب المرتبط دون إعادة الرموز السرية للعميل.",
           requestBody: {
             required: true,
             content: { "application/json": { schema: { $ref: "#/components/schemas/IntegrationSyncRequest" } } },
@@ -278,43 +277,43 @@ export async function GET() {
       },
       "/integrations/webhooks": {
         get: {
-          summary: "عرض مستقبلات Webhook المعزولة لمساحة العمل",
+          summary: "عرض مستقبلات خطافات الويب المعزولة لمساحة العمل",
           parameters: [
             { name: "organizationId", in: "query", required: true, schema: { type: "string", format: "uuid" } },
             { name: "workspaceId", in: "query", required: true, schema: { type: "string", format: "uuid" } },
             { name: "actorId", in: "query", required: true, schema: { type: "string", format: "uuid" } },
           ],
-          responses: { "200": { description: "قائمة endpoints دون الرموز السرية أو raw payloads" } },
+          responses: { "200": { description: "قائمة نقاط النهاية دون الرموز السرية أو محتوى الطلب الخام" } },
         },
         post: {
-          summary: "إنشاء مستقبل Webhook آمن",
-          description: "يعاد endpointToken مرة واحدة؛ لا تخزن قاعدة البيانات إلا بصمة SHA-256 له.",
+          summary: "إنشاء مستقبل آمن لخطاف ويب",
+          description: "يُعاد رمز نقطة النهاية مرة واحدة؛ ولا تخزن قاعدة البيانات إلا بصمة SHA-256 له.",
           requestBody: {
             required: true,
             content: {
               "application/json": { schema: { $ref: "#/components/schemas/IntegrationWebhookEndpointRequest" } },
             },
           },
-          responses: { "201": { description: "Endpoint جديد مع receiverPath والرمز المعروض مرة واحدة" } },
+          responses: { "201": { description: "نقطة نهاية جديدة مع مسار الاستقبال والرمز المعروض مرة واحدة" } },
         },
       },
       "/integrations/webhooks/{id}": {
         delete: {
-          summary: "إبطال مستقبل Webhook",
+          summary: "إبطال مستقبل خطاف الويب",
           parameters: [
             { name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } },
             { name: "organizationId", in: "query", required: true, schema: { type: "string", format: "uuid" } },
             { name: "workspaceId", in: "query", required: true, schema: { type: "string", format: "uuid" } },
             { name: "actorId", in: "query", required: true, schema: { type: "string", format: "uuid" } },
           ],
-          responses: { "200": { description: "أُبطل endpoint ولن يحل الخادم رمزه بعد الآن" } },
+          responses: { "200": { description: "أُبطلت نقطة النهاية ولن يتعرّف الخادم إلى رمزها بعد الآن" } },
         },
       },
       "/integrations/webhooks/receive/{provider}/{endpointToken}": {
         post: {
-          summary: "استقبال حدث موقّع ومنع replay",
+          summary: "استقبال حدث موقّع ومنع إعادة تشغيله",
           description:
-            "GitHub: x-hub-signature-256 وx-github-delivery. Slack: x-slack-signature وx-slack-request-timestamp. Custom: x-calmboard-signature وx-calmboard-timestamp وx-calmboard-delivery. يتحقق الخادم من raw body ويسجل معرف التسليم ذرياً.",
+            "تُستخدم رؤوس التوقيع ومعرّفات التسليم الخاصة بكل مزود. يتحقق الخادم من جسم الطلب الخام ويسجل معرّف التسليم ذرياً.",
           security: [],
           parameters: [
             {
@@ -330,15 +329,15 @@ export async function GET() {
             content: { "application/json": { schema: { type: "object", additionalProperties: true } } },
           },
           responses: {
-            "200": { description: "الحدث مقبول؛ يوضح replayed إن سبق استلام معرف التسليم نفسه" },
-            "401": { description: "توقيع غير صحيح/قديم أو endpoint مجهول/مبطل" },
-            "409": { description: "أعيد استخدام معرف التسليم مع payload مختلف" },
+            "200": { description: "الحدث مقبول، ويوضح الحقل المخصص للتكرار إن سبق استلام معرّف التسليم نفسه" },
+            "401": { description: "توقيع غير صحيح أو قديم، أو نقطة نهاية مجهولة أو مبطلة" },
+            "409": { description: "أعيد استخدام معرّف التسليم مع محتوى طلب مختلف" },
           },
         },
       },
       "/forms/{id}/submit": {
         post: {
-          summary: "إرسال رد على نموذج عام وتحويله لمهمة (Public Form Submission)",
+          summary: "إرسال رد على نموذج عام وتحويله إلى مهمة",
           description:
             "يستقبل ردود المستفيدين أو العملاء عبر الرابط العام للنموذج ويقوم تلقائياً بتحويل الرد إلى مهمة في المشروع المستهدف.",
           parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
@@ -363,7 +362,7 @@ export async function GET() {
       },
       "/admin/security-tests": {
         get: {
-          summary: "تشغيل حزمة الفحص المؤتمت للأمان وعزل المستأجرين (Security & Tenancy Automated Suite)",
+          summary: "تشغيل حزمة الفحص المؤتمت للأمان وعزل المستأجرين",
           description:
             "ينفذ 5 اختبارات أمنية بالوقت الحقيقي على قاعدة بيانات PostgreSQL: العزل بين المؤسسات، RBAC، تشفير HMAC، عزل مساحات العمل، وسلامة سجل التدقيق.",
           responses: {

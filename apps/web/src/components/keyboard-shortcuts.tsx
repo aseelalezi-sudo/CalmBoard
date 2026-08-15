@@ -1,6 +1,5 @@
 "use client";
-import React, { useEffect } from "react";
-import { Modal, Kbd, Badge } from "./ui";
+import { Badge, Btn, Kbd, Modal } from "./ui";
 import { IconCode } from "./icons";
 
 export function KeyboardShortcutsModal({
@@ -12,49 +11,29 @@ export function KeyboardShortcutsModal({
   onClose: () => void;
   t: (ar: string, en: string) => string;
 }) {
-  // Listen for '?' key to open shortcuts modal
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (
-        e.key === "?" &&
-        !e.metaKey &&
-        !e.ctrlKey &&
-        !e.altKey &&
-        !["INPUT", "TEXTAREA", "SELECT"].includes((e.target as HTMLElement)?.tagName || "")
-      ) {
-        e.preventDefault();
-        if (!open) {
-          // You can dispatch a custom event or trigger open if passed via parent
-        }
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [open]);
-
   if (!open) return null;
 
   const categories = [
     {
-      title_ar: "الفتح والتنقل العام (Global Navigation)",
+      title_ar: "الفتح والتنقل العام",
       title_en: "Global Navigation",
       items: [
         {
-          kbd: ["⌘", "K"],
-          desc_ar: "فتح لوحة الأوامر والبحث العام (Command Palette)",
+          kbd: ["Ctrl/⌘", "K"],
+          desc_ar: "فتح لوحة الأوامر والبحث العام",
           desc_en: "Open Command Palette & Global Search",
         },
-        { kbd: ["⌘", "N"], desc_ar: "إنشاء مهمة جديدة فوراً (Quick Create Task)", desc_en: "Quick Create New Task" },
+        { kbd: ["Ctrl/⌘", "N"], desc_ar: "إنشاء مهمة جديدة فوراً", desc_en: "Quick Create New Task" },
         {
           kbd: ["ESC"],
-          desc_ar: "إغلاق النافذة الحالية أو إلغاء التحديد (Close / Cancel)",
+          desc_ar: "إغلاق النافذة الحالية أو إلغاء التحديد",
           desc_en: "Close active modal or drawer",
         },
-        { kbd: ["?"], desc_ar: "فتح دليل اختصارات لوحة المفاتيح (This Help)", desc_en: "Open Keyboard Shortcuts Help" },
+        { kbd: ["?"], desc_ar: "فتح دليل اختصارات لوحة المفاتيح", desc_en: "Open Keyboard Shortcuts Help" },
       ],
     },
     {
-      title_ar: "محرر المستندات والكتل (Notion-Style Editor)",
+      title_ar: "محرر المستندات والكتل",
       title_en: "Notion-Style Block Editor",
       items: [
         {
@@ -69,7 +48,7 @@ export function KeyboardShortcutsModal({
         },
         {
           kbd: ["Shift", "↵"],
-          desc_ar: "سطر جديد داخل نفس الكتلة (Line break)",
+          desc_ar: "سطر جديد داخل نفس الكتلة",
           desc_en: "New line within same block",
         },
         {
@@ -80,12 +59,12 @@ export function KeyboardShortcutsModal({
       ],
     },
     {
-      title_ar: "إدارة المهام والتعليقات (Tasks & Comments)",
+      title_ar: "إدارة المهام والتعليقات",
       title_en: "Tasks & Collaboration",
       items: [
         {
-          kbd: ["⌘", "↵"],
-          desc_ar: "إرسال التعليق فوراً داخل لوحة المهمة (Send Comment)",
+          kbd: ["Ctrl/⌘", "↵"],
+          desc_ar: "إرسال التعليق فوراً داخل لوحة المهمة",
           desc_en: "Send comment inside Task Drawer",
         },
         {
@@ -101,17 +80,17 @@ export function KeyboardShortcutsModal({
       ],
     },
     {
-      title_ar: "جدول البيانات المتقدم (TanStack Data Grid)",
+      title_ar: "جدول البيانات المتقدم",
       title_en: "Advanced Data Grid",
       items: [
         {
           kbd: ["Click"],
-          desc_ar: "فتح تفاصيل المهمة في النافذة الجانبية (Open Task Drawer)",
+          desc_ar: "فتح تفاصيل المهمة في النافذة الجانبية",
           desc_en: "Open Task Detail Drawer",
         },
         {
           kbd: ["Shift", "Click"],
-          desc_ar: "تحديد مهام متتالية للتنفيذ الجماعي (Bulk Select)",
+          desc_ar: "تحديد مهام متتالية للتنفيذ الجماعي",
           desc_en: "Range select tasks for bulk actions",
         },
         {
@@ -125,17 +104,17 @@ export function KeyboardShortcutsModal({
           desc_en: "Move between task grid rows",
         },
         {
-          kbd: ["⌘", "A"],
+          kbd: ["Ctrl/⌘", "A"],
           desc_ar: "تحديد جميع صفوف الشبكة الحالية",
           desc_en: "Select all current grid rows",
         },
         {
-          kbd: ["⌘", "C"],
+          kbd: ["Ctrl/⌘", "C"],
           desc_ar: "نسخ المهام المحددة بصيغة جدول آمنة",
           desc_en: "Copy selected tasks as safe tabular data",
         },
         {
-          kbd: ["⌘", "V"],
+          kbd: ["Ctrl/⌘", "V"],
           desc_ar: "لصق الحقول المسموحة على الصفوف المحددة",
           desc_en: "Paste allow-listed fields into selected rows",
         },
@@ -147,32 +126,31 @@ export function KeyboardShortcutsModal({
     <Modal
       open={open}
       onClose={onClose}
-      title={t(
-        "⌨️ دليل اختصارات لوحة المفاتيح والإنتاجية (Keyboard Shortcuts)",
-        "⌨️ Keyboard Shortcuts & Productivity Hub",
-      )}
+      title={t("دليل اختصارات لوحة المفاتيح", "Keyboard shortcuts")}
       icon={<IconCode size={18} />}
-      wide
+      size="wide"
+      closeLabel={t("إغلاق", "Close")}
+      contentClassName="space-y-6"
     >
-      <div className="space-y-6 max-h-[72vh] overflow-y-auto pr-1">
-        <div className="rounded-xl border border-indigo-200 bg-gradient-to-r from-indigo-50/90 to-violet-50/60 p-4 dark:border-indigo-500/30 dark:from-indigo-500/10 dark:to-violet-500/5">
+      <div className="space-y-6">
+        <div className="rounded-xl border border-accent/20 bg-accent/6 p-4">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <h4 className="text-[14px] font-bold text-slate-900 dark:text-white">
+              <h4 className="text-[14px] font-bold text-ink">
                 {t(
                   "صُممت المنصة للعمل بسرعة البرق عبر لوحة المفاتيح",
                   "Designed for lightning-fast keyboard-first workflow",
                 )}
               </h4>
-              <p className="mt-1 text-[12px] text-slate-600 dark:text-zinc-300">
+              <p className="mt-1 text-[12px] leading-5 text-ink-soft">
                 {t(
-                  "القسم 20 & 24: استخدم هذه الاختصارات لتوفير الوقت والتنقل السريع بين طرق العرض والمستندات والمهام دون الحاجة لاستخدام الفأرة بكثرة.",
-                  "Section 20 & 24: Master these shortcuts to save time and navigate seamlessly across views, docs, and tasks.",
+                  "استخدم هذه الاختصارات للتنقل بين طرق العرض والمستندات والمهام دون مغادرة لوحة المفاتيح.",
+                  "Use these shortcuts to move between views, documents, and tasks without leaving the keyboard.",
                 )}
               </p>
             </div>
             <Badge tone="indigo" className="px-2.5 py-1 text-[11px] font-bold">
-              KEYBOARD FIRST
+              {t("متوافق مع Windows وmacOS", "Windows and macOS")}
             </Badge>
           </div>
         </div>
@@ -180,16 +158,16 @@ export function KeyboardShortcutsModal({
         <div className="space-y-5">
           {categories.map((cat, idx) => (
             <div key={idx} className="space-y-2.5">
-              <h5 className="text-[12px] font-bold uppercase tracking-wider text-slate-400 dark:text-zinc-500 border-b border-slate-100 pb-1.5 dark:border-white/10">
+              <h5 className="border-b border-line pb-1.5 text-[12px] font-bold uppercase tracking-wider text-ink-faint">
                 {t(cat.title_ar, cat.title_en)}
               </h5>
               <div className="grid gap-2 sm:grid-cols-2">
                 {cat.items.map((item, itemIdx) => (
                   <div
                     key={itemIdx}
-                    className="flex items-center justify-between gap-3 rounded-xl border border-slate-200/80 bg-slate-50/60 p-3 transition hover:border-indigo-500/40 hover:bg-white dark:border-white/10 dark:bg-white/[0.02] dark:hover:bg-white/[0.05]"
+                    className="flex min-h-12 items-center justify-between gap-3 rounded-xl border border-line bg-raised p-3 transition hover:border-accent/35"
                   >
-                    <span className="text-[12.5px] font-medium text-slate-700 dark:text-zinc-300 leading-snug flex-1">
+                    <span className="flex-1 text-[12.5px] font-medium leading-snug text-ink-soft">
                       {t(item.desc_ar, item.desc_en)}
                     </span>
                     <div className="flex items-center gap-1 shrink-0">
@@ -204,20 +182,16 @@ export function KeyboardShortcutsModal({
           ))}
         </div>
 
-        <div className="flex items-center justify-between border-t border-slate-100 pt-4 dark:border-white/10 text-[11.5px] text-slate-500 dark:text-zinc-500">
+        <div className="flex flex-col gap-3 border-t border-line pt-4 text-[11.5px] text-ink-faint sm:flex-row sm:items-center sm:justify-between">
           <span>
-            💡{" "}
             {t(
               "تلميح: اضغط ESC في أي وقت لإغلاق النوافذ المنبثقة",
               "Tip: Press ESC anytime to dismiss modals and popovers",
             )}
           </span>
-          <button
-            onClick={onClose}
-            className="rounded-xl bg-gradient-to-r from-indigo-500 to-violet-500 px-5 py-2 text-[12px] font-bold text-white shadow-sm transition hover:brightness-110"
-          >
-            {t("حسناً، فهمت ✓", "Got it!")}
-          </button>
+          <Btn variant="primary" onClick={onClose} className="w-full sm:w-auto">
+            {t("حسناً، فهمت", "Got it")}
+          </Btn>
         </div>
       </div>
     </Modal>
