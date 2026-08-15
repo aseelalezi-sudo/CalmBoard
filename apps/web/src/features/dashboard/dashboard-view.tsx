@@ -14,8 +14,21 @@ import { SortableContext, rectSortingStrategy, sortableKeyboardCoordinates, useS
 import { CSS } from "@dnd-kit/utilities";
 import type { DashboardWidget, DashboardWidgetId, DashboardWidgetWidth, Task, ViewCtx } from "@/lib/types";
 import { PRIORITY_CONFIG, STATUS_CONFIG, STATUS_ORDER, fmtMinutes } from "@/lib/types";
-import { Avatar, Badge, Bar, Btn, Card, Ring, SectionTitle } from "@/components/ui";
-import { IconCheck, IconFlag, IconPlay, IconSearch } from "@/components/icons";
+import {
+  Avatar,
+  Badge,
+  Bar,
+  Btn,
+  Card,
+  Ring,
+  ScreenHeader,
+  ScreenState,
+  ScreenToolbar,
+  SectionTitle,
+  SegmentedTabs,
+} from "@/components/ui";
+import { IconCheck, IconFlag, IconPlay, IconRotateCw, IconSearch } from "@/components/icons";
+import { confirmAction } from "@/components/feedback";
 import {
   defaultDashboardWidgets,
   nextDashboardWidgetWidth,
@@ -49,7 +62,7 @@ export function DashboardView({ ctx }: { ctx: ViewCtx }) {
   const [editing, setEditing] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [now] = useState(() => new Date());
-  const { widgets, loading, saving, save, reset } = useDashboardLayout({
+  const { widgets, loading, loadError, saving, save, reset, retry } = useDashboardLayout({
     activeOrg: ctx.activeOrg,
     activeWorkspace: ctx.activeWorkspace,
     t: ctx.t,
@@ -106,54 +119,75 @@ export function DashboardView({ ctx }: { ctx: ViewCtx }) {
     }
   };
 
-  return (
-    <div className="space-y-5">
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white/80 p-3.5 shadow-sm dark:border-white/[0.07] dark:bg-white/[0.02] dark:shadow-none">
-        <div className="flex items-center gap-2">
-          <span className="text-[13px] font-semibold text-slate-800 dark:text-white">
-            {ctx.t("نطاق التقرير:", "Report range:")}
-          </span>
-          <div className="flex rounded-xl border border-slate-200 bg-slate-100 p-1 dark:border-white/10 dark:bg-white/[0.04]">
-            {[
-              ["7d", "7 أيام", "7 days"],
-              ["30d", "30 يوماً", "30 days"],
-              ["all", "كل الأوقات", "All time"],
-            ].map(([key, ar, en]) => (
-              <button
-                key={key}
-                onClick={() => setRange(key as "all" | "7d" | "30d")}
-                className={`rounded-lg px-2.5 py-1 text-[11.5px] font-semibold transition ${
-                  range === key
-                    ? "bg-white text-slate-900 shadow-sm dark:bg-zinc-800 dark:text-white"
-                    : "text-slate-500 dark:text-zinc-400"
-                }`}
-              >
-                {ctx.t(ar, en)}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          {saving && <span className="text-[11px] text-slate-500">{ctx.t("جارٍ الحفظ…", "Saving…")}</span>}
-          {ctx.can("data.export") && (
-            <Btn
-              variant="outline"
-              size="sm"
-              disabled={exporting || !ctx.activeWorkspace}
-              onClick={() => void exportWorkspace()}
-            >
-              {exporting ? ctx.t("جارٍ تجهيز PDF…", "Preparing PDF…") : ctx.t("تصدير تقرير PDF", "Export PDF report")}
+  if (loadError) {
+    return (
+      <div className="space-y-5">
+        <ScreenState
+          tone="error"
+          title={ctx.t("تعذر تحميل لوحة التحكم", "Failed to load dashboard")}
+          description={loadError}
+          action={
+            <Btn variant="outline" onClick={() => void retry()}>
+              <IconRotateCw size={14} />
+              {ctx.t("إعادة المحاولة", "Retry")}
             </Btn>
-          )}
-          <Btn variant={editing ? "glow" : "outline"} size="sm" onClick={() => setEditing((value) => !value)}>
-            {editing ? ctx.t("إنهاء التخصيص", "Finish customizing") : ctx.t("تخصيص اللوحة", "Customize dashboard")}
-          </Btn>
-        </div>
+          }
+        />
       </div>
+    );
+  }
+
+  return (
+    <div className="screen-container-wide space-y-5">
+      <ScreenHeader
+        title={ctx.t("لوحة المعلومات والتحليلات", "Dashboard & Analytics")}
+        description={ctx.t(
+          "نظرة شاملة ومؤشرات أداء قابلة للتخصيص لمساحة العمل والمشاريع.",
+          "Comprehensive overview and customizable KPIs for workspace and projects.",
+        )}
+        actions={
+          <div className="flex items-center gap-2">
+            {saving && <span className="text-[11px] text-ink-faint">{ctx.t("جارٍ الحفظ…", "Saving…")}</span>}
+            {ctx.can("data.export") && (
+              <Btn
+                variant="outline"
+                size="sm"
+                disabled={exporting || !ctx.activeWorkspace}
+                onClick={() => void exportWorkspace()}
+              >
+                {exporting ? ctx.t("جارٍ تجهيز PDF…", "Preparing PDF…") : ctx.t("تصدير تقرير PDF", "Export PDF report")}
+              </Btn>
+            )}
+            <Btn
+              variant={editing ? "glow" : "outline"}
+              size="sm"
+              disabled={loading || Boolean(loadError) || saving}
+              onClick={() => setEditing((value) => !value)}
+            >
+              {editing ? ctx.t("إنهاء التخصيص", "Finish customizing") : ctx.t("تخصيص اللوحة", "Customize dashboard")}
+            </Btn>
+          </div>
+        }
+      />
+
+      <ScreenToolbar className="border border-line bg-surface p-3.5 shadow-sm">
+        <div className="flex items-center gap-2">
+          <SegmentedTabs
+            value={range}
+            label={ctx.t("نطاق التقرير", "Report range")}
+            onChange={(val) => setRange(val as "all" | "7d" | "30d")}
+            items={[
+              { id: "7d", label: ctx.t("7 أيام", "7 days") },
+              { id: "30d", label: ctx.t("30 يوماً", "30 days") },
+              { id: "all", label: ctx.t("كل الأوقات", "All time") },
+            ]}
+          />
+        </div>
+      </ScreenToolbar>
 
       {editing && (
-        <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-indigo-200 bg-indigo-50 p-3 dark:border-indigo-500/20 dark:bg-indigo-500/[0.06]">
-          <span className="text-[11.5px] font-semibold text-indigo-800 dark:text-indigo-200">
+        <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-accent/30 bg-accent/5 p-3">
+          <span className="text-[11.5px] font-semibold text-ink">
             {ctx.t(
               "اسحب البطاقات من المقبض. غيّر الحجم أو أخفِ البطاقة.",
               "Drag cards by the handle, resize, or hide them.",
@@ -163,15 +197,29 @@ export function DashboardView({ ctx }: { ctx: ViewCtx }) {
             {hiddenWidgets.map((widget) => (
               <button
                 key={widget.id}
+                type="button"
+                disabled={saving}
                 onClick={() => save([...widgets, widget])}
-                className="rounded-lg border border-indigo-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-indigo-700 dark:border-indigo-400/20 dark:bg-zinc-900 dark:text-indigo-300"
+                className="rounded-lg border border-line bg-surface px-2.5 py-1 text-[11px] font-semibold text-accent transition hover:bg-raised disabled:opacity-50"
               >
                 + {ctx.t(widgetLabels[widget.id].ar, widgetLabels[widget.id].en)}
               </button>
             ))}
             <button
-              onClick={reset}
-              className="rounded-lg px-2.5 py-1 text-[11px] font-semibold text-slate-600 dark:text-zinc-300"
+              type="button"
+              disabled={saving}
+              onClick={async () => {
+                const confirmed = await confirmAction({
+                  title: ctx.t("استعادة التخطيط الافتراضي", "Reset to default layout"),
+                  message: ctx.t(
+                    "هل أنت متأكد من رغبتك في استعادة ترتيب وودجات لوحة التحكم الافتراضية؟",
+                    "Are you sure you want to reset the dashboard widgets to default?",
+                  ),
+                  tone: "warning",
+                });
+                if (confirmed) reset();
+              }}
+              className="rounded-lg px-2.5 py-1 text-[11px] font-semibold text-ink-soft transition hover:bg-raised disabled:opacity-50"
             >
               {ctx.t("استعادة الافتراضي", "Reset default")}
             </button>
@@ -194,6 +242,7 @@ export function DashboardView({ ctx }: { ctx: ViewCtx }) {
                   key={widget.id}
                   widget={widget}
                   editing={editing}
+                  saving={saving}
                   title={ctx.t(widgetLabels[widget.id].ar, widgetLabels[widget.id].en)}
                   onRemove={() => removeWidget(widget.id)}
                   onResize={() => updateWidget(widget.id, { width: nextDashboardWidgetWidth(widget.width) })}
@@ -218,6 +267,7 @@ export function DashboardView({ ctx }: { ctx: ViewCtx }) {
 function SortableWidget({
   widget,
   editing,
+  saving,
   title,
   onRemove,
   onResize,
@@ -225,6 +275,7 @@ function SortableWidget({
 }: {
   widget: DashboardWidget;
   editing: boolean;
+  saving?: boolean;
   title: string;
   onRemove: () => void;
   onResize: () => void;
@@ -238,20 +289,32 @@ function SortableWidget({
       className={`${widthClasses[widget.width]} ${isDragging ? "z-20 opacity-70" : ""}`}
     >
       {editing && (
-        <div className="mb-1.5 flex items-center rounded-xl border border-slate-200 bg-white px-2 py-1 dark:border-white/10 dark:bg-zinc-900">
+        <div className="mb-1.5 flex items-center rounded-xl border border-line bg-surface px-2 py-1">
           <button
+            type="button"
             {...attributes}
             {...listeners}
-            className="cursor-grab px-2 text-[15px] text-slate-400 active:cursor-grabbing"
+            className="cursor-grab px-2 text-[15px] text-ink-faint active:cursor-grabbing"
             aria-label={`Drag ${title}`}
           >
             ⠿
           </button>
-          <span className="truncate text-[10.5px] font-semibold text-slate-500">{title}</span>
-          <button onClick={onResize} className="ms-auto px-2 text-[10.5px] text-indigo-600 dark:text-indigo-300">
+          <span className="truncate text-[10.5px] font-semibold text-ink-soft">{title}</span>
+          <button
+            type="button"
+            disabled={saving}
+            onClick={onResize}
+            className="ms-auto px-2 text-[10.5px] font-semibold text-accent disabled:opacity-50"
+          >
             {widget.width}
           </button>
-          <button onClick={onRemove} className="px-2 text-[12px] text-rose-500" aria-label={`Hide ${title}`}>
+          <button
+            type="button"
+            disabled={saving}
+            onClick={onRemove}
+            className="px-2 text-[12px] font-bold text-rose-500 disabled:opacity-50"
+            aria-label={`Hide ${title}`}
+          >
             ×
           </button>
         </div>
@@ -344,7 +407,7 @@ function StatusWidget({ ctx, tasks }: { ctx: ViewCtx; tasks: Task[] }) {
         {counts.map(({ status, count }) => (
           <div key={status} className="flex flex-1 flex-col items-center gap-2">
             <span className="mono text-[12px] font-bold dark:text-white">{count}</span>
-            <div className="flex h-[150px] w-full items-end overflow-hidden rounded-xl bg-slate-100 dark:bg-white/[0.04]">
+            <div className="flex h-[150px] w-full items-end overflow-hidden rounded-xl bg-slate-100 dark:bg-white/4">
               <div
                 className={`w-full rounded-xl ${STATUS_CONFIG[status].dot}`}
                 style={{ height: `${Math.max(5, (count / max) * 100)}%` }}
@@ -483,10 +546,7 @@ function ChartDataView({
     return (
       <ol className="mt-5 space-y-2">
         {data.map((item, index) => (
-          <li
-            key={item.label}
-            className="flex items-center gap-3 rounded-xl bg-slate-50 px-3 py-2.5 dark:bg-white/[0.04]"
-          >
+          <li key={item.label} className="flex items-center gap-3 rounded-xl bg-slate-50 px-3 py-2.5 dark:bg-white/4">
             <span className="mono grid h-7 w-7 place-items-center rounded-lg bg-indigo-500/10 text-[11px] font-bold text-indigo-600 dark:text-indigo-300">
               {index + 1}
             </span>

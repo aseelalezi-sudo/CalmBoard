@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { ApiError } from "@/lib/client-api";
 import { getCurrentSession, getTaskPage, getTasks, getWorkspaceModules } from "./api";
 
 test("workspace API service", async (t) => {
@@ -41,7 +42,7 @@ test("workspace API service", async (t) => {
                               member: true,
                               membershipId: "membership-1",
                               roles: ["manager"],
-                              permissions: ["tasks.create"],
+                              permissions: ["tasks.create", "audit.view", "billing.manage"],
                             }
                           : [{ id: "field-1" }];
 
@@ -61,7 +62,7 @@ test("workspace API service", async (t) => {
     assert.deepEqual(result.timeTotals, { totalMinutes: 75, billableMinutes: 60 });
     assert.equal(result.members[0]?.id, "member-1");
     assert.equal(result.customFields[0]?.id, "field-1");
-    assert.deepEqual(result.authorization?.permissions, ["tasks.create"]);
+    assert.deepEqual(result.authorization?.permissions, ["tasks.create", "audit.view", "billing.manage"]);
   });
 
   await t.test("rejects unsuccessful required requests", async () => {
@@ -69,7 +70,9 @@ test("workspace API service", async (t) => {
 
     await assert.rejects(
       () => getTasks({ id: "project-1", organizationId: "organization-1", workspaceId: "workspace-1" }),
-      /status 404/,
+      (error: unknown) =>
+        (error instanceof ApiError && error.status === 404) ||
+        /not found|could not be found|status 404/i.test(String(error)),
     );
   });
 

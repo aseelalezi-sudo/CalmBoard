@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   closestCorners,
   DndContext,
@@ -15,9 +15,9 @@ import {
 } from "@dnd-kit/core";
 import { sortableKeyboardCoordinates } from "@dnd-kit/sortable";
 import type { Sprint, Task, ViewCtx } from "@/lib/types";
-import { ApiError } from "@/lib/client-api";
-import { Btn, Card } from "@/components/ui";
-import { IconPlus, IconRocket } from "@/components/icons";
+import { fmtNumber } from "@/lib/types";
+import { Btn, Card, ScreenHeader, ScreenState } from "@/components/ui";
+import { IconPlus, IconRocket, IconShield } from "@/components/icons";
 import type { CompleteSprintDestination, SprintFormInput } from "./api";
 import { groupSprintPlanning } from "./sprint-domain";
 import { SprintSection } from "./sprint-section";
@@ -37,6 +37,9 @@ export function SprintBacklogView({ ctx }: { ctx: ViewCtx }) {
   const sprintQuery = useSprints(project, ctx.currentUser?.id);
   const [dialog, setDialog] = useState<DialogState>(null);
   const [draggedTask, setDraggedTask] = useState<Task | null>(null);
+  const [busy, setBusy] = useState(false);
+  const operationLockRef = useRef(false);
+
   const operations = useSprintOperations(project, ctx.currentUser?.id, { onTasksChanged: ctx.refreshProjectTasks });
   const canManage = ctx.can("sprints.manage");
   const sprints = useMemo(() => sprintQuery.data ?? [], [sprintQuery.data]);
@@ -63,67 +66,76 @@ export function SprintBacklogView({ ctx }: { ctx: ViewCtx }) {
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
+  const runExclusive = async <T,>(action: () => Promise<T>): Promise<T | null> => {
+    if (operationLockRef.current) return false as unknown as T;
+    operationLockRef.current = true;
+    setBusy(true);
+    try {
+      return await action();
+    } finally {
+      operationLockRef.current = false;
+      setBusy(false);
+    }
+  };
+
   if (!project) return null;
+
   if (!ctx.can("sprints.view")) {
     return (
-      <Card className="p-8 text-center text-sm text-slate-600 dark:text-zinc-400">
-        {ctx.t("ليست لديك صلاحية عرض السبرنتات.", "You do not have permission to view Sprints.")}
-      </Card>
-    );
-  }
-  if (sprintQuery.isLoading) {
-    return (
-      <div className="space-y-4" aria-label={ctx.t("جارٍ تحميل السبرنتات", "Loading Sprints")}>
-        {[1, 2, 3].map((item) => (
-          <div key={item} className="h-32 animate-pulse rounded-2xl bg-slate-200/70 dark:bg-white/5" />
-        ))}
-      </div>
-    );
-  }
-  if (sprintQuery.isError) {
-    return (
-      <Card className="p-8 text-center">
-        <p className="text-sm text-rose-600 dark:text-rose-400">
-          {ctx.t("تعذر تحميل السبرنتات.", "Could not load Sprints.")}
-        </p>
-        <Btn className="mt-4" onClick={() => void sprintQuery.refetch()}>
-          {ctx.t("إعادة المحاولة", "Try again")}
-        </Btn>
-      </Card>
+      <ScreenState
+        tone="permission"
+        icon={<IconShield size={20} />}
+        title={ctx.t("صلاحية السبرنتات مطلوبة", "Sprint permission required")}
+        description={ctx.t("ليست لديك صلاحية عرض السبرنتات.", "You do not have permission to view Sprints.")}
+      />
     );
   }
 
-  const notifyError = (error: unknown, conflictMessage?: string) => {
-    const message =
-      error instanceof ApiError && error.status === 409
-        ? (conflictMessage ??
-          ctx.t(
-            "تغيّرت بيانات السبرنت في مكان آخر. تم تحديث العرض.",
-            "Sprint data changed elsewhere. The view was refreshed.",
-          ))
-        : error instanceof Error
-          ? error.message
-          : ctx.t("تعذر تنفيذ الإجراء", "Action failed");
-    ctx.notify(message, "error");
-  };
+  if (sprintQuery.isLoading) {
+    return (
+      <ScreenState
+        tone="loading"
+        icon={<IconRocket size={20} />}
+        title={ctx.t("جارٍ تحميل السبرنتات…", "Loading Sprints…")}
+      />
+    );
+  }
+
+  if (sprintQuery.isError) {
+    return (
+      <ScreenState
+        tone="error"
+        icon={<IconRocket size={20} />}
+        title={ctx.t("تعذر تحميل السبرنتات", "Could not load Sprints")}
+        description={ctx.t("تحقق من الاتصال بالخادم ثم حاول مجدداً.", "Check server connection and try again.")}
+        action={<Btn onClick={() => void sprintQuery.refetch()}>{ctx.t("إعادة المحاولة", "Try again")}</Btn>}
+      />
+    );
+  }
 
   const moveTask = async (task: Task, targetSprintId: string | null) => {
     if (!canManage || (task.sprintId ?? null) === targetSprintId) return;
     const expectedFromSprintId = task.sprintId ?? null;
     ctx.setTaskSprintMembership(task.id, targetSprintId);
-    try {
-      await operations.moveTask({ taskId: task.id, targetSprintId, expectedFromSprintId });
-      ctx.notify(ctx.t("تم نقل المهمة", "Task moved"));
-    } catch (error) {
+
+    const completed = await runExclusive(async () => {
+      try {
+        await operations.moveTask({ taskId: task.id, targetSprintId, expectedFromSprintId });
+        ctx.notify(ctx.t("تم نقل المهمة", "Task moved"));
+        return true;
+      } catch {
+        ctx.setTaskSprintMembership(task.id, expectedFromSprintId);
+        await Promise.all([ctx.refreshProjectTasks(), sprintQuery.refetch()]);
+        ctx.notify(
+          ctx.t("تعذر تنفيذ إجراء السبرنت. تم التراجع وتحديث التخطيط.", "Could not move task. Reverted and refreshed."),
+          "error",
+        );
+        return false;
+      }
+    });
+
+    if (!completed) {
       ctx.setTaskSprintMembership(task.id, expectedFromSprintId);
-      await Promise.all([ctx.refreshProjectTasks(), sprintQuery.refetch()]);
-      notifyError(
-        error,
-        ctx.t(
-          "نُقلت المهمة من مصدر آخر؛ تم التراجع وتحديث التخطيط.",
-          "Task membership changed elsewhere; the move was rolled back and planning refreshed.",
-        ),
-      );
     }
   };
 
@@ -142,65 +154,58 @@ export function SprintBacklogView({ ctx }: { ctx: ViewCtx }) {
   };
 
   const execute = async (action: () => Promise<unknown>, success: string) => {
-    try {
-      await action();
-      setDialog(null);
-      ctx.notify(success);
-    } catch (error) {
-      notifyError(error);
-    }
+    const completed = await runExclusive(async () => {
+      try {
+        await action();
+        setDialog(null);
+        ctx.notify(success);
+        return true;
+      } catch {
+        ctx.notify(
+          ctx.t("تعذر تنفيذ إجراء السبرنت. تحقق من البيانات والاتصال.", "Action failed. Check connection and details."),
+          "error",
+        );
+        return false;
+      }
+    });
   };
+
   const dialogSprint = dialog && "sprint" in dialog ? dialog.sprint : null;
   const dialogTasks = dialogSprint ? (planning.bySprint.get(dialogSprint.id) ?? []) : [];
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2">
-            <IconRocket className="text-indigo-600 dark:text-indigo-300" />
-            <h2 className="text-xl font-bold text-slate-950 dark:text-white">
-              {ctx.t("السبرنتات والتراكم", "Sprints & Backlog")}
-            </h2>
-          </div>
-          <p className="mt-1 text-[13px] text-slate-500 dark:text-zinc-400">
-            {ctx.t(
-              "خطط وقت تنفيذ مهام المشروع دون تغيير مسار العمل.",
-              "Plan when project tasks happen without changing their workflow.",
-            )}
-          </p>
-          {!canManage && (
-            <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">
-              {ctx.t("عرض للقراءة فقط", "Read-only view")}
-            </p>
-          )}
-        </div>
-        {canManage && (
-          <Btn variant="primary" onClick={() => setDialog({ type: "create" })}>
-            <IconPlus size={15} />
-            {ctx.t("إنشاء سبرنت", "Create Sprint")}
-          </Btn>
+      <ScreenHeader
+        title={ctx.t("السبرنتات والتراكم", "Sprints & Backlog")}
+        description={ctx.t(
+          "خطط وقت تنفيذ مهام المشروع دون تغيير مسار العمل.",
+          "Plan when project tasks happen without changing their workflow.",
         )}
-      </div>
+        actions={
+          canManage ? (
+            <Btn variant="glow" onClick={() => setDialog({ type: "create" })}>
+              <IconPlus size={15} />
+              {ctx.t("إنشاء سبرنت", "Create Sprint")}
+            </Btn>
+          ) : undefined
+        }
+      />
 
       {!sprints.length && (
-        <Card className="p-10 text-center">
-          <IconRocket className="mx-auto text-indigo-500" size={28} />
-          <h3 className="mt-3 font-semibold text-slate-950 dark:text-white">
-            {ctx.t("لا توجد سبرنتات بعد", "No Sprints yet")}
-          </h3>
-          <p className="mt-1 text-sm text-slate-500">
-            {ctx.t(
-              "يمكنك إبقاء المشروع عادياً أو إنشاء أول سبرنت عند الحاجة.",
-              "Keep this as a regular project, or create the first Sprint when needed.",
-            )}
-          </p>
-          {canManage && (
-            <Btn className="mt-4" onClick={() => setDialog({ type: "create" })}>
-              {ctx.t("إنشاء أول سبرنت", "Create first Sprint")}
-            </Btn>
+        <ScreenState
+          tone="empty"
+          icon={<IconRocket className="text-accent" size={24} />}
+          title={ctx.t("لا توجد سبرنتات بعد", "No Sprints yet")}
+          description={ctx.t(
+            "يمكنك إبقاء المشروع عادياً أو إنشاء أول سبرنت عند الحاجة.",
+            "Keep this as a regular project, or create the first Sprint when needed.",
           )}
-        </Card>
+          action={
+            canManage ? (
+              <Btn onClick={() => setDialog({ type: "create" })}>{ctx.t("إنشاء أول سبرنت", "Create first Sprint")}</Btn>
+            ) : undefined
+          }
+        />
       )}
 
       <DndContext
@@ -220,6 +225,7 @@ export function SprintBacklogView({ ctx }: { ctx: ViewCtx }) {
               ctx={ctx}
               destinations={writableDestinations}
               readOnly={!canManage}
+              pending={busy || operations.pendingAction}
               activeSprintExists
               onMove={moveTask}
               onComplete={() => setDialog({ type: "complete", sprint: activeSprint })}
@@ -228,7 +234,7 @@ export function SprintBacklogView({ ctx }: { ctx: ViewCtx }) {
           )}
           {plannedSprints.length > 0 && (
             <div className="space-y-3">
-              <h3 className="text-sm font-bold uppercase tracking-wide text-slate-500 dark:text-zinc-400">
+              <h3 className="text-sm font-bold uppercase tracking-wide text-ink-faint">
                 {ctx.t("السبرنتات المخططة", "Planned Sprints")}
               </h3>
               {plannedSprints.map((sprint) => (
@@ -239,6 +245,7 @@ export function SprintBacklogView({ ctx }: { ctx: ViewCtx }) {
                   ctx={ctx}
                   destinations={writableDestinations}
                   readOnly={!canManage}
+                  pending={busy || operations.pendingAction}
                   activeSprintExists={Boolean(activeSprint)}
                   onMove={moveTask}
                   onEdit={() => setDialog({ type: "edit", sprint })}
@@ -248,7 +255,7 @@ export function SprintBacklogView({ ctx }: { ctx: ViewCtx }) {
             </div>
           )}
           <div>
-            <h3 className="mb-3 text-sm font-bold uppercase tracking-wide text-slate-500 dark:text-zinc-400">
+            <h3 className="mb-3 text-sm font-bold uppercase tracking-wide text-ink-faint">
               {ctx.t("التراكم", "Backlog")}
             </h3>
             <SprintSection
@@ -257,6 +264,7 @@ export function SprintBacklogView({ ctx }: { ctx: ViewCtx }) {
               ctx={ctx}
               destinations={writableDestinations}
               readOnly={!canManage}
+              pending={busy || operations.pendingAction}
               activeSprintExists={Boolean(activeSprint)}
               onMove={moveTask}
             />
@@ -264,7 +272,7 @@ export function SprintBacklogView({ ctx }: { ctx: ViewCtx }) {
         </div>
         <DragOverlay>
           {draggedTask && (
-            <div className="max-w-sm rounded-xl border border-indigo-400 bg-white px-3 py-2 text-sm font-medium shadow-2xl dark:bg-zinc-900 dark:text-white">
+            <div className="max-w-sm rounded-xl border border-accent bg-surface px-3 py-2 text-sm font-medium shadow-2xl">
               {draggedTask.title}
             </div>
           )}
@@ -272,9 +280,9 @@ export function SprintBacklogView({ ctx }: { ctx: ViewCtx }) {
       </DndContext>
 
       {pastSprints.length > 0 && (
-        <details className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-white/8 dark:bg-white/2">
-          <summary className="cursor-pointer font-semibold text-slate-900 dark:text-white">
-            {ctx.t("السبرنتات السابقة", "Past Sprints")} ({pastSprints.length})
+        <details className="rounded-2xl border border-line bg-surface p-4">
+          <summary className="cursor-pointer font-semibold text-ink">
+            {ctx.t("السبرنتات السابقة", "Past Sprints")} ({fmtNumber(pastSprints.length, ctx.locale)})
           </summary>
           <div className="mt-4 space-y-3">
             {pastSprints.map((sprint) => (
@@ -296,9 +304,9 @@ export function SprintBacklogView({ ctx }: { ctx: ViewCtx }) {
       <SprintFormDialog
         open={dialog?.type === "create" || dialog?.type === "edit"}
         sprint={dialog?.type === "edit" ? dialog.sprint : null}
-        defaultName={`Sprint ${sprints.length + 1}`}
+        defaultName={`السبرنت ${fmtNumber(sprints.length + 1, ctx.locale)}`}
         ctx={ctx}
-        pending={operations.pendingAction}
+        pending={busy || operations.pendingAction}
         onClose={() => setDialog(null)}
         onSubmit={(input: SprintFormInput) =>
           execute(
@@ -314,7 +322,7 @@ export function SprintBacklogView({ ctx }: { ctx: ViewCtx }) {
         sprint={dialog?.type === "start" ? dialog.sprint : null}
         tasks={dialog?.type === "start" ? dialogTasks : []}
         ctx={ctx}
-        pending={operations.pendingAction}
+        pending={busy || operations.pendingAction}
         onClose={() => setDialog(null)}
         onConfirm={() => execute(() => operations.start(dialogSprint!.id), ctx.t("بدأ السبرنت", "Sprint started"))}
       />
@@ -323,7 +331,7 @@ export function SprintBacklogView({ ctx }: { ctx: ViewCtx }) {
         tasks={dialog?.type === "complete" ? dialogTasks : []}
         plannedSprints={plannedSprints}
         ctx={ctx}
-        pending={operations.pendingAction}
+        pending={busy || operations.pendingAction}
         onClose={() => setDialog(null)}
         onConfirm={(destination: CompleteSprintDestination) =>
           execute(
@@ -336,7 +344,7 @@ export function SprintBacklogView({ ctx }: { ctx: ViewCtx }) {
         sprint={dialog?.type === "cancel" ? dialog.sprint : null}
         tasks={dialog?.type === "cancel" ? dialogTasks : []}
         ctx={ctx}
-        pending={operations.pendingAction}
+        pending={busy || operations.pendingAction}
         onClose={() => setDialog(null)}
         onConfirm={() =>
           execute(

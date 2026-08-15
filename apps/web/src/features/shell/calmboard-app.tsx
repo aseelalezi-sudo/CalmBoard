@@ -3,7 +3,18 @@ import { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import type { Doc, Notification, SavedView, Task, ViewCtx } from "@/lib/types";
 import { STATUS_CONFIG, PRIORITY_CONFIG, STATUS_ORDER } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { Badge, Avatar, Kbd, Bar } from "@/components/ui";
+import {
+  Badge,
+  Avatar,
+  Kbd,
+  Bar,
+  Btn,
+  ScreenState,
+  ScreenToolbar,
+  SegmentedTabs,
+  inputCls,
+  selectCls,
+} from "@/components/ui";
 import {
   LogoMark,
   IconBoard,
@@ -60,6 +71,7 @@ import { useRealtime } from "@/features/realtime/use-realtime";
 import { useUiStore } from "@/stores/ui-store";
 import { currentSavedViewConfiguration, useTaskViewStateStore } from "@/stores/task-view-state-store";
 import { telemetryUiEnabled } from "@/lib/feature-flags";
+import { notify as notifyFeedback, type NoticeKind } from "@/components/feedback";
 import { useSavedViewOperations } from "./use-saved-view-operations";
 
 export function CalmBoardApp() {
@@ -89,14 +101,25 @@ export function CalmBoardApp() {
   const [showNewGoal, setShowNewGoal] = useState(false);
 
   const notifRef = useRef<HTMLDivElement>(null);
+  const notifTriggerRef = useRef<HTMLButtonElement>(null);
+  const notifPanelRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if (showNotif && event.key === "Escape") {
+        setShowNotif(false);
+        notifTriggerRef.current?.focus();
+      }
+    }
     function handleClickOutside(event: MouseEvent) {
       if (showNotif && notifRef.current && !notifRef.current.contains(event.target as Node)) {
         setShowNotif(false);
       }
     }
+    document.addEventListener("keydown", handleKeyDown);
     document.addEventListener("mousedown", handleClickOutside);
     return () => {
+      document.removeEventListener("keydown", handleKeyDown);
       document.removeEventListener("mousedown", handleClickOutside);
     };
   }, [showNotif]);
@@ -469,7 +492,7 @@ export function CalmBoardApp() {
     else denyMutation();
   };
   const openNotification = (notification: Notification) => {
-    if (!notification.isRead) markAsRead(notification.id);
+    if (!notification.isRead) markAsRead(notification.id).catch(() => undefined);
     if (notification.entityType === "task" && notification.entityId) {
       const loadedTask = tasks.find((task) => task.id === notification.entityId);
       if (loadedTask) setTaskDetail(loadedTask);
@@ -520,6 +543,8 @@ export function CalmBoardApp() {
     invitations,
     notifications,
     openNotification,
+    markAllNotificationsRead: markAllRead,
+    markAsRead,
     savedViews,
     stats,
     groupedByStatus,
@@ -541,7 +566,12 @@ export function CalmBoardApp() {
         },
     moveTask: can("tasks.update") ? moveTask : async () => denyMutation(),
     setProjectWipLimit: can("projects.update") ? updateProjectWipLimit : async () => denyMutation(),
-    createTask: can("tasks.create") ? createTask : () => denyMutation(),
+    createTask: can("tasks.create")
+      ? createTask
+      : () => {
+          denyMutation();
+          return false;
+        },
     setTaskFilter,
     setShowAddTask: permissionModal("tasks.create", setShowAddTask),
     setShowNewDoc: permissionModal("documents.manage", setShowNewDoc),
@@ -593,12 +623,25 @@ export function CalmBoardApp() {
     toggleReaction: can("comments.manage") ? toggleReaction : () => denyMutation(),
     togglePinComment: can("comments.manage") ? togglePinComment : () => denyMutation(),
     deleteComment: can("comments.manage") ? deleteComment : () => denyMutation(),
-    notify,
+    notify: (msg: string, kind?: "error" | "success" | "warning" | "info") => notifyFeedback(msg, kind as NoticeKind),
   };
 
   /* ---------- loading ---------- */
   if (loading) {
     return <LoadingScreen message={t("جاري تجهيز مساحة العمل…", "Preparing your workspace…")} />;
+  }
+
+  if (dataError) {
+    return (
+      <div dir={isRTL ? "rtl" : "ltr"} className="app-bg grid min-h-screen place-items-center p-6">
+        <ScreenState
+          tone="error"
+          title={t("تعذر إعداد مساحة العمل", "Workspace could not be prepared")}
+          description={dataError}
+          action={<Btn onClick={() => void reload()}>{t("إعادة المحاولة", "Retry")}</Btn>}
+        />
+      </div>
+    );
   }
 
   if (!currentUser) {
@@ -608,7 +651,7 @@ export function CalmBoardApp() {
   const unread = notifications.filter((n) => !n.isRead).length;
 
   return (
-    <div className="app-bg flex min-h-screen text-[14px]" dir={isRTL ? "rtl" : "ltr"}>
+    <div className="app-bg flex min-h-dvh text-[14px]" dir={isRTL ? "rtl" : "ltr"}>
       {/* ============ SIDEBAR ============ */}
       <aside
         className={cn(
@@ -853,6 +896,7 @@ export function CalmBoardApp() {
 
           <div className="relative" ref={notifRef}>
             <button
+              ref={notifTriggerRef}
               type="button"
               onClick={() => {
                 setShowNotif(!showNotif);
@@ -874,19 +918,18 @@ export function CalmBoardApp() {
               )}
             </button>
             {showNotif && (
-              <div className="animate-pop absolute end-0 top-12 z-50 w-[min(360px,calc(100vw-24px))] overflow-hidden rounded-2xl border border-line bg-surface shadow-xl backdrop-blur-xl dark:shadow-[0_24px_60px_rgba(0,0,0,0.6)]">
-                <div className="flex items-center justify-between border-b border-slate-100 dark:border-white/[0.07] px-4 py-3">
-                  <span className="text-[13.5px] font-semibold text-slate-900 dark:text-white">
-                    {t("الإشعارات", "Notifications")}
-                  </span>
-                  <button
-                    onClick={markAllRead}
-                    className="text-[11.5px] text-indigo-600 hover:text-indigo-800 dark:text-violet-300 transition dark:hover:text-violet-200"
-                  >
+              <div
+                ref={notifPanelRef}
+                tabIndex={-1}
+                className="animate-pop fixed inset-x-2 top-18 z-50 flex max-h-[calc(100dvh-5rem)] flex-col overflow-hidden rounded-2xl border border-line bg-surface shadow-xl backdrop-blur-xl sm:absolute sm:inset-x-auto sm:end-0 sm:top-12 sm:w-[min(360px,calc(100vw-24px))] sm:max-h-[380px] dark:shadow-[0_24px_60px_rgba(0,0,0,0.6)]"
+              >
+                <div className="flex shrink-0 items-center justify-between border-b border-line px-4 py-3">
+                  <span className="text-[13.5px] font-semibold text-ink">{t("الإشعارات", "Notifications")}</span>
+                  <button onClick={markAllRead} className="text-[11.5px] text-accent transition hover:opacity-80">
                     {t("قراءة الكل", "Mark all read")}
                   </button>
                 </div>
-                <div className="max-h-[380px] divide-y divide-slate-100 dark:divide-white/5 overflow-y-auto">
+                <div className="dropdown-options min-h-0 flex-1 divide-y divide-line overflow-y-auto">
                   {notifications.map((n) => (
                     <button
                       key={n.id}
@@ -896,8 +939,8 @@ export function CalmBoardApp() {
                         setShowNotif(false);
                       }}
                       className={cn(
-                        "w-full text-start flex gap-3 px-4 py-3.5 transition-colors hover:bg-slate-50 dark:hover:bg-white/5",
-                        !n.isRead && "bg-indigo-50/70 dark:bg-indigo-500/6",
+                        "w-full text-start flex gap-3 px-4 py-3.5 transition-colors hover:bg-raised/50",
+                        !n.isRead && "bg-accent/5",
                       )}
                     >
                       <span
@@ -954,6 +997,10 @@ export function CalmBoardApp() {
             organizationId={activeOrg?.id}
             workspaceId={activeWorkspace?.id}
             userId={currentUser?.id}
+            progressKey={`${projects.length}:${tasks.length}:${invitations.length}`}
+            canCreateProject={can("projects.create")}
+            canCreateTask={can("tasks.create")}
+            canInvite={can("members.invite")}
             t={t}
             onCreateProject={() => permissionModal("projects.create", setShowAddProject)(true)}
             onCreateTask={() => permissionModal("tasks.create", setShowAddTask)(true)}
@@ -1017,39 +1064,38 @@ export function CalmBoardApp() {
                 </div>
 
                 {/* toolbar: tabs + filters */}
-                <div className="mt-5 flex flex-wrap items-center gap-3">
-                  <div className="flex items-center gap-1 rounded-xl border border-slate-200 bg-slate-100 p-1 dark:border-white/[0.07] dark:bg-white/3">
-                    {VIEW_TABS.filter(({ id }) => id !== "sprints" || can("sprints.view")).map(
-                      ({ id, ar, en, Icon }) => (
-                        <button
-                          key={id}
-                          onClick={() => setActiveView(id)}
-                          className={cn(
-                            "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[12px] font-medium transition",
-                            activeView === id
-                              ? "bg-linear-to-r from-indigo-500 to-violet-500 text-white shadow-[0_2px_12px_rgba(99,102,241,0.3)]"
-                              : "text-slate-500 hover:bg-white hover:text-slate-900 dark:text-zinc-500 dark:hover:bg-white/4 dark:hover:text-zinc-200",
-                          )}
-                        >
-                          <Icon size={13} />
-                          {t(ar, en)}
-                        </button>
-                      ),
+                <ScreenToolbar className="mt-5 justify-between">
+                  <SegmentedTabs
+                    value={activeView}
+                    label={t("طريقة عرض مهام المشروع", "Project task view")}
+                    onChange={(val) => setActiveView(val as any)}
+                    items={VIEW_TABS.filter(({ id }) => id !== "sprints" || can("sprints.view")).map(
+                      ({ id, ar, en, Icon }) => ({
+                        id,
+                        label: (
+                          <span className="flex items-center gap-1.5">
+                            <Icon size={13} />
+                            {t(ar, en)}
+                          </span>
+                        ),
+                      }),
                     )}
-                  </div>
+                  />
                   <div className="flex flex-1 flex-wrap items-center justify-end gap-2">
                     <input
                       name="auto-field-ugbqrm2"
+                      aria-label={t("البحث في مهام المشروع", "Search project tasks")}
                       value={taskFilter.search || ""}
                       onChange={(e) => setTaskFilter({ ...taskFilter, search: e.target.value })}
                       placeholder={t("تصفية…", "Filter…")}
-                      className="h-8 w-[150px] rounded-lg border border-slate-200 bg-white px-3 text-[12px] text-slate-900 placeholder:text-slate-400 outline-none focus:border-violet-500 dark:border-white/8 dark:bg-white/4 dark:text-white dark:placeholder:text-zinc-600 dark:focus:border-violet-400/50"
+                      className={`${inputCls} h-8 w-[150px] text-[12px]`}
                     />
                     <select
                       name="auto-field-c0spigt"
+                      aria-label={t("تصفية حسب الحالة", "Filter by status")}
                       value={taskFilter.status || ""}
                       onChange={(e) => setTaskFilter({ ...taskFilter, status: e.target.value || undefined })}
-                      className="h-8 rounded-lg border border-slate-200 bg-white px-2 text-[11.5px] text-slate-700 outline-none focus:border-violet-500 dark:border-white/8 dark:bg-zinc-900 dark:text-zinc-300 dark:focus:border-violet-400/50"
+                      className={`${selectCls} h-8 text-[11.5px]`}
                     >
                       <option value="">{t("كل الحالات", "All status")}</option>
                       {Object.entries(STATUS_CONFIG).map(([k, v]) => (
@@ -1060,9 +1106,10 @@ export function CalmBoardApp() {
                     </select>
                     <select
                       name="auto-field-jo6aytx"
+                      aria-label={t("تصفية حسب الأولوية", "Filter by priority")}
                       value={taskFilter.priority || ""}
                       onChange={(e) => setTaskFilter({ ...taskFilter, priority: e.target.value || undefined })}
-                      className="h-8 rounded-lg border border-slate-200 bg-white px-2 text-[11.5px] text-slate-700 outline-none focus:border-violet-500 dark:border-white/8 dark:bg-zinc-900 dark:text-zinc-300 dark:focus:border-violet-400/50"
+                      className={`${selectCls} h-8 text-[11.5px]`}
                     >
                       <option value="">{t("كل الأولويات", "All priority")}</option>
                       {Object.entries(PRIORITY_CONFIG).map(([k, v]) => (
@@ -1157,7 +1204,7 @@ export function CalmBoardApp() {
                       </>
                     )}
                   </div>
-                </div>
+                </ScreenToolbar>
               </div>
             )}
 
@@ -1390,7 +1437,7 @@ export function CalmBoardApp() {
       )}
 
       {/* mobile nav */}
-      <div className="fixed inset-x-0 bottom-0 z-30 flex items-center justify-around border-t border-slate-200/80 bg-white/95 dark:border-white/[0.07] dark:bg-[#0a0a11]/95 px-2 py-2 backdrop-blur-xl lg:hidden">
+      <div className="fixed inset-x-0 bottom-0 z-30 flex items-center justify-around border-t border-slate-200/80 bg-white/95 dark:border-white/[0.07] dark:bg-[#0a0a11]/95 px-2 py-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] backdrop-blur-xl lg:hidden">
         {[
           { id: "table", Icon: IconTable, ar: "جدول", en: "Table" },
           { id: "board", Icon: IconBoard, ar: "لوحة", en: "Board" },

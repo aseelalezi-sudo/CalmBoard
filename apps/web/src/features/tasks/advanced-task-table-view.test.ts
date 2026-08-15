@@ -11,7 +11,7 @@ test("advanced task table uses localized dense surfaces and a dismissible column
   assert.match(source, /event\.key === "Escape"/);
   assert.match(source, /columnsTriggerRef\.current\?\.focus/);
   assert.match(source, /sticky top-0 z-20 flex border-b border-line bg-raised/);
-  assert.match(source, /max-w-\[calc\(100%_-_1rem\)\]/);
+  assert.match(source, /max-w-\[calc\(100%-1rem\)\]/);
   assert.match(source, /className=\{`\$\{selectCls\}/);
   assert.doesNotMatch(source, /`\$\{value\}h`/);
 });

@@ -3,7 +3,7 @@
 import { useDroppable } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import type { Sprint, Task, ViewCtx } from "@/lib/types";
-import { fmtDate } from "@/lib/types";
+import { fmtDate, fmtNumber } from "@/lib/types";
 import { Badge, Bar, Btn } from "@/components/ui";
 import { IconRocket } from "@/components/icons";
 import { cn } from "@/lib/utils";
@@ -18,6 +18,7 @@ export function SprintSection({
   ctx,
   destinations,
   readOnly,
+  pending = false,
   activeSprintExists,
   onMove,
   onEdit,
@@ -30,6 +31,7 @@ export function SprintSection({
   ctx: ViewCtx;
   destinations: Sprint[];
   readOnly: boolean;
+  pending?: boolean;
   activeSprintExists: boolean;
   onMove: (task: Task, targetSprintId: string | null) => void;
   onEdit?: () => void;
@@ -38,7 +40,7 @@ export function SprintSection({
   onCancel?: () => void;
 }) {
   const historical = Boolean(sprint && ["completed", "cancelled"].includes(sprint.status));
-  const disabled = readOnly || historical;
+  const disabled = readOnly || historical || pending;
   const { setNodeRef, isOver } = useDroppable({
     id: `sprint-drop:${sprint?.id ?? "backlog"}`,
     data: { type: "sprint-container", targetSprintId: sprint?.id ?? null },
@@ -50,26 +52,23 @@ export function SprintSection({
     <section
       ref={setNodeRef}
       className={cn(
-        "rounded-2xl border border-slate-200 bg-slate-50/70 p-4 dark:border-white/8 dark:bg-white/2",
-        sprint?.status === "active" &&
-          "border-indigo-300 bg-indigo-50/40 dark:border-indigo-400/25 dark:bg-indigo-500/5",
-        isOver && "ring-2 ring-indigo-500",
+        "rounded-2xl border border-line bg-surface p-4",
+        sprint?.status === "active" && "border-accent/30 bg-accent/5",
+        isOver && "ring-2 ring-accent",
       )}
     >
       <header className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="grid h-8 w-8 place-items-center rounded-lg bg-indigo-100 text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300">
+            <span className="grid h-8 w-8 place-items-center rounded-lg bg-accent-soft text-accent">
               <IconRocket size={15} />
             </span>
-            <h3 className="truncate text-base font-semibold text-slate-950 dark:text-white">
-              {sprint?.name ?? ctx.t("التراكم", "Backlog")}
-            </h3>
+            <h3 className="truncate text-base font-semibold text-ink">{sprint?.name ?? ctx.t("التراكم", "Backlog")}</h3>
             {sprint && <Badge tone={statusTone[sprint.status]}>{sprint.status}</Badge>}
             <Badge>
-              {summary.taskCount} {ctx.t("مهمة", "tasks")}
+              {fmtNumber(summary.taskCount, ctx.locale)} {ctx.t("مهمة", "tasks")}
             </Badge>
-            <Badge tone="violet">{summary.storyPoints} pts</Badge>
+            <Badge tone="violet">{fmtNumber(summary.storyPoints, ctx.locale)} pts</Badge>
           </div>
           {sprint?.goal && <p className="mt-2 text-[12px] text-slate-600 dark:text-zinc-400">{sprint.goal}</p>}
           {sprint && (sprint.startsAt || sprint.endsAt) && (

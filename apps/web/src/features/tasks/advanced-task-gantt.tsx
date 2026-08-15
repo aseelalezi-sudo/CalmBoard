@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Avatar, Badge, Card, Empty } from "@/components/ui";
+import { promptAction } from "@/components/feedback";
 import { IconCalendar, IconLink, IconTimeline } from "@/components/icons";
 import type { Task, ViewCtx } from "@/lib/types";
 import type { ProjectBaseline } from "@/lib/types";
@@ -89,11 +90,26 @@ function dependencyKey(link: TaskGanttLink) {
   return `${link.blockingTaskId}:${link.dependentTaskId}:${link.type}:${link.lagMinutes}`;
 }
 
+function isWeekend(date: Date, weekStartsOn: number) {
+  const day = date.getDay();
+  return weekStartsOn === 6 ? day === 5 || day === 6 : day === 0 || day === 6;
+}
+
+function taskBarTone(task: Task, isCritical: boolean) {
+  if (isCritical) return "border-rose-600 bg-rose-600";
+  if (task.status === "completed") return "border-emerald-600/30 bg-emerald-600";
+  if (task.priority === "urgent") return "border-rose-600/30 bg-rose-600";
+  return "border-indigo-600/30 bg-indigo-600";
+}
+
 export function AdvancedTaskGantt({ ctx }: { ctx: ViewCtx }) {
+  const containerRef = useRef<HTMLDivElement>(null);
   const [zoom, setZoom] = useState<TaskGanttZoom>("weeks");
   const [showCritical, setShowCritical] = useState(false);
   const [baselines, setBaselines] = useState<ProjectBaseline[]>([]);
   const [selectedBaselineId, setSelectedBaselineId] = useState("");
+  const [availableTimelineWidth, setAvailableTimelineWidth] = useState(720);
+
   const model = useMemo(() => buildTaskGanttModel(ctx.tasks), [ctx.tasks]);
   const selectedBaseline = baselines.find((baseline) => baseline.id === selectedBaselineId) ?? null;
   const baselineTaskById = useMemo(
@@ -105,6 +121,10 @@ export function AdvancedTaskGantt({ ctx }: { ctx: ViewCtx }) {
     [ctx.tasks, selectedBaseline],
   );
   const scheduleConflicts = useMemo(() => detectScheduleConflicts(model), [model]);
+  const conflictingTaskIds = useMemo(
+    () => new Set(scheduleConflicts.flatMap((conflict) => [conflict.blockingTaskId, conflict.dependentTaskId])),
+    [scheduleConflicts],
+  );
   const criticalPath = useMemo(() => calculateCriticalPath(model), [model]);
   const criticalVisible = showCritical && criticalPath.status === "computed";
   const criticalTaskIds = useMemo(
@@ -124,9 +144,28 @@ export function AdvancedTaskGantt({ ctx }: { ctx: ViewCtx }) {
       ),
     [criticalPath],
   );
-  const weekStartsOn = ctx.locale === "ar" ? 6 : 0;
-  const dayWidth = model.totalDays ? Math.max(minimumDayWidth[zoom], 720 / model.totalDays) : minimumDayWidth[zoom];
-  const chartWidth = Math.max(720, model.totalDays * dayWidth);
+
+  const isRtl = ctx.locale === "ar";
+  const weekStartsOn = isRtl ? 6 : 0;
+
+  useEffect(() => {
+    const element = containerRef.current;
+    if (!element) return;
+    const updateWidth = () => {
+      const width = Math.max(0, element.clientWidth - LABEL_WIDTH);
+      setAvailableTimelineWidth(width);
+    };
+    updateWidth();
+    const observer = new ResizeObserver(updateWidth);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
+  const dayWidth = model.totalDays
+    ? Math.max(minimumDayWidth[zoom], availableTimelineWidth / model.totalDays)
+    : minimumDayWidth[zoom];
+  const chartWidth = Math.max(720, availableTimelineWidth, model.totalDays * dayWidth);
+
   const segments = useMemo(
     () => (model.rangeStart ? buildTaskGanttSegments(model.rangeStart, model.totalDays, zoom, weekStartsOn) : []),
     [model.rangeStart, model.totalDays, weekStartsOn, zoom],
@@ -154,9 +193,30 @@ export function AdvancedTaskGantt({ ctx }: { ctx: ViewCtx }) {
     };
   }, [ctx.activeProject, ctx.currentUser?.id]);
 
+  const scrollToToday = () => {
+    if (!containerRef.current || !todayVisible) return;
+    const todayPx = LABEL_WIDTH + (todayOffset + 0.5) * dayWidth;
+    containerRef.current.scrollTo({
+      left: Math.max(0, todayPx - containerRef.current.clientWidth / 2),
+      behavior: "smooth",
+    });
+  };
+
+  const fitTimeline = () => {
+    setZoom("months");
+    if (containerRef.current) {
+      containerRef.current.scrollTo({ left: 0, behavior: "smooth" });
+    }
+  };
+
   const createBaseline = async () => {
     if (!ctx.activeProject || !ctx.can("projects.update")) return;
-    const name = prompt(ctx.t("اسم خط الأساس:", "Baseline name:"), ctx.t("خط أساس جديد", "New baseline"));
+    const name = await promptAction({
+      title: ctx.t("حفظ خط الأساس", "Save baseline"),
+      label: ctx.t("اسم خط الأساس:", "Baseline name:"),
+      defaultValue: ctx.t("خط أساس جديد", "New baseline"),
+      placeholder: ctx.t("خط أساس جديد", "New baseline"),
+    });
     if (!name?.trim()) return;
     try {
       const baseline = await createProjectBaselineRecord(ctx.activeProject, name.trim(), ctx.currentUser?.id);
@@ -170,9 +230,9 @@ export function AdvancedTaskGantt({ ctx }: { ctx: ViewCtx }) {
 
   return (
     <Card className="overflow-hidden">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 bg-slate-50/60 px-5 py-3.5 dark:border-white/[0.06] dark:bg-transparent">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line bg-surface px-5 py-3.5">
         <div className="flex flex-wrap items-center gap-2.5">
-          <span className="flex items-center gap-2 text-[14px] font-bold text-slate-900 dark:text-white">
+          <span className="flex items-center gap-2 text-[14px] font-bold text-ink">
             <IconTimeline size={17} />
             {ctx.t("مخطط جانت", "Gantt chart")}
           </span>
@@ -239,12 +299,24 @@ export function AdvancedTaskGantt({ ctx }: { ctx: ViewCtx }) {
           )}
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 sm:mr-auto">
           {model.rangeStart && model.rangeEnd && (
-            <span className="hidden text-[10.5px] font-semibold text-slate-500 dark:text-zinc-500 md:inline">
+            <span className="hidden text-[10.5px] font-semibold text-ink-faint md:inline">
               {formatDate(model.rangeStart, ctx.locale)} – {formatDate(model.rangeEnd, ctx.locale)}
             </span>
           )}
+          <button
+            onClick={scrollToToday}
+            className="h-8 rounded-xl border border-line bg-surface px-2.5 text-[11px] font-bold text-ink hover:bg-raised"
+          >
+            {ctx.t("اليوم", "Today")}
+          </button>
+          <button
+            onClick={fitTimeline}
+            className="h-8 rounded-xl border border-line bg-surface px-2.5 text-[11px] font-bold text-ink hover:bg-raised"
+          >
+            {ctx.t("ملاءمة", "Fit")}
+          </button>
           <button
             disabled={criticalPath.status !== "computed"}
             aria-pressed={criticalVisible}
@@ -257,8 +329,8 @@ export function AdvancedTaskGantt({ ctx }: { ctx: ViewCtx }) {
             className={cn(
               "h-8 rounded-xl border px-3 text-[11px] font-bold transition disabled:cursor-not-allowed disabled:opacity-40",
               criticalVisible
-                ? "border-rose-500 bg-rose-500 text-white shadow-sm"
-                : "border-slate-200 bg-white text-slate-700 hover:border-rose-300 hover:text-rose-600 dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-300",
+                ? "border-rose-500 bg-rose-500 text-white shadow-xs"
+                : "border-line bg-surface text-ink hover:border-rose-300 hover:text-rose-600",
             )}
           >
             {criticalVisible
@@ -266,11 +338,10 @@ export function AdvancedTaskGantt({ ctx }: { ctx: ViewCtx }) {
               : ctx.t("المسار الحرج", "Critical path")}
           </button>
           <select
-            name="auto-field-mdp18mm"
             value={selectedBaselineId}
             onChange={(event) => setSelectedBaselineId(event.target.value)}
             aria-label={ctx.t("اختيار خط الأساس", "Select baseline")}
-            className="h-8 max-w-40 rounded-xl border border-slate-200 bg-white px-2 text-[10.5px] font-semibold text-slate-700 dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-300"
+            className="h-8 w-40 cursor-pointer rounded-xl border border-line bg-surface px-2 text-[10.5px] font-semibold text-ink"
           >
             <option value="">{ctx.t("بدون خط أساس", "No baseline")}</option>
             {baselines.map((baseline) => (
@@ -282,20 +353,18 @@ export function AdvancedTaskGantt({ ctx }: { ctx: ViewCtx }) {
           <button
             disabled={!ctx.can("projects.update") || !ctx.activeProject}
             onClick={createBaseline}
-            className="h-8 rounded-xl border border-amber-300 bg-amber-50 px-3 text-[10.5px] font-bold text-amber-800 hover:bg-amber-100 disabled:opacity-40 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300"
+            className="h-8 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 text-[10.5px] font-bold text-amber-700 hover:bg-amber-500/20 disabled:opacity-40 dark:text-amber-300"
           >
-            {ctx.t("حفظ Baseline", "Save baseline")}
+            {ctx.t("حفظ خط أساس", "Save baseline")}
           </button>
-          <div className="flex rounded-xl border border-slate-200 bg-slate-100 p-1 dark:border-white/10 dark:bg-white/[0.04]">
+          <div className="flex rounded-xl border border-line bg-raised p-1">
             {(Object.keys(zoomLabels) as TaskGanttZoom[]).map((key) => (
               <button
                 key={key}
                 onClick={() => setZoom(key)}
                 className={cn(
                   "rounded-lg px-2.5 py-1 text-[11px] font-bold transition",
-                  zoom === key
-                    ? "bg-white text-indigo-700 shadow-sm dark:bg-zinc-800 dark:text-indigo-300"
-                    : "text-slate-500 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-white",
+                  zoom === key ? "bg-surface text-accent shadow-xs" : "text-ink-faint hover:text-ink",
                 )}
               >
                 {ctx.t(zoomLabels[key].ar, zoomLabels[key].en)}
@@ -315,21 +384,31 @@ export function AdvancedTaskGantt({ ctx }: { ctx: ViewCtx }) {
           )}
         />
       ) : (
-        <div className="max-h-[680px] overflow-auto" dir="ltr">
+        <div
+          ref={containerRef}
+          role="region"
+          tabIndex={0}
+          aria-label={ctx.t("مخطط جانت", "Gantt chart timeline")}
+          className="max-h-[min(680px,70dvh)] overflow-auto overscroll-contain"
+          dir="ltr"
+        >
           <div style={{ width: LABEL_WIDTH + chartWidth }}>
-            <div className="sticky top-0 z-40 flex h-12 border-b border-slate-200 bg-white dark:border-white/[0.08] dark:bg-[#101018]">
+            <div className="sticky top-0 z-40 flex h-12 border-b border-line bg-surface">
               <div
-                className="sticky left-0 z-50 flex shrink-0 items-center border-e border-slate-200 bg-white px-4 text-[11px] font-bold text-slate-500 dark:border-white/[0.08] dark:bg-[#101018] dark:text-zinc-500"
+                className={cn(
+                  "z-50 flex shrink-0 items-center border-e border-line bg-surface px-4 text-[11px] font-bold text-ink-faint",
+                  isRtl ? "sticky right-0" : "sticky left-0",
+                )}
                 style={{ width: LABEL_WIDTH }}
-                dir={ctx.locale === "ar" ? "rtl" : "ltr"}
+                dir={isRtl ? "rtl" : "ltr"}
               >
                 {ctx.t("المهمة والمسؤول", "Task & assignee")}
               </div>
-              <div className="relative flex shrink-0" style={{ width: chartWidth }}>
+              <div className={cn("relative flex shrink-0", isRtl && "flex-row-reverse")} style={{ width: chartWidth }}>
                 {segments.map((segment) => (
                   <div
                     key={segment.key}
-                    className="flex shrink-0 items-center justify-center overflow-hidden border-e border-slate-200 px-1 text-center text-[10px] font-bold text-slate-500 dark:border-white/[0.08] dark:text-zinc-500"
+                    className="flex shrink-0 items-center justify-center overflow-hidden border-e border-line px-1 text-center text-[10px] font-bold text-ink-faint"
                     style={{ width: segment.dayCount * dayWidth }}
                     title={`${formatDate(segment.startDate, ctx.locale)} – ${formatDate(segment.endDate, ctx.locale)}`}
                   >
@@ -342,8 +421,13 @@ export function AdvancedTaskGantt({ ctx }: { ctx: ViewCtx }) {
             <div className="relative">
               <svg
                 aria-hidden="true"
-                className="pointer-events-none absolute z-20 overflow-visible text-violet-500/80 dark:text-violet-300/70"
-                style={{ left: LABEL_WIDTH, top: 0 }}
+                className="pointer-events-none absolute z-20 overflow-visible text-accent/80"
+                style={{
+                  left: isRtl ? undefined : LABEL_WIDTH,
+                  right: isRtl ? LABEL_WIDTH : undefined,
+                  top: 0,
+                  transform: isRtl ? "scale(-1 1)" : undefined,
+                }}
                 width={chartWidth}
                 height={model.bars.length * ROW_HEIGHT}
               >
@@ -388,7 +472,10 @@ export function AdvancedTaskGantt({ ctx }: { ctx: ViewCtx }) {
                 <div
                   aria-label={ctx.t("اليوم", "Today")}
                   className="pointer-events-none absolute bottom-0 top-0 z-10 w-px bg-rose-500/70"
-                  style={{ left: LABEL_WIDTH + (todayOffset + 0.5) * dayWidth }}
+                  style={{
+                    left: isRtl ? undefined : LABEL_WIDTH + (todayOffset + 0.5) * dayWidth,
+                    right: isRtl ? LABEL_WIDTH + (todayOffset + 0.5) * dayWidth : undefined,
+                  }}
                 >
                   <span className="absolute left-1 top-1 rounded bg-rose-500 px-1 py-0.5 text-[8px] font-bold text-white">
                     {ctx.t("اليوم", "Today")}
@@ -399,7 +486,6 @@ export function AdvancedTaskGantt({ ctx }: { ctx: ViewCtx }) {
               {model.bars.map((bar) => {
                 const task = bar.task;
                 const priority = PRIORITY_CONFIG[task.priority];
-                const statusTone = STATUS_CONFIG[task.status]?.tone;
                 const metric = metricByTask.get(task.id);
                 const isCritical = criticalVisible && criticalTaskIds.has(task.id);
                 const baselineTask = baselineTaskById.get(task.id);
@@ -411,28 +497,27 @@ export function AdvancedTaskGantt({ ctx }: { ctx: ViewCtx }) {
                 const baselineEndOffset = baselineEnd ? calendarDayDifference(baselineEnd, model.rangeStart!) + 1 : 0;
                 const visibleBaselineStart = Math.max(0, baselineStartOffset);
                 const visibleBaselineEnd = Math.min(model.totalDays, baselineEndOffset);
+                const hasConflict = conflictingTaskIds.has(task.id);
+
                 return (
-                  <div
-                    key={task.id}
-                    className="flex border-b border-slate-100 dark:border-white/[0.05]"
-                    style={{ height: ROW_HEIGHT }}
-                  >
+                  <div key={task.id} className="flex border-b border-line" style={{ height: ROW_HEIGHT }}>
                     <button
                       onClick={() => ctx.openTask(task)}
                       className={cn(
-                        "sticky left-0 z-30 flex shrink-0 items-center gap-2 border-e border-slate-200 bg-white px-4 text-start hover:bg-slate-50 dark:border-white/[0.08] dark:bg-[#101018] dark:hover:bg-white/[0.04]",
-                        isCritical && "bg-rose-50 dark:bg-rose-500/10",
+                        "z-30 flex shrink-0 items-center gap-2 border-e border-line bg-surface px-4 text-start hover:bg-raised",
+                        isRtl ? "sticky right-0" : "sticky left-0",
+                        isCritical && "bg-rose-500/10",
                       )}
-                      style={{ width: LABEL_WIDTH }}
-                      dir={ctx.locale === "ar" ? "rtl" : "ltr"}
+                      style={{ width: LABEL_WIDTH, marginLeft: isRtl ? "auto" : undefined }}
+                      dir={isRtl ? "rtl" : "ltr"}
                     >
-                      <span className={cn("h-2 w-2 shrink-0 rounded-full", priority?.bar ?? "bg-indigo-500")} />
+                      <span className={cn("h-2 w-2 shrink-0 rounded-full", priority?.bar ?? "bg-accent")} />
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate text-[11.5px] font-bold text-slate-800 dark:text-zinc-200">
+                        <span className="block truncate text-[11.5px] font-bold text-ink">
                           {task.parentId ? "↳ " : ""}
                           {task.title}
                         </span>
-                        <span className="mono block truncate text-[9px] text-slate-400 dark:text-zinc-600">
+                        <span className="mono block truncate text-[9px] text-ink-faint">
                           {task.serial} · {formatDate(bar.start, ctx.locale)} – {formatDate(bar.end, ctx.locale)}
                           {metric
                             ? ` · ${ctx.t("السماح", "Float")}: ${formatMinutes(metric.totalFloatMinutes, ctx.locale)}`
@@ -456,10 +541,17 @@ export function AdvancedTaskGantt({ ctx }: { ctx: ViewCtx }) {
                         <span
                           aria-label={ctx.t("موضع خط الأساس", "Baseline position")}
                           className="absolute bottom-1 z-20 h-1.5 rounded-full bg-amber-400/90"
-                          style={{
-                            left: visibleBaselineStart * dayWidth,
-                            width: (visibleBaselineEnd - visibleBaselineStart) * dayWidth,
-                          }}
+                          style={
+                            isRtl
+                              ? {
+                                  right: visibleBaselineStart * dayWidth,
+                                  width: (visibleBaselineEnd - visibleBaselineStart) * dayWidth,
+                                }
+                              : {
+                                  left: visibleBaselineStart * dayWidth,
+                                  width: (visibleBaselineEnd - visibleBaselineStart) * dayWidth,
+                                }
+                          }
                         />
                       )}
                       <button
@@ -476,19 +568,23 @@ export function AdvancedTaskGantt({ ctx }: { ctx: ViewCtx }) {
                             : ""
                         }`}
                         className={cn(
-                          "absolute top-2.5 z-30 flex h-8 min-w-1 items-center overflow-hidden rounded-lg border px-2 text-[10.5px] font-bold text-white shadow-sm transition hover:brightness-110 focus:z-40",
-                          task.isMilestone && "h-5 w-5 rotate-45 rounded-sm px-0",
+                          "absolute top-2.5 z-30 flex h-8 min-w-1 items-center overflow-hidden rounded-lg border px-2 text-[10.5px] font-bold text-white shadow-xs transition hover:brightness-110 focus:z-40",
+                          task.isMilestone && "h-5 w-5 rotate-45 rounded-xs px-0",
                           isCritical && "ring-2 ring-rose-400 ring-offset-1 dark:ring-offset-zinc-950",
-                          statusTone === "emerald"
-                            ? "border-emerald-600/30 bg-emerald-600"
-                            : task.priority === "urgent"
-                              ? "border-rose-600/30 bg-rose-600"
-                              : "border-indigo-600/30 bg-indigo-600",
+                          hasConflict && "outline-2 outline-offset-2 outline-rose-500",
+                          taskBarTone(task, isCritical),
                         )}
                         style={{
-                          left: task.isMilestone
-                            ? bar.startOffset * dayWidth + dayWidth / 2 - 10
-                            : bar.startOffset * dayWidth,
+                          left: isRtl
+                            ? undefined
+                            : task.isMilestone
+                              ? bar.startOffset * dayWidth + dayWidth / 2 - 10
+                              : bar.startOffset * dayWidth,
+                          right: isRtl
+                            ? task.isMilestone
+                              ? bar.startOffset * dayWidth + dayWidth / 2 - 10
+                              : bar.startOffset * dayWidth
+                            : undefined,
                           width: task.isMilestone ? 20 : bar.durationDays * dayWidth,
                         }}
                       >
@@ -512,14 +608,14 @@ export function AdvancedTaskGantt({ ctx }: { ctx: ViewCtx }) {
         </div>
       )}
 
-      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 bg-slate-50/50 px-5 py-3 text-[10.5px] text-slate-500 dark:border-white/[0.06] dark:bg-white/[0.02] dark:text-zinc-500">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line bg-raised/50 px-5 py-3 text-[10.5px] text-ink-faint">
         <span>
           {ctx.t(
             "المسار الحرج يستخدم CPM والحسابين الأمامي والخلفي وأنواع FS/SS/FF/SF وفترات التأخير.",
             "Critical path uses CPM forward/backward passes with FS/SS/FF/SF dependencies and lag.",
           )}
         </span>
-        <span className="mono font-semibold text-indigo-600 dark:text-indigo-300">
+        <span className="mono font-semibold text-accent">
           {model.totalDays} {ctx.t("يوماً", "days")} · {model.dependencyReferences}{" "}
           {ctx.t("مرجع تبعية", "dependency references")}
         </span>

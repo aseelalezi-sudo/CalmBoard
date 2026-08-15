@@ -2,11 +2,11 @@
 
 import { useState, useEffect } from "react";
 import type { ViewCtx } from "@/lib/types";
+import { SegmentedTabs } from "@/components/ui";
 import { SprintBacklogView } from "./sprint-backlog-view";
 import { SprintBoardView } from "./sprint-board-view";
 import { SprintReportsView } from "./sprint-reports-view";
 import { IconList, IconBoard, IconGauge } from "@/components/icons";
-import { cn } from "@/lib/utils";
 
 export function SprintsView({
   ctx,
@@ -24,47 +24,41 @@ export function SprintsView({
 
   return (
     <div className="flex flex-col h-full animate-fade">
-      <div className="mb-6 flex border-b border-slate-200 dark:border-white/[0.07]">
-        <nav className="-mb-px flex space-x-6 rtl:space-x-reverse" aria-label="Tabs">
-          <button
-            onClick={() => setTab("backlog")}
-            className={cn(
-              "flex items-center gap-2 whitespace-nowrap border-b-2 py-3 px-1 text-[13px] font-medium transition-colors",
-              tab === "backlog"
-                ? "border-indigo-500 text-indigo-600 dark:border-indigo-400 dark:text-indigo-400"
-                : "border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-700 dark:text-zinc-400 dark:hover:border-zinc-700 dark:hover:text-zinc-300",
-            )}
-          >
-            <IconList size={15} />
-            {ctx.t("التراكم", "Backlog")}
-          </button>
-
-          <button
-            onClick={() => setTab("active")}
-            className={cn(
-              "flex items-center gap-2 whitespace-nowrap border-b-2 py-3 px-1 text-[13px] font-medium transition-colors",
-              tab === "active"
-                ? "border-indigo-500 text-indigo-600 dark:border-indigo-400 dark:text-indigo-400"
-                : "border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-700 dark:text-zinc-400 dark:hover:border-zinc-700 dark:hover:text-zinc-300",
-            )}
-          >
-            <IconBoard size={15} />
-            {ctx.t("السبرنت النشط", "Active Sprint")}
-          </button>
-
-          <button
-            onClick={() => setTab("reports")}
-            className={cn(
-              "flex items-center gap-2 whitespace-nowrap border-b-2 py-3 px-1 text-[13px] font-medium transition-colors",
-              tab === "reports"
-                ? "border-indigo-500 text-indigo-600 dark:border-indigo-400 dark:text-indigo-400"
-                : "border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-700 dark:text-zinc-400 dark:hover:border-zinc-700 dark:hover:text-zinc-300",
-            )}
-          >
-            <IconGauge size={15} />
-            {ctx.t("التقارير", "Reports")}
-          </button>
-        </nav>
+      <div className="mb-6 flex">
+        <SegmentedTabs
+          value={tab}
+          label={ctx.t("أقسام السبرنت", "Sprint sections")}
+          onChange={(val) => setTab(val as "backlog" | "active" | "reports")}
+          items={[
+            {
+              id: "backlog",
+              label: (
+                <span className="flex items-center gap-2">
+                  <IconList size={15} />
+                  {ctx.t("التراكم", "Backlog")}
+                </span>
+              ),
+            },
+            {
+              id: "active",
+              label: (
+                <span className="flex items-center gap-2">
+                  <IconBoard size={15} />
+                  {ctx.t("السبرنت النشط", "Active Sprint")}
+                </span>
+              ),
+            },
+            {
+              id: "reports",
+              label: (
+                <span className="flex items-center gap-2">
+                  <IconGauge size={15} />
+                  {ctx.t("التقارير", "Reports")}
+                </span>
+              ),
+            },
+          ]}
+        />
       </div>
 
       <div className="flex-1 min-h-0">

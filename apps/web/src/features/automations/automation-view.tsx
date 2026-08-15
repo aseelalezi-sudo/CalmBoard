@@ -1,125 +1,200 @@
 "use client";
-import type { Automation, ViewCtx } from "@/lib/types";
-import { Badge, Btn, Card, Empty, SectionTitle, Toggle } from "@/components/ui";
-import { IconBolt } from "@/components/icons";
-import { useAutomationTest } from "@/features/automations/use-automation-test";
+
+import { useState } from "react";
+import type { AutomationRun, ViewCtx } from "@/lib/types";
+import { fmtNumber } from "@/lib/types";
+import { Badge, Btn, Card, ScreenHeader, ScreenState, SectionTitle, Toggle } from "@/components/ui";
+import { IconBolt, IconClock, IconPlus } from "@/components/icons";
 
 const dateLocale = (locale: string) => (locale === "ar" ? "ar-EG" : "en-US");
 
-/* ================= Automation View ================= */
+function runStatus(status: string, t: ViewCtx["t"]) {
+  switch (status) {
+    case "success":
+      return t("ناجح", "Success");
+    case "failed":
+      return t("فشل", "Failed");
+    case "skipped":
+      return t("تم التخطي", "Skipped");
+    default:
+      return status;
+  }
+}
+
+function runMessage(run: AutomationRun, t: ViewCtx["t"]) {
+  if (run.status === "failed") {
+    return t("تعذر تنفيذ بعض أو كل إجراءات الأتمتة", "Failed to execute some or all automation actions");
+  }
+  if (run.message?.includes("Conditions did not match")) {
+    return t("الشروط لم تتطابق مع الحدث", "Conditions did not match the event");
+  }
+  if (run.message?.includes("Rule is disabled or no longer matches the event")) {
+    return t("القاعدة معطلة أو لم تعد مطابقة للحدث", "Rule is disabled or no longer matches the event");
+  }
+  const match = run.message?.match(/^Executed (\d+) actions$/);
+  if (match) {
+    return t(`تم تنفيذ ${match[1]} إجراءات بنجاح`, `Executed ${match[1]} actions successfully`);
+  }
+  return run.status === "success"
+    ? t("تم تنفيذ الأتمتة بنجاح", "Automation executed successfully")
+    : t("تم تخطي الأتمتة", "Automation skipped");
+}
+
 export function AutomationView({ ctx }: { ctx: ViewCtx }) {
-  const { testingId, testRun } = useAutomationTest(ctx);
+  const [pendingAutomationId, setPendingAutomationId] = useState<string | null>(null);
+  const canManageAutomations = ctx.can("automations.manage");
 
   return (
-    <div className="max-w-[880px] mx-auto space-y-6 animate-fade">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h2 className="text-[20px] font-bold text-slate-900 dark:text-white">
-            {ctx.t("محرك الأتمتة (When → If → Then — القسم 14)", "Automation Engine")}
-          </h2>
-          <p className="mt-0.5 text-[12.5px] text-slate-500 dark:text-zinc-400">
-            {ctx.t(
-              "أتمتة سير العمل بذكاء مع سياسات إعادة المحاولة وإمكانية التشغيل التجريبي قبل التفعيل",
-              "Automate workflows intelligently with retry policies & dry test runs before activation",
-            )}
-          </p>
-        </div>
-        <Btn variant="glow" disabled={!ctx.can("automations.manage")} onClick={() => ctx.setShowNewAutomation(true)}>
-          <IconBolt size={15} />
-          {ctx.t("قاعدة جديدة", "New rule")}
-        </Btn>
-      </div>
-      <div className="stagger space-y-3.5">
+    <div className="screen-container-standard space-y-6">
+      <ScreenHeader
+        title={ctx.t("محرك الأتمتة (When → If → Then — القسم 14)", "Automation Engine")}
+        description={ctx.t(
+          "أتمتة سير العمل بذكاء مع سياسات إعادة المحاولة وإدارة القواعد الفعالة.",
+          "Automate workflows intelligently with robust triggers, conditions, and actions.",
+        )}
+        actions={
+          canManageAutomations ? (
+            <Btn variant="glow" onClick={() => ctx.setShowNewAutomation(true)}>
+              <IconPlus size={15} />
+              {ctx.t("قاعدة جديدة", "New rule")}
+            </Btn>
+          ) : undefined
+        }
+      />
+
+      <div className="space-y-3.5">
         {ctx.automations.map((a) => (
-          <Card
-            key={a.id}
-            className={`p-5 transition bg-white dark:bg-white/[0.025] ${a.enabled ? "border-slate-200 shadow-sm dark:border-white/[0.08] dark:shadow-none" : "opacity-65"}`}
-          >
+          <Card key={a.id} className={`bg-surface p-5 transition ${a.enabled ? "" : "opacity-60"}`}>
             <div className="flex flex-wrap items-center justify-between gap-4">
-              <div className="flex min-w-[240px] flex-1 items-center gap-3.5">
+              <div className="flex min-w-60 flex-1 items-center gap-3.5">
                 <span
-                  className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl border ${a.enabled ? "border-indigo-200 bg-indigo-50 text-indigo-600 dark:border-violet-500/30 dark:bg-violet-500/10 dark:text-violet-300 shadow-sm dark:shadow-[0_0_16px_rgba(139,92,246,0.2)]" : "border-slate-200 bg-slate-100 text-slate-400 dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-500"}`}
+                  className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl border ${
+                    a.enabled
+                      ? "border-indigo-500/20 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 shadow-sm"
+                      : "border-line bg-raised text-ink-faint"
+                  }`}
                 >
                   <IconBolt size={18} />
                 </span>
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className="truncate text-[14.5px] font-bold text-slate-900 dark:text-white">{a.name}</span>
+                    <span className="truncate text-[14.5px] font-bold text-ink">{a.name}</span>
                     <Badge tone={a.enabled ? "emerald" : "neutral"}>
                       {a.enabled ? ctx.t("نشطة", "Active") : ctx.t("معطلة", "Disabled")}
                     </Badge>
                   </div>
-                  <div className="mt-0.5 text-[11.5px] text-slate-500 dark:text-zinc-500">
-                    <span className="mono font-bold tabular-nums">{a.runs}</span>{" "}
+                  <div className="mt-0.5 text-[11.5px] text-ink-faint">
+                    <span className="mono font-bold tabular">{fmtNumber(a.runs, ctx.locale)}</span>{" "}
                     {ctx.t("تشغيل ناجح", "successful runs")} •{" "}
                     {a.lastRunAt
-                      ? `آخر تشغيل: ${new Date(a.lastRunAt).toLocaleTimeString("ar-EG")}`
+                      ? `${ctx.t("آخر تشغيل:", "Last run:")} ${new Date(a.lastRunAt).toLocaleTimeString(dateLocale(ctx.locale))}`
                       : ctx.t("لم تُشغل بعد", "Never run")}
                   </div>
                 </div>
               </div>
 
               <div className="flex items-center gap-3 shrink-0">
-                <button
-                  onClick={() => testRun(a)}
-                  disabled={testingId === a.id || !ctx.can("automations.manage")}
-                  className="inline-flex items-center gap-1.5 rounded-xl border border-indigo-200 bg-indigo-50/80 px-3 py-1.5 text-[12px] font-bold text-indigo-700 hover:bg-indigo-100 transition shadow-sm dark:border-indigo-500/30 dark:bg-indigo-500/10 dark:text-indigo-300 dark:hover:bg-indigo-500/20 disabled:opacity-50"
-                  title={ctx.t(
-                    "تشغيل تجريبي فوري ضد أحدث مهمة للتحقق من الشروط والإجراءات (القسم 14)",
-                    "Manual test run against latest task to verify conditions & actions (Section 14)",
-                  )}
-                >
-                  <span>{testingId === a.id ? "⌛" : "▶️"}</span>
-                  <span>{ctx.t("تشغيل تجريبي", "Test Run Now")}</span>
-                </button>
-                <Toggle
-                  checked={a.enabled}
-                  disabled={!ctx.can("automations.manage")}
-                  onChange={(v) => ctx.toggleAutomation(a.id, v)}
-                />
+                {canManageAutomations ? (
+                  <Toggle
+                    checked={a.enabled}
+                    disabled={pendingAutomationId !== null}
+                    ariaLabel={ctx.t(`تبديل قاعدة الأتمتة ${a.name}`, `Toggle automation rule ${a.name}`)}
+                    onChange={async (v) => {
+                      setPendingAutomationId(a.id);
+                      try {
+                        await ctx.toggleAutomation(a.id, v);
+                      } finally {
+                        setPendingAutomationId(null);
+                      }
+                    }}
+                  />
+                ) : (
+                  <Badge tone={a.enabled ? "emerald" : "neutral"}>
+                    {a.enabled ? ctx.t("مفعلة", "Enabled") : ctx.t("معطلة", "Disabled")}
+                  </Badge>
+                )}
               </div>
             </div>
 
-            <div className="mt-4 flex flex-wrap items-center gap-2 pt-3 border-t border-slate-100 dark:border-white/[0.05] text-[11.5px]">
+            <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-line pt-3 text-[11.5px]">
               <Badge tone="indigo" className="px-2 py-0.5 font-mono">
-                ⚡ {ctx.t("عندما (When)", "When")}: {a.trigger}
+                {ctx.t("عندما (When):", "When:")} {a.trigger}
               </Badge>
               {Object.entries(a.conditions || {}).map(([k, v]) => (
                 <Badge key={k} tone="amber" className="px-2 py-0.5 font-mono">
-                  ❓ {ctx.t("إذا (If)", "If")}: {k}={String(v)}
+                  {ctx.t("إذا (If):", "If:")} {k}={String(v)}
                 </Badge>
               ))}
               {Object.entries(a.actions || {}).map(([k, v]) => (
                 <Badge key={k} tone="emerald" className="px-2 py-0.5 font-mono font-bold">
-                  🎯 {ctx.t("ثم (Then)", "Then")}: {k}={String(v)}
+                  {ctx.t("ثم (Then):", "Then:")} {k}={String(v)}
                 </Badge>
               ))}
             </div>
           </Card>
         ))}
+
+        {ctx.automations.length === 0 && (
+          <Card className="bg-surface">
+            <ScreenState
+              framed={false}
+              tone="empty"
+              title={ctx.t("لا توجد قواعد أتمتة", "No automation rules")}
+              description={ctx.t(
+                "أنشئ قواعد تلقائية لتحديث المهام وإرسال التنبيهات وتسهيل العمليات.",
+                "Create rules to automatically update tasks, send alerts, and streamline workflow.",
+              )}
+              action={
+                canManageAutomations ? (
+                  <Btn variant="glow" onClick={() => ctx.setShowNewAutomation(true)}>
+                    <IconPlus size={14} />
+                    {ctx.t("إنشاء أول قاعدة", "Create first rule")}
+                  </Btn>
+                ) : undefined
+              }
+            />
+          </Card>
+        )}
       </div>
+
       <div className="mt-7">
         <SectionTitle count={ctx.automationRuns.length}>{ctx.t("سجل التشغيل", "Execution log")}</SectionTitle>
-        <Card className="overflow-hidden">
-          <div className="divide-y divide-white/[0.04]">
-            {ctx.automationRuns.slice(0, 8).map((r) => (
-              <div key={r.id} className="flex items-center gap-3 px-5 py-3 text-[12px]">
+        <Card className="overflow-hidden bg-surface">
+          <div className="divide-y divide-line">
+            {ctx.automationRuns.slice(0, 12).map((run) => (
+              <div key={run.id} className="flex items-center gap-3 px-5 py-3 text-[12px]">
                 <span
-                  className={`h-2 w-2 shrink-0 rounded-full ${r.status === "success" ? "bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.7)]" : "bg-rose-400"}`}
+                  role="status"
+                  className={`h-2.5 w-2.5 shrink-0 rounded-full ${
+                    run.status === "success"
+                      ? "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]"
+                      : run.status === "failed"
+                        ? "bg-rose-500"
+                        : "bg-amber-500"
+                  }`}
+                  aria-label={runStatus(run.status, ctx.t)}
                 />
-                <span className="flex-1 truncate text-zinc-400">{r.message}</span>
-                <span className="mono text-[10.5px] text-zinc-600 tabular">{r.durationMs}ms</span>
-                <span className="text-[10.5px] text-zinc-600">
-                  {new Date(r.createdAt).toLocaleTimeString(dateLocale(ctx.locale))}
+                <span className="flex-1 truncate text-ink-soft">{runMessage(run, ctx.t)}</span>
+                <span className="mono text-[10.5px] text-ink-faint tabular">
+                  {fmtNumber(run.durationMs, ctx.locale)}ms
                 </span>
+                <time dateTime={run.createdAt} className="text-[10.5px] text-ink-faint">
+                  {new Date(run.createdAt).toLocaleTimeString(dateLocale(ctx.locale))}
+                </time>
               </div>
             ))}
             {ctx.automationRuns.length === 0 && (
-              <Empty
-                icon={<IconBolt size={22} />}
-                title={ctx.t("لا تشغيلات بعد", "No runs yet")}
-                hint={ctx.t("غيّر حالة مهمة لتفعيل قاعدة", "Change a task status to trigger a rule")}
-              />
+              <div className="p-6">
+                <ScreenState
+                  framed={false}
+                  tone="empty"
+                  title={ctx.t("لا تشغيلات بعد", "No runs yet")}
+                  description={ctx.t(
+                    "غيّر حالة مهمة لتفعيل القواعد المرتبطة",
+                    "Change task status to trigger configured rules",
+                  )}
+                />
+              </div>
             )}
           </div>
         </Card>

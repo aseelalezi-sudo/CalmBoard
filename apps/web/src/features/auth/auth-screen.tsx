@@ -1,12 +1,16 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { LogoMark } from "@/components/icons";
+import { Btn, inputCls, SegmentedTabs } from "@/components/ui";
+import { useUiStore } from "@/lib/stores/ui-store";
 import { useAuthOperations } from "./use-auth-operations";
 import { oauthProviders, oauthStartUrl } from "./api";
 
 export function AuthScreen({ onAuthenticated }: { onAuthenticated: () => Promise<void> }) {
   const { forgotPassword, login, register, verifyMfaLogin, verifyOAuthMfaLogin } = useAuthOperations();
+  const locale = useUiStore((state) => state.locale);
+  const t = useCallback((ar: string, en: string) => (locale === "ar" ? ar : en), [locale]);
   const [mode, setMode] = useState<"login" | "register" | "forgot">("login");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
@@ -23,10 +27,15 @@ export function AuthScreen({ onAuthenticated }: { onAuthenticated: () => Promise
     const query = new URLSearchParams(window.location.search);
     if (query.get("oauth_mfa") === "1") {
       setOauthMfa(true);
-      setNotice("أدخل رمز تطبيق المصادقة أو أحد رموز الاسترداد لإكمال تسجيل الدخول الخارجي.");
+      setNotice(
+        t(
+          "أدخل رمز تطبيق المصادقة أو أحد رموز الاسترداد لإكمال تسجيل الدخول الخارجي.",
+          "Enter your authenticator or recovery code to complete sign in.",
+        ),
+      );
       window.history.replaceState({}, "", window.location.pathname);
     }
-  }, []);
+  }, [t]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -41,19 +50,32 @@ export function AuthScreen({ onAuthenticated }: { onAuthenticated: () => Promise
         await onAuthenticated();
       } else if (mode === "forgot") {
         await forgotPassword(String(data.get("email")));
-        setNotice("إذا كان الحساب موجوداً فستصلك رسالة إعادة التعيين خلال دقائق.");
+        setNotice(
+          t(
+            "إذا كان الحساب موجوداً فستصلك رسالة استعادة كلمة المرور خلال دقائق.",
+            "If an account exists, a password recovery message has been sent.",
+          ),
+        );
       } else if (mode === "login") {
         const result = await login({ email: String(data.get("email")), password: String(data.get("password")) });
         if (result.requiresMfa) {
           setMfaChallenge(result.challengeToken);
-          setNotice("أدخل رمز تطبيق المصادقة أو أحد رموز الاسترداد.");
+          setNotice(
+            t("أدخل رمز التحقق بخطوتين من تطبيق المصادقة.", "Enter two-factor authentication code from your app."),
+          );
           return;
         }
         await onAuthenticated();
       } else {
+        const password = String(data.get("password"));
+        const passwordConfirmation = String(data.get("passwordConfirmation"));
+        if (password !== passwordConfirmation) {
+          setError(t("كلمتا المرور غير متطابقتين.", "Passwords do not match."));
+          return;
+        }
         await register({
           email: String(data.get("email")),
-          password: String(data.get("password")),
+          password,
           name: String(data.get("name")),
           organizationName: String(data.get("organizationName")),
           workspaceName: String(data.get("workspaceName")),
@@ -61,112 +83,169 @@ export function AuthScreen({ onAuthenticated }: { onAuthenticated: () => Promise
         await onAuthenticated();
       }
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "تعذر إكمال المصادقة");
+      setError(
+        cause instanceof Error ? cause.message : t("تعذر إكمال المصادقة", "Authentication could not be completed"),
+      );
     } finally {
       setPending(false);
     }
   }
 
   return (
-    <main className="app-bg grid min-h-screen place-items-center px-4" dir="rtl">
-      <section className="w-full max-w-md rounded-3xl border border-slate-200 bg-white/95 p-7 text-slate-900 shadow-2xl shadow-indigo-950/10 backdrop-blur-xl dark:border-white/10 dark:bg-[#101019]/95 dark:text-zinc-100 dark:shadow-black/30">
-        <div className="mb-7 flex items-center gap-3">
+    <main className="app-bg grid min-h-dvh place-items-center px-4" dir={locale === "ar" ? "rtl" : "ltr"}>
+      <section className="w-full max-w-md rounded-3xl border border-line bg-surface p-7 text-ink shadow-2xl backdrop-blur-xl">
+        <div className="mb-6 flex items-center gap-3">
           <LogoMark size={40} />
           <div>
-            <h1 className="font-display text-xl font-bold text-slate-900 dark:text-white">CalmBoard</h1>
-            <p className="text-xs text-slate-500 dark:text-zinc-500">إدارة العمل بهدوء ووضوح</p>
+            <h1 className="font-display text-xl font-bold text-ink">CalmBoard</h1>
+            <p className="text-xs text-ink-faint">
+              {mfaPending
+                ? t("التحقق بخطوتين", "Two-factor authentication")
+                : mode === "forgot"
+                  ? t("استعادة كلمة المرور", "Password recovery")
+                  : t("إدارة العمل بهدوء ووضوح", "Calm, focused project management")}
+            </p>
           </div>
         </div>
 
-        {!mfaPending && (
-          <div className="mb-6 grid grid-cols-2 rounded-xl bg-slate-100 p-1 text-sm dark:bg-white/5">
-            {(["login", "register"] as const).map((value) => (
-              <button
-                key={value}
-                type="button"
-                onClick={() => {
-                  setMode(value);
-                  setMfaChallenge("");
-                  setError("");
-                  setNotice("");
-                }}
-                className={`rounded-lg px-3 py-2 transition ${mode === value ? "bg-linear-to-r from-indigo-500 to-violet-500 text-white shadow-sm" : "text-slate-600 hover:bg-white hover:text-slate-900 dark:text-zinc-400 dark:hover:bg-white/4 dark:hover:text-white"}`}
-              >
-                {value === "login" ? "تسجيل الدخول" : "إنشاء حساب"}
-              </button>
-            ))}
+        {!mfaPending && mode !== "forgot" && (
+          <div className="mb-6">
+            <SegmentedTabs
+              label={t("طريقة المصادقة", "Authentication method")}
+              value={mode}
+              onChange={(v) => {
+                setMode(v as "login" | "register");
+                setMfaChallenge("");
+                setError("");
+                setNotice("");
+              }}
+              items={[
+                { id: "login", label: t("تسجيل الدخول", "Sign in") },
+                { id: "register", label: t("إنشاء حساب", "Create account") },
+              ]}
+            />
           </div>
         )}
 
         <form className="space-y-4" onSubmit={submit}>
           {mfaPending ? (
-            <Field name="code" label="رمز المصادقة أو الاسترداد" autoComplete="one-time-code" />
+            <Field
+              name="code"
+              label={t("رمز المصادقة أو الاسترداد", "Auth or recovery code")}
+              autoComplete="one-time-code"
+              inputMode="numeric"
+              autoFocus
+            />
           ) : mode === "register" ? (
             <>
-              <Field name="name" label="الاسم" autoComplete="name" />
-              <Field name="organizationName" label="اسم المؤسسة" autoComplete="organization" />
-              <Field name="workspaceName" label="اسم مساحة العمل" autoComplete="off" />
+              <Field name="name" label={t("الاسم", "Name")} autoComplete="name" />
+              <Field
+                name="organizationName"
+                label={t("اسم المؤسسة", "Organization name")}
+                autoComplete="organization"
+              />
+              <Field name="workspaceName" label={t("اسم مساحة العمل", "Workspace name")} autoComplete="off" />
             </>
           ) : null}
-          {!mfaPending && <Field name="email" label="البريد الإلكتروني" type="email" autoComplete="email" />}
+
+          {!mfaPending && (
+            <Field name="email" label={t("البريد الإلكتروني", "Email address")} type="email" autoComplete="email" />
+          )}
+
           {!mfaPending && mode !== "forgot" && (
-            <Field
-              name="password"
-              label="كلمة المرور"
-              type="password"
-              autoComplete={mode === "login" ? "current-password" : "new-password"}
-              minLength={12}
-            />
+            <>
+              <Field
+                name="password"
+                label={t("كلمة المرور", "Password")}
+                type="password"
+                autoComplete={mode === "login" ? "current-password" : "new-password"}
+                minLength={12}
+              />
+              {mode === "register" && (
+                <Field
+                  name="passwordConfirmation"
+                  label={t("تأكيد كلمة المرور", "Confirm password")}
+                  type="password"
+                  autoComplete="new-password"
+                  minLength={12}
+                />
+              )}
+            </>
           )}
+
           {mode === "register" && (
-            <p className="text-[11px] text-slate-500 dark:text-zinc-500">استخدم 12 حرفاً على الأقل.</p>
+            <p className="text-[11px] text-ink-faint">
+              {t("استخدم 12 حرفاً على الأقل.", "Use at least 12 characters.")}
+            </p>
           )}
+
           {error && (
-            <p className="rounded-xl bg-rose-50 px-3 py-2 text-xs text-rose-700 dark:bg-rose-500/10 dark:text-rose-300">
+            <p
+              role="alert"
+              className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-700 dark:text-rose-300"
+            >
               {error}
             </p>
           )}
+
           {notice && (
-            <p className="rounded-xl bg-emerald-50 px-3 py-2 text-xs text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
+            <p
+              role="status"
+              aria-live="polite"
+              className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-300"
+            >
               {notice}
             </p>
           )}
+
           <button
+            type="submit"
             disabled={pending}
             className="h-11 w-full rounded-xl bg-linear-to-r from-indigo-500 to-violet-500 text-sm font-bold text-white shadow-[0_6px_22px_rgba(99,102,241,0.25)] transition hover:brightness-110 disabled:cursor-wait disabled:opacity-60"
           >
             {pending
-              ? "جارٍ التحقق…"
+              ? t("جارٍ التحقق…", "Checking…")
               : mfaPending
-                ? "تحقق ودخول"
+                ? t("تحقق ودخول", "Verify and sign in")
                 : mode === "login"
-                  ? "دخول"
+                  ? t("تسجيل الدخول", "Sign in")
                   : mode === "register"
-                    ? "إنشاء الحساب"
-                    : "إرسال رابط إعادة التعيين"}
+                    ? t("إنشاء حساب", "Create account")
+                    : t("إرسال رابط استعادة كلمة المرور", "Send recovery link")}
           </button>
+
           {!mfaPending && mode === "login" && (
             <button
               type="button"
-              className="w-full text-xs text-violet-600 hover:text-violet-700 dark:text-violet-300 dark:hover:text-violet-200"
-              onClick={() => setMode("forgot")}
+              className="w-full text-xs text-accent hover:underline"
+              onClick={() => {
+                setMode("forgot");
+                setError("");
+                setNotice("");
+              }}
             >
-              نسيت كلمة المرور؟
+              {t("نسيت كلمة المرور؟", "Forgot your password?")}
             </button>
           )}
+
           {!mfaPending && mode === "forgot" && (
             <button
               type="button"
-              className="w-full text-xs text-violet-600 hover:text-violet-700 dark:text-violet-300 dark:hover:text-violet-200"
-              onClick={() => setMode("login")}
+              className="w-full text-xs text-accent hover:underline"
+              onClick={() => {
+                setMode("login");
+                setError("");
+                setNotice("");
+              }}
             >
-              العودة إلى تسجيل الدخول
+              {t("العودة إلى تسجيل الدخول", "Return to sign in")}
             </button>
           )}
+
           {mfaPending && (
             <button
               type="button"
-              className="w-full text-xs text-violet-600 hover:text-violet-700 dark:text-violet-300 dark:hover:text-violet-200"
+              className="w-full text-xs text-accent hover:underline"
               onClick={() => {
                 setMfaChallenge("");
                 setOauthMfa(false);
@@ -174,31 +253,38 @@ export function AuthScreen({ onAuthenticated }: { onAuthenticated: () => Promise
                 setError("");
               }}
             >
-              العودة إلى كلمة المرور
+              {t("العودة إلى كلمة المرور", "Return to password")}
             </button>
           )}
         </form>
+
         {!mfaPending && mode === "login" && (providers.google || providers.microsoft) && (
-          <div className="mt-6 border-t border-slate-200 pt-5 dark:border-white/10">
-            <p className="mb-3 text-center text-[11px] text-slate-500 dark:text-zinc-500">أو تابع عبر مزود موثوق</p>
+          <div className="mt-6 border-t border-line pt-5">
+            <p className="mb-3 text-center text-[11px] text-ink-faint">
+              {t("أو تابع عبر مزود موثوق", "Or continue with a trusted provider")}
+            </p>
             <div className="grid gap-2">
               {providers.google && (
-                <button
+                <Btn
                   type="button"
+                  variant="outline"
+                  disabled={pending}
                   onClick={() => window.location.assign(oauthStartUrl("google"))}
-                  className="h-10 rounded-xl border border-slate-200 bg-slate-50 text-sm text-slate-700 hover:border-indigo-200 hover:bg-indigo-50 dark:border-white/10 dark:bg-white/4 dark:text-zinc-200 dark:hover:bg-white/8"
+                  className="w-full"
                 >
-                  المتابعة باستخدام Google
-                </button>
+                  {t("المتابعة باستخدام Google", "Continue with Google")}
+                </Btn>
               )}
               {providers.microsoft && (
-                <button
+                <Btn
                   type="button"
+                  variant="outline"
+                  disabled={pending}
                   onClick={() => window.location.assign(oauthStartUrl("microsoft"))}
-                  className="h-10 rounded-xl border border-slate-200 bg-slate-50 text-sm text-slate-700 hover:border-indigo-200 hover:bg-indigo-50 dark:border-white/10 dark:bg-white/4 dark:text-zinc-200 dark:hover:bg-white/8"
+                  className="w-full"
                 >
-                  المتابعة باستخدام Microsoft
-                </button>
+                  {t("المتابعة باستخدام Microsoft", "Continue with Microsoft")}
+                </Btn>
               )}
             </div>
           </div>
@@ -217,16 +303,13 @@ function Field({
   type?: string;
   autoComplete?: string;
   minLength?: number;
+  inputMode?: "text" | "numeric" | "search" | "email" | "tel" | "url" | "none" | "decimal";
+  autoFocus?: boolean;
 }) {
   return (
-    <label className="block text-xs font-medium text-slate-700 dark:text-zinc-300">
+    <label className="block text-xs font-medium text-ink-soft">
       <span className="mb-1.5 block">{label}</span>
-      <input
-        {...input}
-        id={input.name}
-        required
-        className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-violet-500 focus:ring-2 focus:ring-violet-500/10 dark:border-white/10 dark:bg-white/4 dark:text-white dark:placeholder:text-zinc-700 dark:focus:border-violet-400/50"
-      />
+      <input {...input} id={input.name} required className={`${inputCls} h-11 text-sm`} />
     </label>
   );
 }

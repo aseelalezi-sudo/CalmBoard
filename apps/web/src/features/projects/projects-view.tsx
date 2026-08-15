@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Badge, Btn, Field, Modal, inputCls, selectCls } from "@/components/ui";
+import { Badge, Btn, Field, Modal, ScreenHeader, ScreenState, inputCls, selectCls } from "@/components/ui";
 import { IconBoard, IconFolder, IconList, IconMore, IconPlus, IconSearch } from "@/components/icons";
 import type { Project, ViewCtx } from "@/lib/types";
+import { fmtNumber } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import {
   filterAndSortProjects,
@@ -34,12 +35,31 @@ function statusTone(status: ProjectStatus): "neutral" | "indigo" | "amber" | "em
   return "neutral";
 }
 
+function normalizedProgress(progress: number) {
+  return Math.max(0, Math.min(100, Math.round(progress || 0)));
+}
+
+function progressLabel(project: Project, locale: ViewCtx["locale"]) {
+  return `${fmtNumber(normalizedProgress(project.progress), locale)}%`;
+}
+
 function projectIcon(project: Project, size = 16) {
   if (!project.icon || project.icon === "folder") return <IconFolder size={size} />;
   return (
     <span className="max-w-full truncate px-0.5 leading-none" style={{ fontSize: size }}>
       {project.icon}
     </span>
+  );
+}
+
+function ProjectIconTile({ project, size = 18 }: { project: Project; size?: number }) {
+  return (
+    <div
+      className="grid place-items-center rounded-xl bg-accent-soft text-accent shadow-sm"
+      style={{ width: size + 16, height: size + 16, backgroundColor: project.color }}
+    >
+      {projectIcon(project, size)}
+    </div>
   );
 }
 
@@ -92,8 +112,8 @@ function ProjectActions({
 
   const itemClass =
     "w-full rounded-lg px-3 py-2 text-start text-[12.5px] text-ink-soft transition hover:bg-raised hover:text-ink";
-  const openProject = () => {
-    ctx.switchProject(project);
+  const openProject = (proj: Project) => {
+    ctx.switchProject(proj);
     ctx.setActiveView("table");
     setOpen(false);
   };
@@ -119,7 +139,7 @@ function ProjectActions({
           role="menu"
           className="animate-pop absolute end-0 top-9 z-50 w-44 rounded-xl border border-line bg-surface p-1.5 shadow-xl"
         >
-          <button type="button" role="menuitem" onClick={openProject} className={itemClass}>
+          <button type="button" role="menuitem" onClick={() => openProject(project)} className={itemClass}>
             {ctx.t("فتح", "Open")}
           </button>
           {ctx.can("projects.update") && project.status !== "archived" && (
@@ -206,14 +226,19 @@ export function ProjectsView({ ctx }: { ctx: ViewCtx }) {
     return filterAndSortProjects(ctx.projects, { search, status, sort, locale: ctx.locale });
   }, [ctx.locale, ctx.projects, search, sort, status]);
 
+  const openProject = (project: Project) => {
+    ctx.switchProject(project);
+    ctx.setActiveView("table");
+  };
+
   const runProjectAction = async (action: "archive" | "restore", project: Project) => {
     setBusyProjectId(project.id);
     setActionError(null);
     try {
       if (action === "archive") await ctx.archiveProject(project);
       else await ctx.restoreProject(project);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : ctx.t("تعذر تنفيذ الإجراء", "The action failed");
+    } catch {
+      const message = ctx.t("تعذر تنفيذ الإجراء على المشروع. حاول مجدداً.", "The action failed. Please try again.");
       setActionError(message);
       ctx.notify(message, "error");
     } finally {
@@ -227,24 +252,22 @@ export function ProjectsView({ ctx }: { ctx: ViewCtx }) {
   const noValue = ctx.t("—", "—");
 
   return (
-    <div className="mx-auto w-full max-w-7xl space-y-5">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <h1 className="font-display text-2xl font-bold text-ink">{ctx.t("المشاريع", "Projects")}</h1>
-          <p className="mt-1 text-[13px] text-ink-faint">
-            {ctx.t(
-              "إدارة مشاريع مساحة العمل الحالية ومتابعة تقدمها.",
-              "Manage and track projects in the current workspace.",
-            )}
-          </p>
-        </div>
-        {ctx.can("projects.create") && (
-          <Btn variant="glow" onClick={() => ctx.setShowAddProject?.(true)}>
-            <IconPlus size={15} />
-            {ctx.t("مشروع جديد", "New Project")}
-          </Btn>
+    <div className="screen-container-wide space-y-5">
+      <ScreenHeader
+        title={ctx.t("المشاريع", "Projects")}
+        description={ctx.t(
+          "إدارة مشاريع مساحة العمل الحالية ومتابعة تقدمها.",
+          "Manage and track projects in the current workspace.",
         )}
-      </div>
+        actions={
+          ctx.can("projects.create") ? (
+            <Btn variant="glow" onClick={() => ctx.setShowAddProject?.(true)}>
+              <IconPlus size={15} />
+              {ctx.t("مشروع جديد", "New Project")}
+            </Btn>
+          ) : undefined
+        }
+      />
 
       <div className="flex flex-col gap-3 rounded-2xl border border-line bg-surface p-3 shadow-sm lg:flex-row lg:items-center">
         <label className="relative min-w-0 flex-1">
@@ -326,13 +349,12 @@ export function ProjectsView({ ctx }: { ctx: ViewCtx }) {
       )}
 
       {ctx.workspaceDataError && (
-        <div role="alert" className="rounded-2xl border border-rose-500/20 bg-rose-500/10 px-6 py-10 text-center">
-          <IconFolder className="mx-auto text-rose-500" size={28} />
-          <h2 className="mt-3 text-[14px] font-semibold text-rose-700 dark:text-rose-300">
-            {ctx.t("تعذر تحميل المشاريع", "Failed to load projects")}
-          </h2>
-          <p className="mt-1 text-[12px] text-rose-700/80 dark:text-rose-200/80">{ctx.workspaceDataError}</p>
-        </div>
+        <ScreenState
+          tone="error"
+          icon={<IconFolder className="text-rose-500" size={24} />}
+          title={ctx.t("تعذر تحميل المشاريع", "Failed to load projects")}
+          description={ctx.workspaceDataError}
+        />
       )}
 
       {!ctx.workspaceDataError &&
@@ -345,19 +367,11 @@ export function ProjectsView({ ctx }: { ctx: ViewCtx }) {
             {visibleProjects.map((project) => (
               <article
                 key={project.id}
-                onClick={() => {
-                  ctx.switchProject(project);
-                  ctx.setActiveView("table");
-                }}
+                onClick={() => openProject(project)}
                 className="group cursor-pointer rounded-2xl border border-line bg-surface p-5 shadow-sm transition hover:border-accent/30 hover:shadow-md"
               >
                 <div className="flex items-start justify-between gap-3">
-                  <div
-                    className="grid h-11 w-11 place-items-center rounded-xl text-white shadow-sm"
-                    style={{ backgroundColor: project.color || "#6366f1" }}
-                  >
-                    {projectIcon(project, 18)}
-                  </div>
+                  <ProjectIconTile project={project} size={18} />
                   <ProjectActions
                     project={project}
                     ctx={ctx}
@@ -368,7 +382,16 @@ export function ProjectsView({ ctx }: { ctx: ViewCtx }) {
                   />
                 </div>
                 <div className="mt-4 flex items-center gap-2">
-                  <h2 className="min-w-0 flex-1 truncate text-[14px] font-semibold text-ink">{project.name}</h2>
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      openProject(project);
+                    }}
+                    className="min-w-0 flex-1 truncate text-start text-[14px] font-semibold text-ink hover:text-accent hover:underline focus-ring"
+                  >
+                    {project.name}
+                  </button>
                   <Badge tone={statusTone(project.status)}>{statusLabel(project.status, ctx.t)}</Badge>
                 </div>
                 <p className="mt-2 line-clamp-2 min-h-10 text-[12px] leading-relaxed text-ink-faint">
@@ -376,16 +399,20 @@ export function ProjectsView({ ctx }: { ctx: ViewCtx }) {
                 </p>
                 <div className="mt-5 flex items-center justify-between text-[11px] text-ink-soft">
                   <span>{ctx.t("التقدم", "Progress")}</span>
-                  <span>{project.progress}%</span>
+                  <span>{progressLabel(project, ctx.locale)}</span>
                 </div>
                 <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-raised">
-                  <div className="h-full rounded-full bg-accent" style={{ width: `${project.progress}%` }} />
+                  <div
+                    className="h-full rounded-full bg-accent"
+                    style={{ width: `${normalizedProgress(project.progress)}%` }}
+                  />
                 </div>
                 <div className="mt-4 grid grid-cols-2 gap-3 border-t border-line pt-4 text-[11px] text-ink-faint">
                   <div>
                     <div>{ctx.t("المهام", "Tasks")}</div>
                     <div className="mt-0.5 font-semibold text-ink-soft">
-                      {project.completedTasks ?? 0} / {project.totalTasks ?? 0}
+                      {fmtNumber(project.completedTasks ?? 0, ctx.locale)} /{" "}
+                      {fmtNumber(project.totalTasks ?? 0, ctx.locale)}
                     </div>
                   </div>
                   <div>
@@ -394,7 +421,9 @@ export function ProjectsView({ ctx }: { ctx: ViewCtx }) {
                   </div>
                   <div>
                     <div>{ctx.t("الأعضاء", "Members")}</div>
-                    <div className="mt-0.5 font-semibold text-ink-soft">{project.memberCount ?? 0}</div>
+                    <div className="mt-0.5 font-semibold text-ink-soft">
+                      {fmtNumber(project.memberCount ?? 0, ctx.locale)}
+                    </div>
                   </div>
                   <div>
                     <div>{ctx.t("الانتهاء", "End date")}</div>
@@ -407,91 +436,140 @@ export function ProjectsView({ ctx }: { ctx: ViewCtx }) {
             ))}
           </div>
         ) : (
-          <div className="overflow-hidden rounded-2xl border border-line bg-surface shadow-sm">
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[760px] text-start text-[12.5px]">
-                <thead className="border-b border-line bg-raised/60 text-[11px] text-ink-faint">
-                  <tr>
-                    <th className="px-4 py-3 text-start font-semibold">{ctx.t("المشروع", "Project")}</th>
-                    <th className="px-4 py-3 text-start font-semibold">{ctx.t("الحالة", "Status")}</th>
-                    <th className="px-4 py-3 text-start font-semibold">{ctx.t("التقدم", "Progress")}</th>
-                    <th className="hidden px-4 py-3 text-start font-semibold md:table-cell">
-                      {ctx.t("المهام", "Tasks")}
-                    </th>
-                    <th className="hidden px-4 py-3 text-start font-semibold lg:table-cell">
-                      {ctx.t("المسؤول", "Owner")}
-                    </th>
-                    <th className="hidden px-4 py-3 text-start font-semibold xl:table-cell">
-                      {ctx.t("الفترة", "Dates")}
-                    </th>
-                    <th className="w-12 px-3 py-3">
-                      <span className="sr-only">{ctx.t("الإجراءات", "Actions")}</span>
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-line">
-                  {visibleProjects.map((project) => (
-                    <tr
-                      key={project.id}
-                      onClick={() => {
-                        ctx.switchProject(project);
-                        ctx.setActiveView("table");
-                      }}
-                      className="cursor-pointer transition hover:bg-raised/60"
-                    >
-                      <td className="px-4 py-3">
-                        <div className="flex min-w-0 items-center gap-3">
-                          <div
-                            className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-white"
-                            style={{ backgroundColor: project.color || "#6366f1" }}
-                          >
-                            {projectIcon(project, 14)}
-                          </div>
-                          <div className="min-w-0">
-                            <div className="max-w-64 truncate font-semibold text-ink">{project.name}</div>
-                            <div className="max-w-64 truncate text-[11px] text-ink-faint">
-                              {project.description || ctx.t("بدون وصف", "No description")}
+          <>
+            <div className="space-y-3 md:hidden">
+              {visibleProjects.map((project) => (
+                <article
+                  key={project.id}
+                  onClick={() => openProject(project)}
+                  className="card p-4 transition-all duration-200 hover:border-line-strong hover:shadow-md cursor-pointer"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <ProjectIconTile project={project} size={16} />
+                      <div className="min-w-0">
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            openProject(project);
+                          }}
+                          className="truncate text-start text-[14px] font-semibold text-ink hover:text-accent focus-ring"
+                        >
+                          {project.name}
+                        </button>
+                        <div className="truncate text-[11px] text-ink-faint">
+                          {project.description || ctx.t("بدون وصف", "No description")}
+                        </div>
+                      </div>
+                    </div>
+                    <ProjectActions
+                      project={project}
+                      ctx={ctx}
+                      busy={busyProjectId === project.id}
+                      onEdit={setEditingProject}
+                      onDelete={setProjectToDelete}
+                      onAction={runProjectAction}
+                    />
+                  </div>
+                  <div className="mt-3 flex items-center justify-between gap-2 border-t border-line/60 pt-3">
+                    <Badge tone={statusTone(project.status)}>{statusLabel(project.status, ctx.t)}</Badge>
+                    <span className="text-[11px] text-ink-soft">{progressLabel(project, ctx.locale)}</span>
+                  </div>
+                </article>
+              ))}
+            </div>
+            <div className="hidden overflow-hidden rounded-2xl border border-line bg-surface shadow-sm md:block">
+              <div className="overflow-x-auto overscroll-x-contain">
+                <table className="w-full min-w-[760px] text-start text-[12.5px]">
+                  <thead className="border-b border-line bg-raised/60 text-[11px] text-ink-faint">
+                    <tr>
+                      <th className="px-4 py-3 text-start font-semibold">{ctx.t("المشروع", "Project")}</th>
+                      <th className="px-4 py-3 text-start font-semibold">{ctx.t("الحالة", "Status")}</th>
+                      <th className="px-4 py-3 text-start font-semibold">{ctx.t("التقدم", "Progress")}</th>
+                      <th className="hidden px-4 py-3 text-start font-semibold md:table-cell">
+                        {ctx.t("المهام", "Tasks")}
+                      </th>
+                      <th className="hidden px-4 py-3 text-start font-semibold lg:table-cell">
+                        {ctx.t("المسؤول", "Owner")}
+                      </th>
+                      <th className="hidden px-4 py-3 text-start font-semibold xl:table-cell">
+                        {ctx.t("الفترة", "Dates")}
+                      </th>
+                      <th className="w-12 px-3 py-3">
+                        <span className="sr-only">{ctx.t("الإجراءات", "Actions")}</span>
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-line">
+                    {visibleProjects.map((project) => (
+                      <tr
+                        key={project.id}
+                        onClick={() => openProject(project)}
+                        className="cursor-pointer transition hover:bg-raised/60"
+                      >
+                        <td className="px-4 py-3">
+                          <div className="flex min-w-0 items-center gap-3">
+                            <ProjectIconTile project={project} size={14} />
+                            <div className="min-w-0">
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  openProject(project);
+                                }}
+                                className="max-w-64 truncate text-start font-semibold text-ink hover:text-accent hover:underline focus-ring"
+                              >
+                                {project.name}
+                              </button>
+                              <div className="max-w-64 truncate text-[11px] text-ink-faint">
+                                {project.description || ctx.t("بدون وصف", "No description")}
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <Badge tone={statusTone(project.status)}>{statusLabel(project.status, ctx.t)}</Badge>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-2">
-                          <div className="h-1.5 w-16 overflow-hidden rounded-full bg-raised">
-                            <div className="h-full bg-accent" style={{ width: `${project.progress}%` }} />
+                        </td>
+                        <td className="px-4 py-3">
+                          <Badge tone={statusTone(project.status)}>{statusLabel(project.status, ctx.t)}</Badge>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2">
+                            <div className="h-1.5 w-16 overflow-hidden rounded-full bg-raised">
+                              <div
+                                className="h-full bg-accent"
+                                style={{ width: `${normalizedProgress(project.progress)}%` }}
+                              />
+                            </div>
+                            <span className="tabular-nums text-ink-soft">{progressLabel(project, ctx.locale)}</span>
                           </div>
-                          <span className="tabular-nums text-ink-soft">{project.progress}%</span>
-                        </div>
-                      </td>
-                      <td className="hidden px-4 py-3 text-ink-soft md:table-cell">
-                        {project.completedTasks ?? 0} / {project.totalTasks ?? 0}
-                      </td>
-                      <td className="hidden max-w-40 truncate px-4 py-3 text-ink-soft lg:table-cell">
-                        {ownerName(project)} · {project.memberCount ?? 0}
-                      </td>
-                      <td className="hidden whitespace-nowrap px-4 py-3 text-[11px] text-ink-faint xl:table-cell">
-                        {displayDate(project.startDate, ctx.locale, noValue)} —{" "}
-                        {displayDate(project.endDate, ctx.locale, noValue)}
-                      </td>
-                      <td className="px-3 py-3">
-                        <ProjectActions
-                          project={project}
-                          ctx={ctx}
-                          busy={busyProjectId === project.id}
-                          onEdit={setEditingProject}
-                          onDelete={setProjectToDelete}
-                          onAction={runProjectAction}
-                        />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                        </td>
+                        <td className="hidden px-4 py-3 text-ink-soft md:table-cell">
+                          {fmtNumber(project.completedTasks ?? 0, ctx.locale)} /{" "}
+                          {fmtNumber(project.totalTasks ?? 0, ctx.locale)}
+                        </td>
+                        <td className="hidden max-w-40 truncate px-4 py-3 text-ink-soft lg:table-cell">
+                          {ownerName(project)} · {fmtNumber(project.memberCount ?? 0, ctx.locale)}
+                        </td>
+                        <td className="hidden whitespace-nowrap px-4 py-3 text-[11px] text-ink-faint xl:table-cell">
+                          {displayDate(project.startDate, ctx.locale, noValue)} —{" "}
+                          {displayDate(project.endDate, ctx.locale, noValue)}
+                        </td>
+                        <td className="px-3 py-3">
+                          <ProjectActions
+                            project={project}
+                            ctx={ctx}
+                            busy={busyProjectId === project.id}
+                            onEdit={setEditingProject}
+                            onDelete={setProjectToDelete}
+                            onAction={runProjectAction}
+                          />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
-          </div>
+          </>
         ))}
 
       <EditProjectModal
@@ -505,9 +583,8 @@ export function ProjectsView({ ctx }: { ctx: ViewCtx }) {
           try {
             await ctx.updateProject(project, patch);
             setEditingProject(null);
-          } catch (error) {
-            const message =
-              error instanceof Error ? error.message : ctx.t("تعذر تحديث المشروع", "Failed to update project");
+          } catch {
+            const message = ctx.t("تعذر تحديث المشروع. حاول مجدداً.", "Failed to update project. Please try again.");
             setActionError(message);
             ctx.notify(message, "error");
           } finally {
@@ -545,9 +622,11 @@ export function ProjectsView({ ctx }: { ctx: ViewCtx }) {
                   try {
                     await ctx.deleteProject(projectToDelete);
                     setProjectToDelete(null);
-                  } catch (error) {
-                    const message =
-                      error instanceof Error ? error.message : ctx.t("تعذر حذف المشروع", "Failed to delete project");
+                  } catch {
+                    const message = ctx.t(
+                      "تعذر حذف المشروع. حاول مجدداً.",
+                      "Failed to delete project. Please try again.",
+                    );
                     setActionError(message);
                     ctx.notify(message, "error");
                   } finally {
@@ -567,23 +646,26 @@ export function ProjectsView({ ctx }: { ctx: ViewCtx }) {
 
 function EmptyProjects({ ctx, search }: { ctx: ViewCtx; search: boolean }) {
   return (
-    <div className="rounded-2xl border border-dashed border-line bg-surface px-6 py-16 text-center">
-      <IconFolder className="mx-auto text-ink-faint" size={30} />
-      <h2 className="mt-3 text-[14px] font-semibold text-ink">
-        {search ? ctx.t("لا توجد نتائج مطابقة", "No matching projects") : ctx.t("لا توجد مشاريع", "No projects yet")}
-      </h2>
-      <p className="mt-1 text-[12px] text-ink-faint">
-        {search
+    <ScreenState
+      tone="empty"
+      icon={<IconFolder className="text-ink-faint" size={24} />}
+      title={
+        search ? ctx.t("لا توجد نتائج مطابقة", "No matching projects") : ctx.t("لا توجد مشاريع", "No projects yet")
+      }
+      description={
+        search
           ? ctx.t("غيّر عبارة البحث أو مرشح الحالة.", "Change the search term or status filter.")
-          : ctx.t("أنشئ أول مشروع لبدء تنظيم العمل.", "Create the first project to organize the work.")}
-      </p>
-      {!search && ctx.can("projects.create") && (
-        <Btn className="mt-5" variant="glow" onClick={() => ctx.setShowAddProject?.(true)}>
-          <IconPlus size={15} />
-          {ctx.t("مشروع جديد", "New Project")}
-        </Btn>
-      )}
-    </div>
+          : ctx.t("أنشئ أول مشروع لبدء تنظيم العمل.", "Create the first project to organize the work.")
+      }
+      action={
+        !search && ctx.can("projects.create") ? (
+          <Btn variant="glow" onClick={() => ctx.setShowAddProject?.(true)}>
+            <IconPlus size={15} />
+            {ctx.t("مشروع جديد", "New Project")}
+          </Btn>
+        ) : undefined
+      }
+    />
   );
 }
 
@@ -600,6 +682,12 @@ function EditProjectModal({
   onClose: () => void;
   onSave: (project: Project, patch: Partial<Project>) => Promise<void>;
 }) {
+  const [validationError, setValidationError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setValidationError(null);
+  }, [project]);
+
   return (
     <Modal
       open={Boolean(project)}
@@ -612,21 +700,47 @@ function EditProjectModal({
           className="grid gap-4 sm:grid-cols-2"
           onSubmit={(event) => {
             event.preventDefault();
+            setValidationError(null);
             const form = new FormData(event.currentTarget);
+            const startDate = isoDateFromForm(form.get("startDate"));
+            const endDate = isoDateFromForm(form.get("endDate"));
+            const progress = Number(form.get("progress"));
+
+            if (startDate && endDate && new Date(startDate) > new Date(endDate)) {
+              setValidationError(
+                ctx.t("يجب ألا يسبق تاريخ الانتهاء تاريخ البدء.", "End date cannot be earlier than start date."),
+              );
+              return;
+            }
+
+            if (progress < 0 || progress > 100) {
+              setValidationError(ctx.t("يجب أن تكون نسبة التقدم بين 0 و 100.", "Progress must be between 0 and 100."));
+              return;
+            }
+
             void onSave(project, {
               name: String(form.get("name") ?? "").trim(),
               description: String(form.get("description") ?? "").trim() || null,
               status: String(form.get("status")) as ProjectStatus,
               priority: String(form.get("priority")),
-              progress: Number(form.get("progress")),
+              progress,
               color: String(form.get("color")),
-              startDate: isoDateFromForm(form.get("startDate")),
-              endDate: isoDateFromForm(form.get("endDate")),
+              startDate,
+              endDate,
               ownerId: String(form.get("ownerId") ?? "") || null,
               managerId: String(form.get("managerId") ?? "") || null,
             });
           }}
         >
+          {validationError && (
+            <div
+              role="alert"
+              className="rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-700 dark:text-rose-300 sm:col-span-2"
+            >
+              {validationError}
+            </div>
+          )}
+
           <Field label={ctx.t("الاسم", "Name")}>
             <input name="name" required maxLength={255} defaultValue={project.name} className={inputCls} />
           </Field>

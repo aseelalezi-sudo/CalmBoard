@@ -1,7 +1,8 @@
 "use client";
+
 import type { ViewCtx } from "@/lib/types";
-import { Badge, Card, Toggle } from "@/components/ui";
-import { IconShield } from "@/components/icons";
+import { Badge, Btn, Card, ScreenHeader, ScreenState, Toggle } from "@/components/ui";
+import { IconRotateCw, IconShield } from "@/components/icons";
 import { useIntegrationSync } from "@/features/integrations/use-integration-sync";
 import {
   useIntegrationCredentials,
@@ -46,32 +47,76 @@ const integrationCatalog = [
   },
 ] as const;
 
-/* ================= Integrations View ================= */
 export function IntegrationsView({ ctx }: { ctx: ViewCtx }) {
+  const canManage = ctx.can("integrations.manage");
   const {
     availability,
     credentialByProvider,
     loading: credentialsLoading,
+    loadError,
+    pendingProvider,
     toggle: toggleIntegration,
     refresh: refreshCredentials,
   } = useIntegrationCredentials(ctx);
   const { testSync } = useIntegrationSync(ctx, refreshCredentials);
 
-  return (
-    <div className="max-w-[900px] mx-auto">
-      <div className="mb-5 flex items-center justify-between">
-        <div>
-          <h2 className="text-[19px] font-bold text-slate-900 dark:text-white">
-            {ctx.t("التكاملات الخارجية", "Integrations Framework")}
-          </h2>
-          <p className="mt-0.5 text-[12px] text-slate-500 dark:text-zinc-500">
-            {ctx.t(
-              "اربط CalmBoard بأدوات عملك المفضلة (قسم 28)",
-              "Connect CalmBoard with your favorite work tools (Section 28)",
-            )}
-          </p>
-        </div>
+  if (!canManage) {
+    return (
+      <div className="screen-container-standard">
+        <ScreenState
+          tone="permission"
+          title={ctx.t("غير مصرح بالوصول إلى التكاملات", "Permission required to view integrations")}
+          description={ctx.t(
+            "تحتاج إلى صلاحية إدارة التكاملات (integrations.manage) للاطلاع على تكاملات مساحة العمل وإدارتها.",
+            "You need integration management permissions to view and manage workspace integrations.",
+          )}
+        />
       </div>
+    );
+  }
+
+  if (credentialsLoading) {
+    return (
+      <div className="screen-container-standard">
+        <ScreenState
+          tone="loading"
+          title={ctx.t("جاري تحميل التكاملات…", "Loading integrations…")}
+          description={ctx.t(
+            "يرجى الانتظار بينما نتأكد من حالة اتصال الأدوات الخارجية.",
+            "Checking connection status with third-party tools.",
+          )}
+        />
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div className="screen-container-standard">
+        <ScreenState
+          tone="error"
+          title={ctx.t("تعذر تحميل التكاملات", "Failed to load integrations")}
+          description={loadError}
+          action={
+            <Btn variant="outline" onClick={() => void refreshCredentials()}>
+              <IconRotateCw size={14} />
+              {ctx.t("إعادة المحاولة", "Retry")}
+            </Btn>
+          }
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div className="screen-container-standard space-y-6">
+      <ScreenHeader
+        title={ctx.t("التكاملات الخارجية", "Integrations Framework")}
+        description={ctx.t(
+          "اربط CalmBoard بأدوات عملك المفضلة وسرّع وتيرة التعاون.",
+          "Connect CalmBoard with your favorite productivity tools and streamline workflows.",
+        )}
+      />
 
       <div className="grid gap-4 md:grid-cols-2">
         {integrationCatalog
@@ -83,16 +128,16 @@ export function IntegrationsView({ ctx }: { ctx: ViewCtx }) {
             return (
               <Card
                 key={item.id}
-                className={`p-5 bg-white dark:bg-white/[0.025] ${connected ? "border-indigo-500/30 shadow-sm dark:border-indigo-500/20" : "opacity-70"}`}
+                className={`bg-surface p-5 transition ${connected ? "border-indigo-500/30 shadow-sm" : "opacity-80"}`}
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex items-center gap-3.5">
-                    <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl border border-slate-200 bg-slate-100 text-[20px] dark:border-white/10 dark:bg-white/[0.05]">
+                    <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl border border-line bg-raised text-[20px]">
                       {item.icon}
                     </span>
                     <div>
                       <div className="flex items-center gap-2">
-                        <span className="text-[14.5px] font-bold text-slate-900 dark:text-white">{item.name}</span>
+                        <span className="text-[14.5px] font-bold text-ink">{item.name}</span>
                         <Badge tone={connected ? "emerald" : "neutral"}>
                           {connected
                             ? ctx.t("متصل", "Connected")
@@ -101,18 +146,19 @@ export function IntegrationsView({ ctx }: { ctx: ViewCtx }) {
                               : ctx.t("غير مهيأ", "Not configured")}
                         </Badge>
                       </div>
-                      <p className="mt-1 text-[11.5px] leading-relaxed text-slate-500 dark:text-zinc-400">
+                      <p className="mt-1 text-[11.5px] leading-relaxed text-ink-soft">
                         {ctx.t(item.desc_ar, item.desc_en)}
                       </p>
                     </div>
                   </div>
                   <Toggle
                     checked={connected}
-                    disabled={!ctx.can("integrations.manage") || (!configured && !connected)}
+                    ariaLabel={ctx.t(`تبديل تكامل ${item.name}`, `Toggle ${item.name} integration`)}
+                    disabled={pendingProvider !== null || (!configured && !connected)}
                     onChange={() => void toggleIntegration(item.id as IntegrationOAuthProvider)}
                   />
                 </div>
-                <div className="mt-4 flex items-center justify-between border-t border-slate-100 dark:border-white/[0.05] pt-3 text-[11px] text-slate-500 dark:text-zinc-500">
+                <div className="mt-4 flex items-center justify-between border-t border-line pt-3 text-[11px] text-ink-faint">
                   <span className="mono">
                     {credential?.lastUsedAt
                       ? `${ctx.t("آخر استخدام", "Last used")}: ${new Intl.DateTimeFormat(
@@ -125,9 +171,10 @@ export function IntegrationsView({ ctx }: { ctx: ViewCtx }) {
                       : ctx.t("لا يوجد نشاط مزامنة مسجل", "No recorded sync activity")}
                   </span>
                   <button
-                    disabled={!connected || credentialsLoading || !ctx.can("integrations.manage")}
+                    type="button"
+                    disabled={!connected || pendingProvider !== null}
                     onClick={() => testSync(item.id, item.name)}
-                    className="text-indigo-600 dark:text-violet-300 font-semibold hover:underline disabled:cursor-not-allowed disabled:opacity-40"
+                    className="font-semibold text-accent hover:underline disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     {ctx.t("اختبار المزامنة ←", "Test sync →")}
                   </button>
@@ -137,14 +184,14 @@ export function IntegrationsView({ ctx }: { ctx: ViewCtx }) {
           })}
       </div>
 
-      <Card className="mt-6 p-5 bg-white dark:bg-white/[0.025]">
-        <div className="flex items-center gap-2 text-indigo-600 dark:text-violet-300">
+      <Card className="bg-surface p-5">
+        <div className="flex items-center gap-2 text-accent">
           <IconShield size={15} />
           <span className="text-[13px] font-semibold">
             {ctx.t("أمان التكاملات (OAuth Token & Webhooks)", "Security & Webhook Reliability")}
           </span>
         </div>
-        <p className="mt-2 text-[11.5px] leading-relaxed text-slate-600 dark:text-zinc-400">
+        <p className="mt-2 text-[11.5px] leading-relaxed text-ink-soft">
           {ctx.t(
             "جميع التوكنات مشفرة في قاعدة البيانات (Encryption at rest)، والـ Webhooks مزودة بتوقيع أمني (HMAC SHA-256 Verification)، مع سياسة إعادة محاولة (Exponential Backoff) وقائمة طوارئ Dead-Letter Queue لمنع فقدان البيانات.",
             "All tokens are encrypted at rest. Webhooks include HMAC SHA-256 verification signatures, automatic exponential backoff retry policies, and a Dead-Letter Queue.",

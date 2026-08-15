@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { Project } from "@/lib/types";
+import { apiServiceUrl } from "@/lib/client-api";
 import { archiveProjectRecord, deleteProjectRecord, restoreProjectRecord, updateProjectRecord } from "./actions-api";
 
 test("project actions keep tenant scope and optimistic version on every mutation", async (t) => {
@@ -43,10 +44,10 @@ test("project actions keep tenant scope and optimistic version on every mutation
   assert.deepEqual(
     requests.map((request) => [request.url, request.init?.method]),
     [
-      ["http://localhost:5500/projects/project%2F1", "PATCH"],
-      ["http://localhost:5500/projects/project%2F1/archive", "POST"],
-      ["http://localhost:5500/projects/project%2F1/restore", "POST"],
-      ["http://localhost:5500/projects/project%2F1", "DELETE"],
+      [apiServiceUrl("/projects/project%2F1"), "PATCH"],
+      [apiServiceUrl("/projects/project%2F1/archive"), "POST"],
+      [apiServiceUrl("/projects/project%2F1/restore"), "POST"],
+      [apiServiceUrl("/projects/project%2F1"), "DELETE"],
     ],
   );
   for (const request of requests) {

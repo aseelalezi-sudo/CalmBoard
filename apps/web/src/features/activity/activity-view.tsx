@@ -1,10 +1,18 @@
 "use client";
-import type { ViewCtx } from "@/lib/types";
-import { Avatar, Badge, Btn, Card, Empty } from "@/components/ui";
-import { IconClock, IconDatabase, IconTrend } from "@/components/icons";
 
-/* ================= Activity / Audit View ================= */
+import type { ViewCtx } from "@/lib/types";
+import { Avatar, Badge, Btn, Card, ScreenHeader, ScreenState } from "@/components/ui";
+import { IconClock, IconDatabase, IconGlobe, IconTrend } from "@/components/icons";
+
+export function escapeCsvCell(value: unknown): string {
+  const str = value === null || value === undefined ? "" : String(value);
+  return `"${str.replace(/"/g, '""')}"`;
+}
+
 export function ActivityView({ ctx }: { ctx: ViewCtx }) {
+  const canViewAudit = ctx.can("audit.view");
+  const hasActivities = ctx.activities.length > 0;
+
   const label = (a: string) =>
     a === "task.created"
       ? ctx.t("أنشأ", "created")
@@ -13,20 +21,23 @@ export function ActivityView({ ctx }: { ctx: ViewCtx }) {
         : a === "comment.added"
           ? ctx.t("علّق على", "commented on")
           : a;
+
   const exportCsv = () => {
     const head = ["ID", "Actor", "Action", "EntityType", "EntitySerial", "IP", "Timestamp"];
     const rows = ctx.activities.map((a) =>
       [
         a.id,
-        `"${(a.actor?.name || "System").replace(/"/g, '""')}"`,
+        a.actor?.name || "System",
         a.action,
         a.entityType,
         a.entitySerial || "",
         a.ip || "",
         new Date(a.createdAt).toISOString(),
-      ].join(","),
+      ]
+        .map(escapeCsvCell)
+        .join(","),
     );
-    const csv = "\uFEFF" + [head.join(","), ...rows].join("\n");
+    const csv = "\uFEFF" + [head.map(escapeCsvCell).join(","), ...rows].join("\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
     const lnk = document.createElement("a");
     lnk.href = URL.createObjectURL(blob);
@@ -35,6 +46,7 @@ export function ActivityView({ ctx }: { ctx: ViewCtx }) {
     URL.revokeObjectURL(lnk.href);
     ctx.notify(ctx.t("تم تصدير سجل التدقيق CSV ✓", "Audit log CSV exported ✓"));
   };
+
   const exportJson = () => {
     const blob = new Blob([JSON.stringify(ctx.activities, null, 2)], { type: "application/json;charset=utf-8" });
     const lnk = document.createElement("a");
@@ -45,58 +57,74 @@ export function ActivityView({ ctx }: { ctx: ViewCtx }) {
     ctx.notify(ctx.t("تم تصدير سجل التدقيق JSON ✓", "Audit log JSON exported ✓"));
   };
 
-  return (
-    <div className="max-w-[820px] mx-auto">
-      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-[19px] font-bold text-slate-900 dark:text-white">
-            {ctx.t("سجل التدقيق الأمني والنشاط (Security Audit Trail)", "Security Audit Log & Activity Trail")}
-          </h2>
-          <p className="mt-0.5 text-[12px] text-slate-500 dark:text-zinc-500">
-            {ctx.t(
-              "تتبّع كامل لكل العمليات والتعديلات مع أرقام الـ IP (القسم 27)",
-              "Full traceability of all operations, mutations and IPs (Section 27)",
-            )}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Btn size="sm" variant="outline" onClick={exportCsv}>
-            <IconTrend size={13} />
-            {ctx.t("تصدير CSV", "Export CSV")}
-          </Btn>
-          <Btn size="sm" variant="glow" onClick={exportJson}>
-            <IconDatabase size={13} />
-            {ctx.t("تصدير JSON (للمراقبة)", "Export JSON (SIEM)")}
-          </Btn>
-        </div>
+  if (!canViewAudit) {
+    return (
+      <div className="screen-container-standard">
+        <ScreenState
+          tone="permission"
+          title={ctx.t("غير مصرح بعرض سجل التدقيق", "Unauthorized to view audit trail")}
+          description={ctx.t(
+            "ليس لديك صلاحية كافية للاطلاع على سجل التدقيق الأمني ونشاط المؤسسة.",
+            "You do not have sufficient permissions to view the security audit log and activity trail.",
+          )}
+        />
       </div>
-      <Card className="overflow-hidden bg-white dark:bg-white/[0.025]">
-        <div className="divide-y divide-slate-100 dark:divide-white/[0.04]">
+    );
+  }
+
+  return (
+    <div className="screen-container-standard space-y-6">
+      <ScreenHeader
+        title={ctx.t("سجل التدقيق الأمني والنشاط (Security Audit Trail)", "Security Audit Log & Activity Trail")}
+        description={ctx.t(
+          "تتبّع كامل لكل العمليات والتعديلات مع أرقام الـ IP (القسم 27)",
+          "Full traceability of all operations, mutations and IPs (Section 27)",
+        )}
+        actions={
+          canViewAudit ? (
+            <div className="flex items-center gap-2">
+              <Btn size="sm" variant="outline" disabled={!hasActivities} onClick={exportCsv}>
+                <IconTrend size={13} />
+                {ctx.t("تصدير CSV", "Export CSV")}
+              </Btn>
+              <Btn size="sm" variant="glow" disabled={!hasActivities} onClick={exportJson}>
+                <IconDatabase size={13} />
+                {ctx.t("تصدير JSON (للمراقبة)", "Export JSON (SIEM)")}
+              </Btn>
+            </div>
+          ) : undefined
+        }
+      />
+
+      <Card className="overflow-hidden bg-surface">
+        <div className="divide-y divide-line">
           {ctx.activities.map((a) => (
-            <div
-              key={a.id}
-              className="flex items-center gap-3.5 px-5 py-3.5 transition hover:bg-slate-50/60 dark:hover:bg-white/[0.02]"
-            >
+            <div key={a.id} className="flex items-center gap-3.5 px-5 py-3.5 transition hover:bg-raised/50">
               <Avatar src={a.actor?.avatarUrl} name={a.actor?.name} size={32} />
               <div className="min-w-0 flex-1">
-                <div className="text-[13px] leading-relaxed text-slate-600 dark:text-zinc-300">
-                  <span className="font-bold text-slate-900 dark:text-white">{a.actor?.name || "النظام"}</span>{" "}
+                <div className="text-[13px] leading-relaxed text-ink">
+                  <span className="font-bold text-ink">{a.actor?.name || ctx.t("النظام", "System")}</span>{" "}
                   {label(a.action)}{" "}
                   {a.entitySerial && (
-                    <span className="mono rounded-md border border-slate-200 bg-slate-100 px-1.5 py-0.5 text-[11px] font-bold text-indigo-600 dark:border-transparent dark:bg-white/[0.06] dark:text-violet-300">
+                    <span className="mono rounded-md border border-line bg-raised px-1.5 py-0.5 text-[11px] font-bold text-indigo-600 dark:text-indigo-400">
                       {a.entitySerial}
                     </span>
                   )}{" "}
-                  <span className="font-semibold text-slate-800 dark:text-zinc-200">{a.entityLabel}</span>
+                  <span className="font-semibold text-ink">{a.entityLabel}</span>
                 </div>
-                <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-slate-400 dark:text-zinc-500">
+                <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-ink-faint">
                   <Badge tone="neutral" className="font-mono">
                     {a.action}
                   </Badge>
-                  <span>🕒 {new Date(a.createdAt).toLocaleString(ctx.locale === "ar" ? "ar-EG" : "en-US")}</span>
+                  <span className="inline-flex items-center gap-1">
+                    <IconClock size={12} />
+                    <time dateTime={a.createdAt}>
+                      {new Date(a.createdAt).toLocaleString(ctx.locale === "ar" ? "ar-EG" : "en-US")}
+                    </time>
+                  </span>
                   {a.ip && (
-                    <span className="mono bg-slate-100 dark:bg-white/5 px-1.5 py-0.5 rounded text-slate-600 dark:text-zinc-400">
-                      🌐 IP: {a.ip}
+                    <span className="mono inline-flex items-center gap-1 rounded border border-line bg-raised px-1.5 py-0.5 text-ink-soft">
+                      <IconGlobe size={11} /> IP: <bdi dir="ltr">{a.ip}</bdi>
                     </span>
                   )}
                 </div>
@@ -104,7 +132,17 @@ export function ActivityView({ ctx }: { ctx: ViewCtx }) {
             </div>
           ))}
           {ctx.activities.length === 0 && (
-            <Empty icon={<IconClock size={22} />} title={ctx.t("لا نشاط مسجل", "No activity logged")} />
+            <div className="p-6">
+              <ScreenState
+                framed={false}
+                tone="empty"
+                title={ctx.t("لا نشاط مسجل", "No activity logged")}
+                description={ctx.t(
+                  "ستظهر جميع الأحداث والعمليات الأمنية هنا تلقائياً",
+                  "All events and security operations will appear here automatically",
+                )}
+              />
+            </div>
           )}
         </div>
       </Card>

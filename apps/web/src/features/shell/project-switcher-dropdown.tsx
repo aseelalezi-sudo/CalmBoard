@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { cn } from "@/lib/utils";
 import { Project, Workspace, Organization } from "@/lib/types";
 import { IconFolder, IconSearch, IconPlus, IconCheck, IconChevron } from "@/components/icons";
@@ -31,11 +31,22 @@ export function ProjectSwitcherDropdown({
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [focusedIndex, setFocusedIndex] = useState(0);
+
   const containerRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
   const filteredProjects = projects.filter((p) => p.name.toLowerCase().includes(search.toLowerCase()));
+
+  const handleSelectProject = useCallback(
+    (p: Project) => {
+      switchProject(p);
+      setOpen(false);
+      triggerRef.current?.focus();
+    },
+    [switchProject],
+  );
 
   useEffect(() => {
     if (!open) {
@@ -53,6 +64,7 @@ export function ProjectSwitcherDropdown({
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         setOpen(false);
+        triggerRef.current?.focus();
       } else if (e.key === "ArrowDown") {
         e.preventDefault();
         setFocusedIndex((prev) => Math.min(prev + 1, filteredProjects.length - 1));
@@ -62,8 +74,7 @@ export function ProjectSwitcherDropdown({
       } else if (e.key === "Enter") {
         e.preventDefault();
         if (filteredProjects[focusedIndex]) {
-          switchProject(filteredProjects[focusedIndex]);
-          setOpen(false);
+          handleSelectProject(filteredProjects[focusedIndex]);
         }
       }
     };
@@ -80,7 +91,7 @@ export function ProjectSwitcherDropdown({
       document.removeEventListener("keydown", handleKeyDown);
       clearTimeout(timeout);
     };
-  }, [open, filteredProjects, focusedIndex, switchProject]);
+  }, [open, filteredProjects, focusedIndex, handleSelectProject]);
 
   useEffect(() => {
     if (open && listRef.current) {
@@ -101,11 +112,12 @@ export function ProjectSwitcherDropdown({
   return (
     <div className="relative" ref={containerRef}>
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => setOpen(!open)}
         aria-haspopup="listbox"
         aria-expanded={open}
-        className="group flex min-w-0 max-w-[240px] flex-1 items-center gap-2.5 rounded-xl p-1.5 text-start transition-colors hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/50 dark:hover:bg-white/5 sm:min-w-[200px]"
+        className="group flex min-w-0 max-w-60 flex-1 items-center gap-2.5 rounded-xl p-1.5 text-start transition-colors hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/50 dark:hover:bg-white/5 sm:min-w-[200px]"
       >
         <div className="relative">
           <div
@@ -154,7 +166,7 @@ export function ProjectSwitcherDropdown({
       </button>
 
       {open && (
-        <div className="animate-pop absolute start-0 top-14 z-50 w-[min(280px,calc(100vw-24px))] overflow-hidden rounded-xl border border-slate-200/80 bg-white shadow-[0_8px_30px_rgba(0,0,0,0.12)] dark:border-white/10 dark:bg-[#1a1a24] dark:shadow-[0_8px_40px_rgba(0,0,0,0.4)]">
+        <div className="animate-pop fixed inset-x-2 top-18 z-50 flex max-h-[calc(100dvh-5rem)] flex-col overflow-hidden rounded-xl border border-slate-200/80 bg-white shadow-[0_8px_30px_rgba(0,0,0,0.12)] dark:border-white/10 dark:bg-[#1a1a24] dark:shadow-[0_8px_40px_rgba(0,0,0,0.4)] sm:absolute sm:inset-x-auto sm:start-0 sm:top-14 sm:w-[min(280px,calc(100vw-24px))] sm:max-h-none">
           <div className="p-2 border-b border-slate-100 dark:border-white/5 flex items-center gap-2 px-3">
             <IconSearch size={14} className="text-slate-400 dark:text-zinc-500 shrink-0" />
             <input
@@ -179,8 +191,7 @@ export function ProjectSwitcherDropdown({
                 <button
                   key={p.id}
                   onClick={() => {
-                    switchProject(p);
-                    setOpen(false);
+                    handleSelectProject(p);
                   }}
                   onMouseEnter={() => setFocusedIndex(i)}
                   className={cn(

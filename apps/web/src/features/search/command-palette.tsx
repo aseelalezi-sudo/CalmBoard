@@ -88,7 +88,7 @@ export function CommandPalette({
   ];
 
   return (
-    <div className="fixed inset-0 z-70 flex items-start justify-center p-4 pt-[12vh]" role="dialog" aria-modal="true">
+    <div className="fixed inset-0 z-70 flex items-start justify-center p-4 pt-[12dvh]" role="dialog" aria-modal="true">
       <div
         className="absolute inset-0 bg-slate-900/45 backdrop-blur-md dark:bg-zinc-950/70 animate-fade"
         onClick={onClose}

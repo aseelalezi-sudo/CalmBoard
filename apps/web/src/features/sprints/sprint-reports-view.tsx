@@ -2,10 +2,10 @@
 
 import { useState } from "react";
 import type { ViewCtx } from "@/lib/types";
+import { ScreenHeader, SegmentedTabs } from "@/components/ui";
 import { ReportsOverview } from "./analytics/reports-overview";
 import { VelocityView } from "./analytics/velocity-view";
 import { BurndownView } from "./analytics/burndown-view";
-import { cn } from "@/lib/utils";
 
 export function SprintReportsView({ ctx }: { ctx: ViewCtx }) {
   const [tab, setTab] = useState<"overview" | "velocity" | "burndown">("overview");
@@ -13,46 +13,28 @@ export function SprintReportsView({ ctx }: { ctx: ViewCtx }) {
   if (!ctx.activeProject) return null;
 
   return (
-    <div className="flex flex-col h-full animate-fade">
-      <div className="mb-6 flex justify-center">
-        <div className="flex items-center rounded-xl border border-slate-200 bg-slate-100 p-1 dark:border-white/[0.07] dark:bg-white/3">
-          <button
-            onClick={() => setTab("overview")}
-            className={cn(
-              "rounded-lg px-4 py-1.5 text-[12.5px] font-medium transition",
-              tab === "overview"
-                ? "bg-white text-slate-900 shadow-sm dark:bg-white/10 dark:text-white"
-                : "text-slate-500 hover:text-slate-700 dark:text-zinc-400 dark:hover:text-zinc-200",
-            )}
-          >
-            {ctx.t("نظرة عامة", "Overview")}
-          </button>
-          <button
-            onClick={() => setTab("velocity")}
-            className={cn(
-              "rounded-lg px-4 py-1.5 text-[12.5px] font-medium transition",
-              tab === "velocity"
-                ? "bg-white text-slate-900 shadow-sm dark:bg-white/10 dark:text-white"
-                : "text-slate-500 hover:text-slate-700 dark:text-zinc-400 dark:hover:text-zinc-200",
-            )}
-          >
-            {ctx.t("السرعة", "Velocity")}
-          </button>
-          <button
-            onClick={() => setTab("burndown")}
-            className={cn(
-              "rounded-lg px-4 py-1.5 text-[12.5px] font-medium transition",
-              tab === "burndown"
-                ? "bg-white text-slate-900 shadow-sm dark:bg-white/10 dark:text-white"
-                : "text-slate-500 hover:text-slate-700 dark:text-zinc-400 dark:hover:text-zinc-200",
-            )}
-          >
-            {ctx.t("المتبقي", "Burndown")}
-          </button>
-        </div>
-      </div>
+    <div className="mx-auto w-full max-w-6xl space-y-5 animate-fade">
+      <ScreenHeader
+        title={ctx.t("تقارير وتحليلات السبرنت", "Sprint Reports & Analytics")}
+        description={ctx.t(
+          "متابعة دقيقة لمؤشرات السرعة، المتبقي، ومعدلات الإنجاز.",
+          "Track velocity, burndown, and completion metrics across sprints.",
+        )}
+        actions={
+          <SegmentedTabs
+            value={tab}
+            label={ctx.t("نوع التقرير", "Report type")}
+            onChange={(val) => setTab(val as "overview" | "velocity" | "burndown")}
+            items={[
+              { id: "overview", label: ctx.t("نظرة عامة", "Overview") },
+              { id: "velocity", label: ctx.t("السرعة", "Velocity") },
+              { id: "burndown", label: ctx.t("المتبقي", "Burndown") },
+            ]}
+          />
+        }
+      />
 
-      <div className="flex-1 min-h-0 mx-auto w-full max-w-6xl">
+      <div className="flex-1 min-h-0">
         {tab === "overview" && <ReportsOverview ctx={ctx} />}
         {tab === "velocity" && <VelocityView ctx={ctx} />}
         {tab === "burndown" && <BurndownView ctx={ctx} />}

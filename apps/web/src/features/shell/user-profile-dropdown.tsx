@@ -104,7 +104,7 @@ export function UserProfileDropdown({
         <div
           ref={menuRef}
           role="menu"
-          className="animate-pop absolute bottom-14 end-0 z-50 w-[270px] overflow-hidden rounded-2xl border border-line bg-surface shadow-xl backdrop-blur-xl dark:shadow-[0_24px_60px_rgba(0,0,0,0.6)]"
+          className="animate-pop fixed inset-x-2 top-18 z-50 flex max-h-[calc(100dvh-5rem)] flex-col overflow-hidden rounded-2xl border border-line bg-surface shadow-xl backdrop-blur-xl sm:absolute sm:inset-x-auto sm:bottom-14 sm:end-0 sm:top-auto sm:w-[270px] sm:max-h-none dark:shadow-[0_24px_60px_rgba(0,0,0,0.6)]"
         >
           <div className="flex items-center gap-3 border-b border-line p-3">
             <Avatar src={currentUser?.avatarUrl} name={currentUser?.name} size={36} />

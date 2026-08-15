@@ -185,7 +185,15 @@ export function ScreenToolbar({
   );
 }
 
-/* ---------- Segmented tabs ---------- */
+export type SegmentedTabItem = {
+  value?: string;
+  id?: string;
+  label: ReactNode;
+  icon?: ReactNode;
+  badge?: ReactNode;
+  disabled?: boolean;
+};
+
 export function SegmentedTabs({
   value,
   items,
@@ -195,9 +203,9 @@ export function SegmentedTabs({
   stretch = false,
 }: {
   value: string;
-  items: Array<{ value: string; label: ReactNode; icon?: ReactNode; badge?: ReactNode; disabled?: boolean }>;
+  items: SegmentedTabItem[];
   onChange: (value: string) => void;
-  label: string;
+  label?: string;
   className?: string;
   stretch?: boolean;
 }) {
@@ -217,7 +225,8 @@ export function SegmentedTabs({
           : (current + delta + enabled.length) % enabled.length;
     const next = enabled[nextIndex];
     if (!next) return;
-    onChange(next.item.value);
+    const targetVal = next.item.value ?? next.item.id ?? "";
+    onChange(targetVal);
     event.currentTarget.parentElement
       ?.querySelectorAll<HTMLButtonElement>('[role="tab"]')
       [next.itemIndex]?.focus({ preventScroll: true });
@@ -233,27 +242,31 @@ export function SegmentedTabs({
         className,
       )}
     >
-      {items.map((item, index) => (
-        <button
-          key={item.value}
-          type="button"
-          role="tab"
-          aria-selected={value === item.value}
-          tabIndex={value === item.value ? 0 : -1}
-          disabled={item.disabled}
-          onClick={() => onChange(item.value)}
-          onKeyDown={(event) => moveFocus(event, index)}
-          className={cn(
-            "flex h-10 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-lg px-3 text-[12.5px] font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 disabled:opacity-40",
-            stretch && "flex-1",
-            value === item.value ? "bg-surface text-accent shadow-sm" : "text-ink-soft hover:text-ink",
-          )}
-        >
-          {item.icon}
-          <span>{item.label}</span>
-          {item.badge}
-        </button>
-      ))}
+      {items.map((item, index) => {
+        const itemVal = item.value ?? item.id ?? "";
+        item.value = itemVal;
+        return (
+          <button
+            key={item.value}
+            type="button"
+            role="tab"
+            aria-selected={value === item.value}
+            tabIndex={value === item.value ? 0 : -1}
+            disabled={item.disabled}
+            onClick={() => onChange(itemVal)}
+            onKeyDown={(event) => moveFocus(event, index)}
+            className={cn(
+              "flex h-10 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-lg px-3 text-[12.5px] font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 disabled:opacity-40",
+              stretch && "flex-1",
+              value === item.value ? "bg-surface text-accent shadow-sm" : "text-ink-soft hover:text-ink",
+            )}
+          >
+            {item.icon}
+            <span>{item.label}</span>
+            {item.badge}
+          </button>
+        );
+      })}
     </div>
   );
 }

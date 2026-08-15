@@ -38,24 +38,13 @@ export type MfaStatus = {
 
 export type MfaSetup = { secret: string; uri: string };
 
-async function optional<T>(requestPromise: Promise<T>, fallback: T): Promise<T> {
-  try {
-    return await requestPromise;
-  } catch {
-    return fallback;
-  }
-}
-
 export async function getProfileSecurityData(organizationId?: string) {
   const [sessions, branches, preferences, mfa] = await Promise.all([
-    optional(requestJson<SessionItem[]>(apiServiceUrl("/profile/sessions")), []),
-    optional(
-      requestJson<BranchItem[]>(
-        `${apiServiceUrl("/branches")}?organizationId=${encodeURIComponent(organizationId ?? "")}`,
-      ),
-      [],
+    requestJson<SessionItem[]>(apiServiceUrl("/profile/sessions")),
+    requestJson<BranchItem[]>(
+      `${apiServiceUrl("/branches")}?organizationId=${encodeURIComponent(organizationId ?? "")}`,
     ),
-    optional<PreferencesItem | null>(requestJson<PreferencesItem>(apiServiceUrl("/profile/preferences")), null),
+    requestJson<PreferencesItem>(apiServiceUrl("/profile/preferences")),
     requestJson<MfaStatus>(apiServiceUrl("/profile/mfa")),
   ]);
   return { sessions, branches, preferences, mfa };

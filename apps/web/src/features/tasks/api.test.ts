@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { apiServiceUrl } from "@/lib/client-api";
 import {
   createTaskRecord,
   getTaskDetailBundle,
@@ -49,11 +50,11 @@ test("tasks API service", async (t) => {
     });
 
     assert.equal(requests.length, 3);
-    assert.equal(requests[0]?.url, "http://localhost:5500/tasks");
+    assert.equal(requests[0]?.url, apiServiceUrl("/tasks"));
     assert.equal(requests[0]?.init?.method, "POST");
     assert.equal(typeof (requests[0]?.init?.headers as Record<string, string>)["Idempotency-Key"], "string");
     assert.equal(requests[1]?.init?.method, "PATCH");
-    assert.equal(requests[2]?.url, "http://localhost:5500/tasks/import");
+    assert.equal(requests[2]?.url, apiServiceUrl("/tasks/import"));
     assert.equal(typeof (requests[2]?.init?.headers as Record<string, string>)["Idempotency-Key"], "string");
     assert.deepEqual(JSON.parse(String(requests[1]?.init?.body)), {
       id: "task-1",
@@ -136,7 +137,7 @@ test("tasks API service", async (t) => {
       "user-1",
     );
 
-    assert.equal(requests[0]?.url, "http://localhost:5500/tasks/task%2F1/move");
+    assert.equal(requests[0]?.url, apiServiceUrl("/tasks/task%2F1/move"));
     assert.equal(requests[0]?.init?.method, "PATCH");
     assert.deepEqual(JSON.parse(String(requests[0]?.init?.body)), {
       organizationId: "organization-1",
@@ -148,7 +149,7 @@ test("tasks API service", async (t) => {
       afterTaskId: "task-2",
       expectedVersion: 7,
     });
-    assert.equal(requests[1]?.url, "http://localhost:5500/projects/project%2F1/wip-limits");
+    assert.equal(requests[1]?.url, apiServiceUrl("/projects/project%2F1/wip-limits"));
     assert.deepEqual(JSON.parse(String(requests[1]?.init?.body)), {
       organizationId: "organization-1",
       workspaceId: "workspace-1",

@@ -1,14 +1,18 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Btn, Field, Modal, inputCls } from "@/components/ui";
+import { Btn, Field, Modal, ScreenHeader, ScreenState, inputCls } from "@/components/ui";
+import { EntityIcon } from "@/components/entity-icon";
 import { IconCheck, IconFolder, IconPlus, IconSearch, IconSettings, IconUsers } from "@/components/icons";
 import type { ViewCtx, Workspace } from "@/lib/types";
 
 export function WorkspacesView({ ctx }: { ctx: ViewCtx }) {
   const [search, setSearch] = useState("");
   const [workspaceToEdit, setWorkspaceToEdit] = useState<Workspace | null>(null);
+  const [editError, setEditError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [pendingWorkspaceId, setPendingWorkspaceId] = useState<string | null>(null);
+
   const normalizedSearch = search.trim().toLocaleLowerCase(ctx.locale);
   const visibleWorkspaces = useMemo(
     () =>
@@ -22,26 +26,34 @@ export function WorkspacesView({ ctx }: { ctx: ViewCtx }) {
   );
 
   const openWorkspace = async (workspace: Workspace, view?: "settings" | "members") => {
-    await ctx.switchWorkspace(workspace);
-    ctx.setActiveView(view ?? "projects");
+    setPendingWorkspaceId(workspace.id);
+    try {
+      await ctx.switchWorkspace(workspace);
+      ctx.setActiveView(view ?? "projects");
+    } catch {
+      ctx.notify(ctx.t("تعذر فتح مساحة العمل", "Failed to open workspace"), "error");
+    } finally {
+      setPendingWorkspaceId(null);
+    }
   };
 
   return (
-    <div className="mx-auto w-full max-w-7xl space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <h1 className="font-display text-2xl font-bold text-ink">{ctx.t("مساحات العمل", "Workspaces")}</h1>
-          <p className="mt-1 text-[13px] text-ink-faint">
-            {ctx.t("تصفح مساحات العمل المتاحة لك وإدارتها.", "Browse and manage the workspaces available to you.")}
-          </p>
-        </div>
-        {ctx.can("workspace.manage") && (
-          <Btn variant="glow" onClick={() => ctx.setShowAddWorkspace(true)}>
-            <IconPlus size={15} />
-            {ctx.t("مساحة عمل جديدة", "New Workspace")}
-          </Btn>
+    <div className="screen-container-wide space-y-6">
+      <ScreenHeader
+        title={ctx.t("مساحات العمل", "Workspaces")}
+        description={ctx.t(
+          "تصفح مساحات العمل المتاحة لك وإدارتها.",
+          "Browse and manage the workspaces available to you.",
         )}
-      </div>
+        actions={
+          ctx.can("workspace.manage") ? (
+            <Btn variant="glow" onClick={() => ctx.setShowAddWorkspace(true)}>
+              <IconPlus size={15} />
+              {ctx.t("مساحة عمل جديدة", "New Workspace")}
+            </Btn>
+          ) : undefined
+        }
+      />
 
       <label className="relative block max-w-md">
         <span className="sr-only">{ctx.t("البحث في مساحات العمل", "Search workspaces")}</span>
@@ -55,13 +67,11 @@ export function WorkspacesView({ ctx }: { ctx: ViewCtx }) {
       </label>
 
       {ctx.workspaceDataError ? (
-        <div role="alert" className="rounded-2xl border border-rose-500/20 bg-rose-500/10 px-6 py-12 text-center">
-          <IconFolder className="mx-auto text-rose-500" size={28} />
-          <h2 className="mt-3 text-[14px] font-semibold text-rose-700 dark:text-rose-300">
-            {ctx.t("تعذر تحميل مساحات العمل", "Failed to load workspaces")}
-          </h2>
-          <p className="mt-1 text-[12px] text-rose-700/80 dark:text-rose-200/80">{ctx.workspaceDataError}</p>
-        </div>
+        <ScreenState
+          tone="error"
+          title={ctx.t("تعذر تحميل مساحات العمل", "Failed to load workspaces")}
+          description={ctx.workspaceDataError}
+        />
       ) : visibleWorkspaces.length ? (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {visibleWorkspaces.map((workspace) => {
@@ -70,10 +80,10 @@ export function WorkspacesView({ ctx }: { ctx: ViewCtx }) {
               <article key={workspace.id} className="rounded-2xl border border-line bg-surface p-5 shadow-sm">
                 <div className="flex items-start gap-3">
                   <div
-                    className="grid h-11 w-11 shrink-0 place-items-center rounded-xl text-white shadow-sm"
+                    className="grid h-11 w-11 shrink-0 place-items-center rounded-xl border border-line bg-raised text-accent shadow-sm"
                     style={{ backgroundColor: workspace.color || "#6366f1" }}
                   >
-                    {workspace.icon && workspace.icon !== "folder" ? workspace.icon : <IconFolder size={18} />}
+                    <EntityIcon value={workspace.icon} fallback="workspace" size={18} />
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
@@ -92,21 +102,46 @@ export function WorkspacesView({ ctx }: { ctx: ViewCtx }) {
                 </div>
 
                 <div className="mt-5 flex flex-wrap gap-2 border-t border-line pt-4">
-                  <Btn size="sm" onClick={() => void openWorkspace(workspace)}>
+                  <Btn
+                    size="sm"
+                    disabled={pendingWorkspaceId !== null}
+                    aria-busy={pendingWorkspaceId === workspace.id}
+                    onClick={() => void openWorkspace(workspace)}
+                  >
                     {current ? ctx.t("فتح", "Open") : ctx.t("تبديل وفتح", "Switch & Open")}
                   </Btn>
                   {ctx.can("workspace.manage") && (
                     <>
-                      <Btn size="sm" variant="outline" onClick={() => setWorkspaceToEdit(workspace)}>
+                      <Btn
+                        size="sm"
+                        variant="outline"
+                        disabled={pendingWorkspaceId !== null}
+                        onClick={() => {
+                          setEditError(null);
+                          setWorkspaceToEdit(workspace);
+                        }}
+                      >
                         {ctx.t("تعديل", "Edit")}
                       </Btn>
-                      <Btn size="sm" variant="outline" onClick={() => void openWorkspace(workspace, "settings")}>
+                      <Btn
+                        size="sm"
+                        variant="outline"
+                        disabled={pendingWorkspaceId !== null}
+                        aria-busy={pendingWorkspaceId === workspace.id}
+                        onClick={() => void openWorkspace(workspace, "settings")}
+                      >
                         <IconSettings size={13} />
                         {ctx.t("الإعدادات", "Settings")}
                       </Btn>
                     </>
                   )}
-                  <Btn size="sm" variant="outline" onClick={() => void openWorkspace(workspace, "members")}>
+                  <Btn
+                    size="sm"
+                    variant="outline"
+                    disabled={pendingWorkspaceId !== null}
+                    aria-busy={pendingWorkspaceId === workspace.id}
+                    onClick={() => void openWorkspace(workspace, "members")}
+                  >
                     <IconUsers size={13} />
                     {ctx.t("الأعضاء", "Members")}
                   </Btn>
@@ -116,17 +151,15 @@ export function WorkspacesView({ ctx }: { ctx: ViewCtx }) {
           })}
         </div>
       ) : (
-        <div className="rounded-2xl border border-dashed border-line bg-surface px-6 py-16 text-center">
-          <IconFolder className="mx-auto text-ink-faint" size={28} />
-          <h2 className="mt-3 text-[14px] font-semibold text-ink">
-            {search ? ctx.t("لا توجد نتائج", "No results") : ctx.t("لا توجد مساحات عمل", "No workspaces")}
-          </h2>
-          <p className="mt-1 text-[12px] text-ink-faint">
-            {search
+        <ScreenState
+          tone="empty"
+          title={search ? ctx.t("لا توجد نتائج", "No results") : ctx.t("لا توجد مساحات عمل", "No workspaces")}
+          description={
+            search
               ? ctx.t("جرّب عبارة بحث أخرى.", "Try a different search term.")
-              : ctx.t("لا توجد مساحة عمل متاحة لهذا الحساب.", "No workspace is available to this account.")}
-          </p>
-        </div>
+              : ctx.t("لا توجد مساحة عمل متاحة لهذا الحساب.", "No workspace is available to this account.")
+          }
+        />
       )}
 
       <Modal
@@ -141,6 +174,7 @@ export function WorkspacesView({ ctx }: { ctx: ViewCtx }) {
               event.preventDefault();
               const form = new FormData(event.currentTarget);
               setSaving(true);
+              setEditError(null);
               try {
                 await ctx.updateWorkspace(
                   {
@@ -151,18 +185,18 @@ export function WorkspacesView({ ctx }: { ctx: ViewCtx }) {
                   workspaceToEdit,
                 );
                 setWorkspaceToEdit(null);
-              } catch (error) {
-                ctx.notify(
-                  error instanceof Error
-                    ? error.message
-                    : ctx.t("تعذر تحديث مساحة العمل", "Failed to update workspace"),
-                  "error",
-                );
+              } catch {
+                setEditError(ctx.t("تعذر تحديث مساحة العمل. حاول مجدداً.", "Failed to update workspace. Try again."));
               } finally {
                 setSaving(false);
               }
             }}
           >
+            {editError && (
+              <p role="alert" className="text-xs font-semibold text-rose-600 dark:text-rose-400">
+                {editError}
+              </p>
+            )}
             <Field label={ctx.t("الاسم", "Name")}>
               <input name="name" required maxLength={255} defaultValue={workspaceToEdit.name} className={inputCls} />
             </Field>
@@ -186,7 +220,7 @@ export function WorkspacesView({ ctx }: { ctx: ViewCtx }) {
               <Btn type="button" variant="outline" disabled={saving} onClick={() => setWorkspaceToEdit(null)}>
                 {ctx.t("إلغاء", "Cancel")}
               </Btn>
-              <Btn type="submit" disabled={saving}>
+              <Btn type="submit" disabled={saving} aria-busy={saving}>
                 {saving ? ctx.t("جارٍ الحفظ…", "Saving…") : ctx.t("حفظ", "Save")}
               </Btn>
             </div>

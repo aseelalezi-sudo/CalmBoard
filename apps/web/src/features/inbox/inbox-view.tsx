@@ -1,58 +1,130 @@
 "use client";
+
+import { useState } from "react";
 import type { ViewCtx } from "@/lib/types";
-import { Card, Empty } from "@/components/ui";
-import { IconMail } from "@/components/icons";
+import { fmtNumber } from "@/lib/types";
+import { Btn, Card, ScreenHeader, ScreenState, SegmentedTabs } from "@/components/ui";
+import { IconCheck, IconMail } from "@/components/icons";
 
 const dateLocale = (locale: string) => (locale === "ar" ? "ar-EG" : "en-US");
 
-/* ================= Inbox View ================= */
 export function InboxView({ ctx }: { ctx: ViewCtx }) {
+  const [filter, setFilter] = useState<"all" | "unread">("all");
+  const [markingAll, setMarkingAll] = useState(false);
+
+  const unreadNotifications = ctx.notifications.filter((n) => !n.isRead);
+  const unreadCount = unreadNotifications.length;
+  const visibleNotifications = filter === "unread" ? unreadNotifications : ctx.notifications;
+
   return (
-    <div className="max-w-[680px] mx-auto">
-      <h2 className="mb-5 text-[19px] font-bold text-slate-900 dark:text-white">{ctx.t("صندوق الوارد", "Inbox")}</h2>
-      <div className="stagger space-y-2.5">
-        {ctx.notifications.map((n) => (
-          <Card
+    <div className="screen-container-standard space-y-6">
+      <ScreenHeader
+        title={ctx.t("صندوق الوارد", "Inbox")}
+        description={ctx.t(
+          "تتبع الإشعارات، التكليفات، والتحديثات المباشرة لفريقك.",
+          "Track notifications, assignments, and live team updates.",
+        )}
+        actions={
+          unreadCount > 0 ? (
+            <Btn
+              variant="outline"
+              size="sm"
+              disabled={markingAll}
+              aria-busy={markingAll}
+              onClick={async () => {
+                setMarkingAll(true);
+                try {
+                  await ctx.markAllNotificationsRead();
+                } finally {
+                  setMarkingAll(false);
+                }
+              }}
+            >
+              <IconCheck size={14} />
+              {ctx.t("تعليم الكل كمقروء", "Mark all as read")}
+            </Btn>
+          ) : undefined
+        }
+      />
+
+      <SegmentedTabs
+        value={filter}
+        onChange={(val) => setFilter(val as "all" | "unread")}
+        items={[
+          {
+            id: "all",
+            label: `${ctx.t("الكل", "All")} (${fmtNumber(ctx.notifications.length, ctx.locale)})`,
+          },
+          {
+            id: "unread",
+            label: `${ctx.t("غير المقروءة", "Unread")} (${fmtNumber(unreadCount, ctx.locale)})`,
+          },
+        ]}
+      />
+
+      <div role="feed" aria-label={ctx.t("قائمة الإشعارات", "Notifications feed")} className="space-y-3">
+        {visibleNotifications.map((n, index) => (
+          <article
             key={n.id}
-            className={`p-0 bg-white dark:bg-white/[0.025] ${!n.isRead ? "border-indigo-200 bg-indigo-50/50 dark:border-indigo-500/30 dark:bg-indigo-500/[0.05]" : ""}`}
+            role="article"
+            aria-posinset={index + 1}
+            aria-setsize={visibleNotifications.length}
+            className={`rounded-2xl border transition ${
+              !n.isRead ? "border-accent/30 bg-accent/5 shadow-sm" : "border-line bg-surface hover:bg-raised/50"
+            }`}
           >
             <button
               type="button"
               onClick={() => ctx.openNotification(n)}
-              className="flex w-full gap-3.5 rounded-[inherit] p-4 text-start transition hover:bg-slate-50/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:hover:bg-white/[0.04]"
+              className="flex w-full items-start gap-3.5 p-4 text-start outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded-2xl"
             >
               <span
-                className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl border ${!n.isRead ? "border-indigo-200 bg-indigo-100 text-indigo-700 dark:border-indigo-500/30 dark:bg-indigo-500/10 dark:text-indigo-300" : "border-slate-200 bg-slate-50 text-slate-500 dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-500"}`}
+                className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl border ${
+                  !n.isRead ? "border-accent/30 bg-accent/15 text-accent" : "border-line bg-raised text-ink-soft"
+                }`}
               >
-                <IconMail size={15} />
+                <IconMail size={16} />
               </span>
               <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <span className="text-[13px] font-semibold text-slate-900 dark:text-zinc-100">{n.title}</span>
+                <div className="flex items-center justify-between gap-2">
+                  <span className={`text-[13.5px] ${!n.isRead ? "font-bold text-ink" : "font-semibold text-ink-soft"}`}>
+                    {n.title}
+                  </span>
                   {!n.isRead && (
-                    <span className="h-1.5 w-1.5 rounded-full bg-indigo-500 shadow-sm dark:bg-cyan-400 dark:shadow-[0_0_6px_rgba(34,211,238,0.8)]" />
+                    <span className="h-2 w-2 shrink-0 rounded-full bg-accent shadow-[0_0_8px_rgba(99,102,241,0.6)]" />
                   )}
                 </div>
-                {n.body && (
-                  <div className="mt-0.5 text-[12px] leading-relaxed text-slate-500 dark:text-zinc-500">{n.body}</div>
-                )}
-                <div className="mt-1 text-[10.5px] text-slate-400 dark:text-zinc-600">
-                  {new Date(n.createdAt).toLocaleString(dateLocale(ctx.locale))}
+                {n.body && <p className="mt-1 text-[12px] leading-relaxed text-ink-soft">{n.body}</p>}
+                <div className="mt-2 flex items-center gap-2 text-[11px] text-ink-faint">
+                  <time dateTime={n.createdAt}>{new Date(n.createdAt).toLocaleString(dateLocale(ctx.locale))}</time>
                 </div>
               </div>
             </button>
-          </Card>
+          </article>
         ))}
-        {ctx.notifications.length === 0 && (
-          <Card>
-            <Empty
-              icon={<IconMail size={22} />}
-              title={ctx.t("الوارد فارغ", "Inbox zero")}
-              hint={ctx.t("ستصلك التحديثات هنا", "Updates will land here")}
-            />
-          </Card>
-        )}
       </div>
+
+      {visibleNotifications.length === 0 && (
+        <Card className="bg-surface">
+          <ScreenState
+            framed={false}
+            tone="empty"
+            title={
+              filter === "unread"
+                ? ctx.t("لا توجد إشعارات غير مقروءة", "No unread notifications")
+                : ctx.t("صندوق الوارد فارغ", "Inbox is empty")
+            }
+            description={
+              filter === "unread"
+                ? ctx.t("أنت مطلع على جميع التحديثات والتنبيهات.", "You're all caught up with everything!")
+                : ctx.t(
+                    "ستظهر التنبيهات والإشعارات الجديدة هنا فور وصولها.",
+                    "New alerts and assignments will appear here.",
+                  )
+            }
+          />
+        </Card>
+      )}
     </div>
   );
 }

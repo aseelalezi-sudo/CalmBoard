@@ -109,7 +109,7 @@ export function useTaskOperations(input: TaskOperationsInput) {
       return true;
     } catch {
       setTasks(snapshot);
-      notify(t("فشل الحفظ، تم التراجع", "Save failed, reverted"), "error");
+      notify(t("تعذر تحديث المهمة. بقيت حالتها السابقة.", "Save failed, reverted"), "error");
       return false;
     }
   };
@@ -127,9 +127,12 @@ export function useTaskOperations(input: TaskOperationsInput) {
     try {
       await moveTaskRecord(targetTask, status, targetIndex, anchors, currentUser.id);
       await refreshTasks();
-    } catch (error) {
+    } catch {
       setTasks(snapshot);
-      notify(error instanceof Error ? error.message : t("فشل نقل المهمة", "Task move failed"), "error");
+      notify(
+        t("تعذر نقل المهمة. أُعيد ترتيب اللوحة السابق.", "Failed to move task. Previous board order restored."),
+        "error",
+      );
     }
   };
 
@@ -141,31 +144,37 @@ export function useTaskOperations(input: TaskOperationsInput) {
         project.id === activeProject.id ? { ...project, wipLimits } : project;
       setProjects((projects) => projects.map(updateProject));
       setActiveProject((project) => (project ? updateProject(project) : project));
-    } catch (error) {
-      notify(error instanceof Error ? error.message : t("فشل حفظ حد العمل", "Could not save WIP limit"), "error");
+    } catch {
+      notify(t("تعذر حفظ حد العمل الجاري. حاول مجدداً.", "Could not save WIP limit. Please try again."), "error");
     }
   };
 
   const createTask = async (data: Partial<Task> & { title: string }) => {
-    if (!activeProject || !activeWorkspace || !activeOrg || !currentUser) return;
-    const created = await createTaskRecord({
-      ...projectTaskScope(activeProject, currentUser.id),
-      title: data.title,
-      description: data.description,
-      status: data.status || "todo",
-      priority: data.priority || "medium",
-      assigneeId: data.assigneeId || currentUser.id,
-      reporterId: currentUser.id,
-      tags: data.tags || [],
-      dueDate: data.dueDate,
-    });
-    if (created.id) {
+    if (!activeProject || !activeWorkspace || !activeOrg || !currentUser) return false;
+    try {
+      const created = await createTaskRecord({
+        ...projectTaskScope(activeProject, currentUser.id),
+        title: data.title,
+        description: data.description,
+        status: data.status || "todo",
+        priority: data.priority || "medium",
+        assigneeId: data.assigneeId || currentUser.id,
+        reporterId: currentUser.id,
+        tags: data.tags || [],
+        dueDate: data.dueDate,
+      });
+      if (!created.id) throw new Error("task_not_created");
       notify(`${t("تم إنشاء", "Created")} ${created.serial}`);
       await refreshTasks();
-    } else {
-      notify(t("تعذر إنشاء المهمة", "Could not create task"), "error");
+      setShowAddTask(false);
+      return true;
+    } catch {
+      notify(
+        t("تعذر إنشاء المهمة. راجع البيانات وحاول مجدداً.", "Could not create task. Check details and try again."),
+        "error",
+      );
+      return false;
     }
-    setShowAddTask(false);
   };
 
   const loadTaskDetail = async (
@@ -206,19 +215,28 @@ export function useTaskOperations(input: TaskOperationsInput) {
     }
   };
 
-  const toggleSubtask = (subtask: Task) => {
+  const toggleSubtask = async (subtask: Task) => {
     const status = subtask.status === "done" ? "todo" : "done";
     const progress = status === "done" ? 100 : 0;
+    const snapshot = subtask;
     setSubtasks((previous) => previous.map((item) => (item.id === subtask.id ? { ...item, status, progress } : item)));
-    void updateTaskRecord({
-      id: subtask.id,
-      expectedVersion: subtask.version,
-      status,
-      progress,
-      organizationId: subtask.organizationId,
-      workspaceId: subtask.workspaceId,
-      actorId: currentUser?.id,
-    });
+    try {
+      await updateTaskRecord({
+        id: subtask.id,
+        expectedVersion: subtask.version,
+        status,
+        progress,
+        organizationId: subtask.organizationId,
+        workspaceId: subtask.workspaceId,
+        actorId: currentUser?.id,
+      });
+    } catch {
+      setSubtasks((previous) => previous.map((item) => (item.id === subtask.id ? snapshot : item)));
+      notify(
+        t("تعذر تحديث المهمة الفرعية. تمت استعادة حالتها.", "Could not update subtask. Previous state restored."),
+        "error",
+      );
+    }
   };
 
   const logTime = async (taskId: string, minutes: number, description: string) => {
@@ -250,8 +268,11 @@ export function useTaskOperations(input: TaskOperationsInput) {
       });
       setAttachments((previous) => [attachment, ...previous]);
       notify(t("تم رفع المرفق بنجاح", "Attachment uploaded"));
-    } catch (error) {
-      notify(error instanceof Error ? error.message : t("تعذر رفع المرفق", "Could not upload attachment"), "error");
+    } catch {
+      notify(
+        t("تعذر رفع المرفق. تحقق من الملف والاتصال.", "Could not upload attachment. Check file and connection."),
+        "error",
+      );
     }
   };
 

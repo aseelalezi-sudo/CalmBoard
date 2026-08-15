@@ -56,19 +56,11 @@ export type WorkspaceModulesResponse = {
   customFields: CustomField[];
 };
 
-async function optionalJson<T>(url: string, fallback: T): Promise<T> {
-  try {
-    return await requestJson<T>(url);
-  } catch {
-    return fallback;
-  }
-}
-
 export async function getCurrentSession() {
   try {
     return await requestJson<SessionResponse>(apiServiceUrl("/auth/session"));
   } catch (error) {
-    if (error instanceof ApiError && (error.status === 401 || error.status === 0)) return {};
+    if (error instanceof ApiError && error.status === 401) return {};
     throw error;
   }
 }
@@ -148,81 +140,58 @@ export async function getWorkspaceModules(
 ): Promise<WorkspaceModulesResponse> {
   const encodedWorkspaceId = encodeURIComponent(workspaceId);
   const encodedOrganizationId = encodeURIComponent(organizationId ?? "");
-  const emptyMemberData: { members?: Member[]; invitations?: Invitation[] } = {};
-  const [
-    authorization,
-    docs,
-    goals,
-    automationData,
-    activities,
-    savedViews,
-    timeData,
-    memberData,
-    forms,
-    invoices,
-    customFields,
-  ] = await Promise.all([
-    organizationId
-      ? optionalJson<AuthorizationCapabilities>(
-          `${apiServiceUrl("/authorization/me")}?organizationId=${encodedOrganizationId}&workspaceId=${encodedWorkspaceId}`,
-          {
-            userId: userId ?? "",
-            isPlatformAdmin: false,
-            member: false,
-            membershipId: null,
-            roles: [],
-            permissions: [],
-          },
-        )
-      : Promise.resolve(null),
-    optionalJson<Doc[]>(
-      `${apiServiceUrl("/docs")}?organizationId=${encodedOrganizationId}&workspaceId=${encodedWorkspaceId}`,
-      [],
-    ),
-    optionalJson<Goal[]>(
-      `${apiServiceUrl("/goals")}?organizationId=${encodedOrganizationId}&workspaceId=${encodedWorkspaceId}`,
-      [],
-    ),
-    optionalJson<{ automations?: Automation[]; runs?: AutomationRun[] }>(
-      `${apiServiceUrl("/automations")}?organizationId=${encodedOrganizationId}&workspaceId=${encodedWorkspaceId}`,
-      {},
-    ),
-    optionalJson<Activity[]>(
-      `${apiServiceUrl("/activities")}?organizationId=${encodedOrganizationId}&workspaceId=${encodedWorkspaceId}`,
-      [],
-    ),
-    optionalJson<SavedView[]>(
-      `${apiServiceUrl("/saved-views")}?organizationId=${encodedOrganizationId}&workspaceId=${encodedWorkspaceId}${userId ? `&actorId=${encodeURIComponent(userId)}` : ""}`,
-      [],
-    ),
-    optionalJson<{
-      logs?: TimeLog[];
-      totalMinutes?: number;
-      billableMinutes?: number;
-      timesheets?: Timesheet[];
-      reviewQueue?: Timesheet[];
-    }>(
-      `${apiServiceUrl("/time-logs")}?organizationId=${encodedOrganizationId}&workspaceId=${encodedWorkspaceId}${userId ? `&userId=${encodeURIComponent(userId)}` : ""}`,
-      {},
-    ),
-    organizationId
-      ? optionalJson<{ members?: Member[]; invitations?: Invitation[] }>(
-          `${apiServiceUrl("/members")}?organizationId=${encodedOrganizationId}&workspaceId=${encodedWorkspaceId}&actorId=${encodeURIComponent(userId ?? "")}`,
-          {},
-        )
-      : Promise.resolve(emptyMemberData),
-    optionalJson<Form[]>(
-      `${apiServiceUrl("/forms")}?organizationId=${encodedOrganizationId}&workspaceId=${encodedWorkspaceId}`,
-      [],
-    ),
-    organizationId
-      ? optionalJson<Invoice[]>(`${apiServiceUrl("/invoices")}?organizationId=${encodedOrganizationId}`, [])
-      : Promise.resolve([]),
-    optionalJson<CustomField[]>(
-      `${apiServiceUrl("/custom-fields")}?organizationId=${encodedOrganizationId}&workspaceId=${encodedWorkspaceId}`,
-      [],
-    ),
-  ]);
+
+  const authorization = organizationId
+    ? await requestJson<AuthorizationCapabilities>(
+        `${apiServiceUrl("/authorization/me")}?organizationId=${encodedOrganizationId}&workspaceId=${encodedWorkspaceId}`,
+      )
+    : null;
+
+  const permissions = new Set(authorization?.permissions ?? []);
+
+  const [docs, goals, automationData, activities, savedViews, timeData, memberData, forms, invoices, customFields] =
+    await Promise.all([
+      requestJson<Doc[]>(
+        `${apiServiceUrl("/docs")}?organizationId=${encodedOrganizationId}&workspaceId=${encodedWorkspaceId}`,
+      ),
+      requestJson<Goal[]>(
+        `${apiServiceUrl("/goals")}?organizationId=${encodedOrganizationId}&workspaceId=${encodedWorkspaceId}`,
+      ),
+      requestJson<{ automations?: Automation[]; runs?: AutomationRun[] }>(
+        `${apiServiceUrl("/automations")}?organizationId=${encodedOrganizationId}&workspaceId=${encodedWorkspaceId}`,
+      ),
+      permissions.has("audit.view")
+        ? requestJson<Activity[]>(
+            `${apiServiceUrl("/activities")}?organizationId=${encodedOrganizationId}&workspaceId=${encodedWorkspaceId}`,
+          )
+        : Promise.resolve([]),
+      requestJson<SavedView[]>(
+        `${apiServiceUrl("/saved-views")}?organizationId=${encodedOrganizationId}&workspaceId=${encodedWorkspaceId}${userId ? `&actorId=${encodeURIComponent(userId)}` : ""}`,
+      ),
+      requestJson<{
+        logs?: TimeLog[];
+        totalMinutes?: number;
+        billableMinutes?: number;
+        timesheets?: Timesheet[];
+        reviewQueue?: Timesheet[];
+      }>(
+        `${apiServiceUrl("/time-logs")}?organizationId=${encodedOrganizationId}&workspaceId=${encodedWorkspaceId}${userId ? `&userId=${encodeURIComponent(userId)}` : ""}`,
+      ),
+      organizationId
+        ? requestJson<{ members?: Member[]; invitations?: Invitation[] }>(
+            `${apiServiceUrl("/members")}?organizationId=${encodedOrganizationId}&workspaceId=${encodedWorkspaceId}&actorId=${encodeURIComponent(userId ?? "")}`,
+          )
+        : Promise.resolve<{ members?: Member[]; invitations?: Invitation[] }>({}),
+      requestJson<Form[]>(
+        `${apiServiceUrl("/forms")}?organizationId=${encodedOrganizationId}&workspaceId=${encodedWorkspaceId}`,
+      ),
+      organizationId && permissions.has("billing.manage")
+        ? requestJson<Invoice[]>(`${apiServiceUrl("/invoices")}?organizationId=${encodedOrganizationId}`)
+        : Promise.resolve([]),
+      requestJson<CustomField[]>(
+        `${apiServiceUrl("/custom-fields")}?organizationId=${encodedOrganizationId}&workspaceId=${encodedWorkspaceId}`,
+      ),
+    ]);
 
   return {
     authorization,

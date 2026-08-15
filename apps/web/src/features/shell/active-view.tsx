@@ -27,7 +27,7 @@ import { SprintsView } from "@/features/sprints/sprints-view";
 
 export function ActiveView({ activeView, ctx }: { activeView: string; ctx: ViewCtx }) {
   return (
-    <div className="animate-fade" key={activeView}>
+    <div className="animate-fade min-w-0 w-full" key={activeView}>
       {activeView === "board" && <BoardView ctx={ctx} />}
       {activeView === "list" && <ListView ctx={ctx} />}
       {activeView === "table" && <TableView ctx={ctx} />}

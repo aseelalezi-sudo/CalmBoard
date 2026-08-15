@@ -1,12 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { AuthScreen } from "@/features/auth/auth-screen";
+import { useAuthOperations } from "@/features/auth/use-auth-operations";
 import { ApiError } from "@/lib/client-api";
 import type { User } from "@/lib/types";
-import { Btn, Card } from "@/components/ui";
-import { LogoMark } from "@/components/icons";
+import { Btn, Card, ScreenState } from "@/components/ui";
+import { IconRotateCw, LogoMark } from "@/components/icons";
+import { confirmAction } from "@/components/feedback";
 import {
   acceptInvitationToken,
   declineInvitationToken,
@@ -15,17 +17,30 @@ import {
 } from "./api";
 import { getInvitationSession } from "./use-invitation-session";
 
+function PublicShell({ children }: { children: React.ReactNode }) {
+  return (
+    <main className="grid min-h-screen place-items-center bg-surface p-5">
+      <div className="w-full max-w-xl">{children}</div>
+    </main>
+  );
+}
+
 export function InvitationAcceptanceScreen() {
   const [token, setToken] = useState("");
   const [invitation, setInvitation] = useState<InvitationInspection | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
   const [pending, setPending] = useState<"accept" | "decline" | null>(null);
   const [error, setError] = useState("");
+  const { logout } = useAuthOperations();
+
   const locale = typeof document !== "undefined" && document.documentElement.lang === "en" ? "en" : "ar";
-  const t = (ar: string, en: string) => (locale === "ar" ? ar : en);
+  const t = useCallback((ar: string, en: string) => (locale === "ar" ? ar : en), [locale]);
 
   useEffect(() => {
+    let current = true;
     const rawToken = new URLSearchParams(window.location.search).get("token") ?? "";
     setToken(rawToken);
     if (!rawToken) {
@@ -33,18 +48,38 @@ export function InvitationAcceptanceScreen() {
       setLoading(false);
       return;
     }
-    void Promise.all([inspectInvitationToken(rawToken), getInvitationSession()])
-      .then(([inspection, session]) => {
+    setLoading(true);
+    setLoadError(null);
+    void (async () => {
+      try {
+        const inspection = await inspectInvitationToken(rawToken);
+        if (!current) return;
         setInvitation(inspection);
+        const session = await getInvitationSession();
+        if (!current) return;
         setUser(session.user ?? null);
-      })
-      .catch(() => setInvitation({ status: "invalid" }))
-      .finally(() => setLoading(false));
-  }, []);
+      } catch (caught) {
+        if (!current) return;
+        const readableError =
+          caught instanceof Error ? caught.message : t("تعذر التحقق من الدعوة", "Could not verify invitation");
+        setLoadError(readableError);
+      } finally {
+        if (current) setLoading(false);
+      }
+    })();
+    return () => {
+      current = false;
+    };
+  }, [reloadKey, t]);
 
   const refreshSession = async () => {
     const session = await getInvitationSession();
     setUser(session.user ?? null);
+  };
+
+  const switchAccount = async () => {
+    await logout();
+    setUser(null);
   };
 
   const accept = async () => {
@@ -64,6 +99,16 @@ export function InvitationAcceptanceScreen() {
   };
 
   const decline = async () => {
+    const confirmed = await confirmAction({
+      title: t("رفض الدعوة", "Decline invitation"),
+      message: t(
+        "هل أنت متأكد من رفض هذه الدعوة؟ لن تتمكن من الانضمام لمساحة العمل بهذا الرابط مجدداً.",
+        "Are you sure you want to decline this invitation? You will not be able to join using this link again.",
+      ),
+      tone: "danger",
+    });
+    if (!confirmed) return;
+
     setPending("decline");
     setError("");
     try {
@@ -79,11 +124,40 @@ export function InvitationAcceptanceScreen() {
 
   if (loading) {
     return (
-      <div className="grid min-h-screen place-items-center text-sm text-slate-600 dark:text-zinc-300">
-        {t("جارٍ التحقق من الدعوة…", "Checking invitation…")}
-      </div>
+      <PublicShell>
+        <Card className="bg-surface p-7 text-center">
+          <ScreenState
+            framed={false}
+            tone="loading"
+            title={t("جارٍ التحقق من الدعوة…", "Checking invitation…")}
+            description={t("يرجى الانتظار بينما نتحقق من صلاحية الرابط.", "Validating your invitation link.")}
+          />
+        </Card>
+      </PublicShell>
     );
   }
+
+  if (loadError) {
+    return (
+      <PublicShell>
+        <Card className="bg-surface p-7 text-center">
+          <ScreenState
+            framed={false}
+            tone="error"
+            title={t("تعذر التحقق من الدعوة", "Could not verify invitation")}
+            description={loadError}
+            action={
+              <Btn variant="outline" size="sm" onClick={() => setReloadKey((value) => value + 1)}>
+                <IconRotateCw size={14} />
+                {t("إعادة المحاولة", "Retry")}
+              </Btn>
+            }
+          />
+        </Card>
+      </PublicShell>
+    );
+  }
+
   if (!invitation || ["invalid", "revoked", "expired", "accepted", "declined"].includes(invitation.status)) {
     const messages: Record<string, [string, string]> = {
       invalid: ["رابط الدعوة غير صالح.", "This invitation link is invalid."],
@@ -97,74 +171,90 @@ export function InvitationAcceptanceScreen() {
     };
     const message = messages[invitation?.status ?? "invalid"] ?? messages.invalid!;
     return (
-      <main className="grid min-h-screen place-items-center bg-slate-50 p-5 dark:bg-zinc-950">
-        <Card className="w-full max-w-lg p-7 text-center">
-          <LogoMark size={42} />
-          <h1 className="mt-5 text-xl font-bold text-slate-900 dark:text-white">{t(message[0], message[1])}</h1>
-          <Link
-            href="/"
-            className="mt-5 inline-block text-sm font-semibold text-indigo-600 hover:underline dark:text-indigo-300"
-          >
+      <PublicShell>
+        <Card className="bg-surface p-7 text-center">
+          <div className="flex justify-center">
+            <LogoMark size={42} />
+          </div>
+          <h1 className="mt-5 text-xl font-bold text-ink">{t(message[0], message[1])}</h1>
+          <Link href="/" className="mt-5 inline-block text-sm font-semibold text-accent hover:underline">
             {t("العودة إلى CalmBoard", "Return to CalmBoard")}
           </Link>
         </Card>
-      </main>
+      </PublicShell>
     );
   }
+
   if (!user) return <AuthScreen onAuthenticated={refreshSession} />;
 
   const identityMatches = user.email.toLowerCase() === invitation.email?.toLowerCase();
   return (
-    <main className="grid min-h-screen place-items-center bg-slate-50 p-5 dark:bg-zinc-950">
-      <Card className="w-full max-w-xl p-7">
+    <PublicShell>
+      <Card className="bg-surface p-7">
         <div className="flex items-center gap-3">
           <LogoMark size={38} />
-          <h1 className="text-xl font-bold text-slate-900 dark:text-white">
-            {t("دعوة للانضمام", "Workspace invitation")}
-          </h1>
+          <h1 className="text-xl font-bold text-ink">{t("دعوة للانضمام", "Workspace invitation")}</h1>
         </div>
-        <div className="mt-6 space-y-3 rounded-xl border border-slate-200 p-4 text-sm dark:border-white/10">
+        <div className="mt-6 space-y-3 rounded-xl border border-line bg-raised/40 p-4 text-sm">
           <p>
-            {t("المؤسسة", "Organization")}: <strong>{invitation.organization?.name}</strong>
+            {t("المؤسسة", "Organization")}: <strong className="text-ink">{invitation.organization?.name}</strong>
           </p>
           {invitation.workspace?.name && (
             <p>
-              {t("مساحة العمل", "Workspace")}: <strong>{invitation.workspace.name}</strong>
+              {t("مساحة العمل", "Workspace")}: <strong className="text-ink">{invitation.workspace.name}</strong>
             </p>
           )}
           <p>
-            {t("الدور", "Role")}: <strong>{invitation.role}</strong>
+            {t("الدور", "Role")}: <strong className="text-ink">{invitation.role}</strong>
           </p>
           <p>
             {t("البريد المقصود", "Invited email")}:{" "}
-            <bdi dir="ltr" className="font-semibold">
+            <bdi dir="ltr" className="font-semibold text-ink">
               {invitation.email}
             </bdi>
           </p>
         </div>
         {!identityMatches ? (
-          <p
-            role="alert"
-            className="mt-4 rounded-xl bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-500/10 dark:text-amber-200"
-          >
-            {t("سجّل الدخول بالحساب المطابق للبريد المدعو.", "Sign in with the account matching the invited email.")}
-          </p>
+          <div className="mt-4 space-y-3">
+            <p
+              role="alert"
+              className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-800 dark:text-amber-200"
+            >
+              {t(
+                `أنت مسجل الدخول حالياً بحساب (${user.email})، لكن الدعوة موجهة إلى (${invitation.email}).`,
+                `You are signed in as (${user.email}), but the invitation was sent to (${invitation.email}).`,
+              )}
+            </p>
+            <Btn variant="outline" size="sm" onClick={() => void switchAccount()}>
+              {t("تبديل الحساب", "Switch account")}
+            </Btn>
+          </div>
         ) : (
           <div className="mt-5 flex flex-wrap gap-3">
-            <Btn variant="glow" disabled={pending !== null} onClick={() => void accept()}>
+            <Btn
+              variant="glow"
+              disabled={pending !== null}
+              aria-busy={pending === "accept"}
+              onClick={() => void accept()}
+            >
               {pending === "accept" ? t("جارٍ القبول…", "Accepting…") : t("قبول الدعوة", "Accept invitation")}
             </Btn>
-            <Btn variant="outline" disabled={pending !== null} onClick={() => void decline()}>
+            <Btn
+              variant="outline"
+              disabled={pending !== null}
+              aria-busy={pending === "decline"}
+              onClick={() => void decline()}
+            >
               {pending === "decline" ? t("جارٍ الرفض…", "Declining…") : t("رفض", "Decline")}
             </Btn>
           </div>
         )}
         {error && (
-          <p role="alert" className="mt-4 text-sm text-rose-600 dark:text-rose-300">
+          <p role="alert" className="mt-4 text-sm text-rose-600 dark:text-rose-400">
             {error}
           </p>
         )}
       </Card>
-    </main>
+    </PublicShell>
   );
 }

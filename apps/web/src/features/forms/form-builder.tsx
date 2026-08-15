@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import type { Form, FormConditionOperator, FormField, FormFieldType, FormInput, Project } from "@/lib/types";
-import { Btn, Toggle } from "@/components/ui";
+import { Btn, Modal, Toggle, selectCls } from "@/components/ui";
 import { IconPlus, IconX } from "@/components/icons";
 
 type Translator = (arabic: string, english: string) => string;
@@ -82,10 +82,12 @@ export function FormBuilder({
   activeProjectId?: string;
   t: Translator;
   onClose: () => void;
-  onSave: (input: FormInput) => void;
+  onSave: (input: FormInput) => void | Promise<void>;
 }) {
   const [draft, setDraft] = useState<FormInput>(() => (form ? fromForm(form) : defaultInput(activeProjectId ?? null)));
   const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
   const fieldIds = useMemo(() => new Set(draft.fields.map((field) => field.id)), [draft.fields]);
 
   const updateField = (index: number, patch: Partial<FormField>) => {
@@ -138,14 +140,23 @@ export function FormBuilder({
     const base = `field_${Date.now().toString(36)}`;
     let id = base;
     let suffix = 1;
-    while (fieldIds.has(id)) id = `${base}_${suffix++}`;
+    while (fieldIds.has(id)) {
+      id = `${base}_${suffix}`;
+      suffix += 1;
+    }
+    const newField: FormField = {
+      id,
+      type: "text",
+      label: `${t("حقل جديد", "New field")} ${draft.fields.length + 1}`,
+      required: false,
+    };
     setDraft((previous) => ({
       ...previous,
-      fields: [...previous.fields, { id, type: "text", label: t("حقل جديد", "New field") }],
+      fields: [...previous.fields, newField],
     }));
   };
 
-  const save = () => {
+  const save = async () => {
     if (!draft.name.trim()) return setError(t("اسم النموذج مطلوب", "Form name is required"));
     if (!draft.fields.length) return setError(t("أضف حقلاً واحداً على الأقل", "Add at least one field"));
     if (draft.fields.some((field) => !field.label.trim())) {
@@ -159,50 +170,56 @@ export function FormBuilder({
       return setError(t("حقول الاختيار تحتاج إلى خيارات", "Choice fields need options"));
     }
     setError("");
-    onSave({ ...draft, name: draft.name.trim(), description: draft.description.trim() });
-    onClose();
+    setSaveError("");
+    setSaving(true);
+    try {
+      await onSave({ ...draft, name: draft.name.trim(), description: draft.description.trim() });
+      onClose();
+    } catch {
+      setSaveError(t("تعذر حفظ النموذج", "Failed to save form"));
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center p-3 md:p-6">
-      <button className="absolute inset-0 bg-slate-950/65 backdrop-blur-sm" onClick={onClose} aria-label="Close" />
-      <div className="relative flex max-h-[94vh] w-full max-w-[980px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 shadow-2xl dark:border-white/10 dark:bg-zinc-950">
-        <div className="flex items-center justify-between border-b border-slate-200 bg-white px-5 py-4 dark:border-white/10 dark:bg-zinc-900">
-          <div>
-            <h3 className="text-[16px] font-bold text-slate-900 dark:text-white">
-              {form ? t("تعديل النموذج", "Edit form") : t("إنشاء نموذج", "Create form")}
-            </h3>
-            <p className="mt-0.5 text-[11.5px] text-slate-500">
-              {t("ابنِ الحقول والشروط وإعدادات الإرسال", "Configure fields, conditions, and submission settings")}
-            </p>
-          </div>
-          <button
-            onClick={onClose}
-            className="grid h-9 w-9 place-items-center rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-white/5"
+    <Modal
+      open
+      onClose={onClose}
+      size="workspace"
+      contentScrollable={false}
+      title={form ? t("تعديل النموذج", "Edit form") : t("إنشاء نموذج", "Create form")}
+      description={t("ابنِ الحقول والشروط وإعدادات الإرسال", "Configure fields, conditions, and submission settings")}
+    >
+      <div className="flex flex-col h-[75vh] max-h-[850px] overflow-hidden -m-6">
+        {(error || saveError) && (
+          <div
+            role="alert"
+            className="border-b border-rose-500/20 bg-rose-500/10 px-5 py-3 text-xs font-semibold text-rose-600 dark:text-rose-400"
           >
-            <IconX size={16} />
-          </button>
-        </div>
+            {error || saveError}
+          </div>
+        )}
 
         <div className="grid min-h-0 flex-1 overflow-y-auto lg:grid-cols-[1fr_300px]">
           <div className="space-y-4 p-5">
             <div className="grid gap-3 md:grid-cols-2">
-              <label className="text-[11.5px] font-semibold text-slate-600 dark:text-zinc-300">
+              <label className="text-[11.5px] font-semibold text-ink-soft">
                 {t("اسم النموذج", "Form name")}
                 <input
                   name="auto-field-pjbfmq9"
                   value={draft.name}
                   onChange={(event) => setDraft({ ...draft, name: event.target.value })}
-                  className="mt-1.5 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-[13px] text-slate-900 outline-none focus:border-indigo-500 dark:border-white/10 dark:bg-white/[0.04] dark:text-white"
+                  className="mt-1.5 h-10 w-full rounded-xl border border-line bg-surface px-3 text-[13px] text-ink outline-none focus:border-indigo-500"
                 />
               </label>
-              <label className="text-[11.5px] font-semibold text-slate-600 dark:text-zinc-300">
+              <label className="text-[11.5px] font-semibold text-ink-soft">
                 {t("المشروع المستهدف", "Target project")}
                 <select
                   name="auto-field-i4c4627"
                   value={draft.projectId ?? ""}
                   onChange={(event) => setDraft({ ...draft, projectId: event.target.value || null })}
-                  className="mt-1.5 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-[13px] text-slate-900 outline-none dark:border-white/10 dark:bg-zinc-900 dark:text-white"
+                  className="mt-1.5 h-10 w-full rounded-xl border border-line bg-surface px-3 text-[13px] text-ink outline-none focus:border-indigo-500"
                 >
                   <option value="">{t("بدون إنشاء مهمة", "No target project")}</option>
                   {projects.map((project) => (
@@ -213,20 +230,18 @@ export function FormBuilder({
                 </select>
               </label>
             </div>
-            <label className="block text-[11.5px] font-semibold text-slate-600 dark:text-zinc-300">
+            <label className="block text-[11.5px] font-semibold text-ink-soft">
               {t("الوصف", "Description")}
               <textarea
                 name="auto-field-uldehrc"
                 value={draft.description}
                 onChange={(event) => setDraft({ ...draft, description: event.target.value })}
-                className="mt-1.5 min-h-16 w-full resize-y rounded-xl border border-slate-200 bg-white p-3 text-[13px] text-slate-900 outline-none focus:border-indigo-500 dark:border-white/10 dark:bg-white/[0.04] dark:text-white"
+                className="mt-1.5 min-h-16 w-full resize-y rounded-xl border border-line bg-surface p-3 text-[13px] text-ink outline-none focus:border-indigo-500"
               />
             </label>
 
             <div className="flex items-center justify-between">
-              <h4 className="text-[13px] font-bold text-slate-800 dark:text-zinc-100">
-                {t("حقول النموذج", "Form fields")}
-              </h4>
+              <h4 className="text-[13px] font-bold text-ink">{t("حقول النموذج", "Form fields")}</h4>
               <Btn variant="outline" onClick={addField}>
                 <IconPlus size={13} />
                 {t("إضافة حقل", "Add field")}
@@ -239,12 +254,9 @@ export function FormBuilder({
               const conditionNeedsValue =
                 field.condition && !["is_empty", "not_empty"].includes(field.condition.operator);
               return (
-                <div
-                  key={field.id}
-                  className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-white/[0.025]"
-                >
+                <div key={field.id} className="rounded-2xl border border-line bg-surface p-4 shadow-sm">
                   <div className="flex items-start gap-3">
-                    <span className="mt-2 grid h-6 w-6 shrink-0 place-items-center rounded-lg bg-indigo-50 text-[10px] font-bold text-indigo-600 dark:bg-indigo-500/10 dark:text-indigo-300">
+                    <span className="mt-2 grid h-6 w-6 shrink-0 place-items-center rounded-lg bg-indigo-500/10 text-[10px] font-bold text-indigo-600 dark:text-indigo-400">
                       {index + 1}
                     </span>
                     <div className="grid min-w-0 flex-1 gap-3 md:grid-cols-[1fr_180px]">
@@ -253,7 +265,7 @@ export function FormBuilder({
                         value={field.label}
                         onChange={(event) => updateField(index, { label: event.target.value })}
                         placeholder={t("عنوان الحقل", "Field label")}
-                        className="h-9 rounded-lg border border-slate-200 px-3 text-[12.5px] outline-none focus:border-indigo-500 dark:border-white/10 dark:bg-zinc-900 dark:text-white"
+                        className="h-9 rounded-lg border border-line bg-surface px-3 text-[12.5px] text-ink outline-none focus:border-indigo-500"
                       />
                       <select
                         name="auto-field-3k02m40"
@@ -270,7 +282,7 @@ export function FormBuilder({
                                 : undefined,
                           });
                         }}
-                        className="h-9 rounded-lg border border-slate-200 bg-white px-2 text-[12px] outline-none dark:border-white/10 dark:bg-zinc-900 dark:text-white"
+                        className={`${selectCls} h-9 text-[12px]`}
                       >
                         {fieldTypes.map((type) => (
                           <option key={type.value} value={type.value}>
@@ -281,23 +293,29 @@ export function FormBuilder({
                     </div>
                     <div className="flex shrink-0 gap-1">
                       <button
+                        type="button"
+                        aria-label={t("نقل الحقل إلى الأعلى", "Move field up")}
                         onClick={() => moveField(index, -1)}
                         disabled={index === 0}
-                        className="h-8 w-7 rounded-lg text-slate-500 hover:bg-slate-100 disabled:opacity-30 dark:hover:bg-white/5"
+                        className="h-10 w-10 rounded-lg text-ink-faint hover:bg-raised disabled:opacity-30 sm:h-8 sm:w-7"
                       >
                         ↑
                       </button>
                       <button
+                        type="button"
+                        aria-label={t("نقل الحقل إلى الأسفل", "Move field down")}
                         onClick={() => moveField(index, 1)}
                         disabled={index === draft.fields.length - 1}
-                        className="h-8 w-7 rounded-lg text-slate-500 hover:bg-slate-100 disabled:opacity-30 dark:hover:bg-white/5"
+                        className="h-10 w-10 rounded-lg text-ink-faint hover:bg-raised disabled:opacity-30 sm:h-8 sm:w-7"
                       >
                         ↓
                       </button>
                       <button
+                        type="button"
+                        aria-label={t("حذف الحقل", "Delete field")}
                         onClick={() => removeField(index)}
                         disabled={draft.fields.length === 1}
-                        className="grid h-8 w-8 place-items-center rounded-lg text-rose-500 hover:bg-rose-50 disabled:opacity-30 dark:hover:bg-rose-500/10"
+                        className="grid h-10 w-10 place-items-center rounded-lg text-rose-500 hover:bg-rose-500/10 disabled:opacity-30 sm:h-8 sm:w-8"
                       >
                         <IconX size={13} />
                       </button>
@@ -310,7 +328,7 @@ export function FormBuilder({
                       value={field.placeholder ?? ""}
                       onChange={(event) => updateField(index, { placeholder: event.target.value || undefined })}
                       placeholder={t("نص توضيحي اختياري", "Optional placeholder")}
-                      className="h-9 rounded-lg border border-slate-200 px-3 text-[12px] outline-none dark:border-white/10 dark:bg-zinc-900 dark:text-white"
+                      className="h-9 rounded-lg border border-line bg-surface px-3 text-[12px] text-ink outline-none focus:border-indigo-500"
                     />
                     {needsOptions && (
                       <input
@@ -325,13 +343,13 @@ export function FormBuilder({
                           })
                         }
                         placeholder={t("الخيارات مفصولة بفاصلة", "Comma-separated options")}
-                        className="h-9 rounded-lg border border-slate-200 px-3 text-[12px] outline-none dark:border-white/10 dark:bg-zinc-900 dark:text-white"
+                        className="h-9 rounded-lg border border-line bg-surface px-3 text-[12px] text-ink outline-none focus:border-indigo-500"
                       />
                     )}
                   </div>
 
                   <div className="mt-3 flex flex-wrap items-center gap-3 text-[11.5px]">
-                    <label className="flex items-center gap-2 text-slate-600 dark:text-zinc-300">
+                    <label className="flex items-center gap-2 text-ink">
                       <input
                         name="auto-field-u4orl9c"
                         type="checkbox"
@@ -341,7 +359,7 @@ export function FormBuilder({
                       {t("مطلوب", "Required")}
                     </label>
                     {priorFields.length > 0 && (
-                      <label className="flex items-center gap-2 text-slate-600 dark:text-zinc-300">
+                      <label className="flex items-center gap-2 text-ink">
                         <input
                           name="auto-field-swu4t3s"
                           type="checkbox"
@@ -360,14 +378,14 @@ export function FormBuilder({
                   </div>
 
                   {field.condition && (
-                    <div className="mt-3 grid gap-2 rounded-xl bg-slate-50 p-3 md:grid-cols-3 dark:bg-white/[0.03]">
+                    <div className="mt-3 grid gap-2 rounded-xl bg-raised/50 p-3 md:grid-cols-3">
                       <select
                         name="auto-field-nxsanll"
                         value={field.condition.fieldId}
                         onChange={(event) =>
                           updateField(index, { condition: { ...field.condition!, fieldId: event.target.value } })
                         }
-                        className="h-9 rounded-lg border border-slate-200 bg-white px-2 text-[11.5px] dark:border-white/10 dark:bg-zinc-900 dark:text-white"
+                        className="h-9 rounded-lg border border-line bg-surface px-2 text-[11.5px] text-ink outline-none focus:border-indigo-500"
                       >
                         {priorFields.map((candidate) => (
                           <option key={candidate.id} value={candidate.id}>
@@ -389,7 +407,7 @@ export function FormBuilder({
                             },
                           })
                         }
-                        className="h-9 rounded-lg border border-slate-200 bg-white px-2 text-[11.5px] dark:border-white/10 dark:bg-zinc-900 dark:text-white"
+                        className="h-9 rounded-lg border border-line bg-surface px-2 text-[11.5px] text-ink outline-none focus:border-indigo-500"
                       >
                         {operators.map((operator) => (
                           <option key={operator.value} value={operator.value}>
@@ -405,7 +423,7 @@ export function FormBuilder({
                             updateField(index, { condition: { ...field.condition!, value: event.target.value } })
                           }
                           placeholder={t("القيمة", "Value")}
-                          className="h-9 rounded-lg border border-slate-200 px-3 text-[11.5px] dark:border-white/10 dark:bg-zinc-900 dark:text-white"
+                          className="h-9 rounded-lg border border-line bg-surface px-3 text-[11.5px] text-ink outline-none focus:border-indigo-500"
                         />
                       )}
                     </div>
@@ -415,10 +433,8 @@ export function FormBuilder({
             })}
           </div>
 
-          <aside className="space-y-5 border-t border-slate-200 bg-white p-5 lg:border-s lg:border-t-0 dark:border-white/10 dark:bg-zinc-900/60">
-            <h4 className="text-[13px] font-bold text-slate-800 dark:text-zinc-100">
-              {t("إعدادات الإرسال", "Submission settings")}
-            </h4>
+          <aside className="space-y-5 border-t border-line bg-raised/30 p-5 lg:border-s lg:border-t-0">
+            <h4 className="text-[13px] font-bold text-ink">{t("إعدادات الإرسال", "Submission settings")}</h4>
             <SettingToggle
               label={t("حماية CAPTCHA", "CAPTCHA protection")}
               hint={t("Cloudflare Turnstile مع تحقق خادمي", "Cloudflare Turnstile with server verification")}
@@ -499,19 +515,16 @@ export function FormBuilder({
           </aside>
         </div>
 
-        <div className="flex items-center justify-between border-t border-slate-200 bg-white px-5 py-4 dark:border-white/10 dark:bg-zinc-900">
-          <span className="text-[11.5px] text-rose-600 dark:text-rose-400">{error}</span>
-          <div className="flex gap-2">
-            <Btn variant="outline" onClick={onClose}>
-              {t("إلغاء", "Cancel")}
-            </Btn>
-            <Btn variant="glow" onClick={save}>
-              {form ? t("حفظ التغييرات", "Save changes") : t("إنشاء النموذج", "Create form")}
-            </Btn>
-          </div>
+        <div className="flex items-center justify-end gap-2 border-t border-line bg-surface px-5 py-4">
+          <Btn variant="outline" onClick={onClose} disabled={saving}>
+            {t("إلغاء", "Cancel")}
+          </Btn>
+          <Btn variant="glow" onClick={save} disabled={saving} aria-busy={saving}>
+            {form ? t("حفظ التغييرات", "Save changes") : t("إنشاء النموذج", "Create form")}
+          </Btn>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -529,10 +542,10 @@ function SettingToggle({
   return (
     <div className="flex items-start justify-between gap-3">
       <div>
-        <div className="text-[12px] font-semibold text-slate-700 dark:text-zinc-200">{label}</div>
-        <div className="mt-0.5 text-[10.5px] leading-relaxed text-slate-500">{hint}</div>
+        <div className="text-[12px] font-semibold text-ink">{label}</div>
+        <div className="mt-0.5 text-[10.5px] leading-relaxed text-ink-faint">{hint}</div>
       </div>
-      <Toggle checked={checked} onChange={onChange} />
+      <Toggle checked={checked} onChange={onChange} ariaLabel={label} />
     </div>
   );
 }
@@ -549,13 +562,13 @@ function BuilderSelect({
   onChange: (value: string) => void;
 }) {
   return (
-    <label className="block text-[11px] font-semibold text-slate-600 dark:text-zinc-300">
+    <label className="block text-[11px] font-semibold text-ink-soft">
       {label}
       <select
         name="auto-field-15gmudt"
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="mt-1.5 h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-[11.5px] text-slate-900 dark:border-white/10 dark:bg-zinc-900 dark:text-white"
+        className="mt-1.5 h-9 w-full rounded-lg border border-line bg-surface px-2 text-[11.5px] text-ink outline-none focus:border-indigo-500"
       >
         {options.map((option) => (
           <option key={option.value} value={option.value}>
@@ -569,13 +582,13 @@ function BuilderSelect({
 
 function BuilderText({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
   return (
-    <label className="block text-[11px] font-semibold text-slate-600 dark:text-zinc-300">
+    <label className="block text-[11px] font-semibold text-ink-soft">
       {label}
       <input
         name="auto-field-gjyb1d1"
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="mt-1.5 h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-[11.5px] text-slate-900 dark:border-white/10 dark:bg-zinc-900 dark:text-white"
+        className="mt-1.5 h-9 w-full rounded-lg border border-line bg-surface px-3 text-[11.5px] text-ink outline-none focus:border-indigo-500"
       />
     </label>
   );

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   getQueueSnapshot,
   runQueueAction,
@@ -13,38 +13,63 @@ export function useAdminQueues() {
   const [counts, setCounts] = useState<QueueSnapshot["counts"] | null>(null);
   const [redis, setRedis] = useState<QueueSnapshot["redis"] | null>(null);
   const [loading, setLoading] = useState(false);
+  const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const actionRef = useRef(false);
+  const requestIdRef = useRef(0);
+  const mountedRef = useRef(true);
+
   const load = useCallback(async () => {
+    const requestId = ++requestIdRef.current;
     setLoading(true);
     setError(null);
     try {
       const snapshot = await getQueueSnapshot();
+      if (!mountedRef.current || requestId !== requestIdRef.current) return;
       setJobs(snapshot.jobs ?? []);
       setCounts(snapshot.counts ?? null);
       setRedis(snapshot.redis ?? null);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "تعذر تحميل حالة الطوابير");
+    } catch {
+      if (!mountedRef.current || requestId !== requestIdRef.current) return;
+      setError("تعذر تنفيذ إجراء الطابور");
     } finally {
-      setLoading(false);
+      if (mountedRef.current && requestId === requestIdRef.current) {
+        setLoading(false);
+      }
     }
   }, []);
 
   useEffect(() => {
+    mountedRef.current = true;
     void load();
+    return () => {
+      mountedRef.current = false;
+      requestIdRef.current += 1;
+    };
   }, [load]);
 
   const act = async (action: string, jobId?: string) => {
+    if (actionRef.current) return false;
+    actionRef.current = true;
+    setPendingAction(jobId ? `${action}:${jobId}` : action);
     setError(null);
     try {
       await runQueueAction(action, jobId);
-      await load();
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "تعذر تنفيذ إجراء الطابور");
+      if (mountedRef.current) await load();
+      return true;
+    } catch {
+      if (mountedRef.current) setError("تعذر تنفيذ إجراء الطابور");
+      return false;
+    } finally {
+      actionRef.current = false;
+      if (mountedRef.current) setPendingAction(null);
     }
   };
 
-  return { jobs, counts, redis, loading, error, act };
+  const reload = () => load();
+
+  return { jobs, counts, redis, loading, pendingAction, error, reload, act };
 }
 
 export function useSecurityTests() {
@@ -52,15 +77,39 @@ export function useSecurityTests() {
   const [report, setReport] = useState<SecurityTestReport | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const runRef = useRef(false);
+  const requestIdRef = useRef(0);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      requestIdRef.current += 1;
+    };
+  }, []);
+
   const run = async () => {
+    if (runRef.current) return false;
+    runRef.current = true;
+    const requestId = ++requestIdRef.current;
     setLoading(true);
     setError(null);
+    setReport(null);
     try {
-      setReport(await runSecurityTests());
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "خطأ غير معروف");
+      const result = await runSecurityTests();
+      if (!mountedRef.current || requestId !== requestIdRef.current) return false;
+      setReport(result);
+      return true;
+    } catch {
+      if (!mountedRef.current || requestId !== requestIdRef.current) return false;
+      setError("تعذر تشغيل فحص الأمان");
+      return false;
     } finally {
-      setLoading(false);
+      runRef.current = false;
+      if (mountedRef.current && requestId === requestIdRef.current) {
+        setLoading(false);
+      }
     }
   };
 

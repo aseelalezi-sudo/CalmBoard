@@ -1,9 +1,10 @@
 "use client";
 
 import type { ViewCtx } from "@/lib/types";
+import { fmtNumber } from "@/lib/types";
 import { useSprintAnalyticsOverview } from "./use-sprint-analytics";
-import { Card, Btn } from "@/components/ui";
-import { IconRocket, IconGauge } from "@/components/icons";
+import { Card, Btn, ScreenState } from "@/components/ui";
+import { IconRocket, IconGauge, IconShield } from "@/components/icons";
 import { ApiError } from "@/lib/client-api";
 import { SprintSummaryCard } from "./sprint-summary-card";
 
@@ -12,22 +13,22 @@ export function ReportsOverview({ ctx }: { ctx: ViewCtx }) {
 
   if (!ctx.can("sprints.view")) {
     return (
-      <Card className="p-8 text-center text-sm text-slate-600 dark:text-zinc-400">
-        {ctx.t("ليست لديك صلاحية عرض السبرنتات.", "You do not have permission to view Sprints.")}
-      </Card>
+      <ScreenState
+        tone="permission"
+        icon={<IconShield size={20} />}
+        title={ctx.t("صلاحية السبرنتات مطلوبة", "Sprint permission required")}
+        description={ctx.t("ليست لديك صلاحية عرض السبرنتات.", "You do not have permission to view Sprints.")}
+      />
     );
   }
 
   if (query.isLoading) {
     return (
-      <div className="space-y-6" aria-label={ctx.t("جارٍ تحميل التقارير", "Loading Reports")}>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          {[1, 2, 3, 4].map((item) => (
-            <div key={item} className="h-28 animate-pulse rounded-2xl bg-slate-200/70 dark:bg-white/5" />
-          ))}
-        </div>
-        <div className="h-64 animate-pulse rounded-2xl bg-slate-200/70 dark:bg-white/5" />
-      </div>
+      <ScreenState
+        tone="loading"
+        icon={<IconRocket size={20} />}
+        title={ctx.t("جارٍ تحميل التقارير…", "Loading Reports…")}
+      />
     );
   }
 
@@ -35,18 +36,22 @@ export function ReportsOverview({ ctx }: { ctx: ViewCtx }) {
     const isIntegrityError =
       query.error instanceof ApiError &&
       query.error.status === 500 &&
-      (query.error.payload as any)?.code === "ANALYTICS_INTEGRITY_ERROR";
+      typeof query.error.payload === "object" &&
+      query.error.payload !== null &&
+      "code" in query.error.payload &&
+      query.error.payload.code === "ANALYTICS_INTEGRITY_ERROR";
     return (
-      <Card className="p-8 text-center">
-        <p className="text-sm text-rose-600 dark:text-rose-400">
-          {isIntegrityError
+      <ScreenState
+        tone="error"
+        icon={<IconRocket size={20} />}
+        title={ctx.t("تعذر تحميل التقارير", "Could not load Reports")}
+        description={
+          isIntegrityError
             ? ctx.t("لا يمكن التحقق من صحة بيانات التحليلات.", "Analytics data could not be verified.")
-            : ctx.t("تعذر تحميل التقارير.", "Could not load Reports.")}
-        </p>
-        <Btn className="mt-4" onClick={() => void query.refetch()}>
-          {ctx.t("إعادة المحاولة", "Try again")}
-        </Btn>
-      </Card>
+            : ctx.t("تعذر تحميل التقارير.", "Could not load Reports.")
+        }
+        action={<Btn onClick={() => void query.refetch()}>{ctx.t("إعادة المحاولة", "Try again")}</Btn>}
+      />
     );
   }
 
@@ -56,11 +61,9 @@ export function ReportsOverview({ ctx }: { ctx: ViewCtx }) {
   if (data.completedSprints === 0) {
     return (
       <Card className="p-10 text-center">
-        <IconGauge className="mx-auto text-indigo-500 mb-3" size={32} />
-        <h3 className="font-semibold text-slate-950 dark:text-white">
-          {ctx.t("أكمل بعض السبرنتات", "Complete a few sprints")}
-        </h3>
-        <p className="mt-2 text-sm text-slate-500 max-w-md mx-auto">
+        <IconGauge className="mx-auto text-accent mb-3" size={32} />
+        <h3 className="font-semibold text-ink">{ctx.t("أكمل بعض السبرنتات", "Complete a few sprints")}</h3>
+        <p className="mt-2 text-sm text-ink-faint max-w-md mx-auto">
           {ctx.t(
             "أكمل بعض السبرنتات لرؤية اتجاهات السرعة والإنتاجية لفريقك هنا.",
             "Complete a few sprints to see your team's velocity trend and throughput here.",
@@ -71,11 +74,11 @@ export function ReportsOverview({ ctx }: { ctx: ViewCtx }) {
   }
 
   const renderMetricValue = (val: number | null, unit: string = "") => {
-    if (val === null) return <span className="text-slate-400 font-normal text-xl">—</span>;
+    if (val === null) return <span className="text-ink-faint font-normal text-xl">—</span>;
     return (
       <span>
-        {val}
-        {unit && <span className="text-sm font-normal text-slate-500 dark:text-zinc-400 ml-1">{unit}</span>}
+        {fmtNumber(val, ctx.locale)}
+        {unit && <span className="text-sm font-normal text-ink-soft ml-1">{unit}</span>}
       </span>
     );
   };
@@ -84,45 +87,41 @@ export function ReportsOverview({ ctx }: { ctx: ViewCtx }) {
     <div className="space-y-6">
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <Card className="p-5 flex flex-col justify-between">
-          <div className="text-[13px] font-semibold text-slate-500 dark:text-zinc-400">
-            {ctx.t("متوسط السرعة", "Average Velocity")}
-          </div>
-          <div className="mt-3 text-3xl font-bold text-slate-900 dark:text-white mono tracking-tight">
+          <div className="text-[13px] font-semibold text-ink-faint">{ctx.t("متوسط السرعة", "Average Velocity")}</div>
+          <div className="mt-3 text-3xl font-bold text-ink mono tracking-tight">
             {renderMetricValue(data.averageVelocity)}
           </div>
         </Card>
 
         <Card className="p-5 flex flex-col justify-between">
-          <div className="text-[13px] font-semibold text-slate-500 dark:text-zinc-400">
-            {ctx.t("أحدث سرعة", "Latest Velocity")}
-          </div>
-          <div className="mt-3 text-3xl font-bold text-slate-900 dark:text-white mono tracking-tight">
+          <div className="text-[13px] font-semibold text-ink-faint">{ctx.t("أحدث سرعة", "Latest Velocity")}</div>
+          <div className="mt-3 text-3xl font-bold text-ink mono tracking-tight">
             {renderMetricValue(data.latestVelocity)}
           </div>
         </Card>
 
         <Card className="p-5 flex flex-col justify-between">
-          <div className="text-[13px] font-semibold text-slate-500 dark:text-zinc-400">
+          <div className="text-[13px] font-semibold text-ink-faint">
             {ctx.t("متوسط الإنتاجية", "Average Throughput")}
           </div>
-          <div className="mt-3 text-3xl font-bold text-slate-900 dark:text-white mono tracking-tight">
+          <div className="mt-3 text-3xl font-bold text-ink mono tracking-tight">
             {renderMetricValue(data.averageThroughput)}
           </div>
         </Card>
 
         <Card className="p-5 flex flex-col justify-between">
-          <div className="text-[13px] font-semibold text-slate-500 dark:text-zinc-400">
+          <div className="text-[13px] font-semibold text-ink-faint">
             {ctx.t("السبرنتات المكتملة", "Completed Sprints")}
           </div>
-          <div className="mt-3 text-3xl font-bold text-slate-900 dark:text-white mono tracking-tight">
-            {data.completedSprints}
+          <div className="mt-3 text-3xl font-bold text-ink mono tracking-tight">
+            {fmtNumber(data.completedSprints, ctx.locale)}
           </div>
         </Card>
       </div>
 
       {data.latestSprintSummary && (
         <div className="mt-8">
-          <h3 className="mb-4 text-sm font-bold uppercase tracking-wide text-slate-500 dark:text-zinc-400 flex items-center gap-2">
+          <h3 className="mb-4 text-sm font-bold uppercase tracking-wide text-ink-faint flex items-center gap-2">
             <IconRocket size={16} />
             {ctx.t("أحدث سبرنت مكتمل", "Latest Completed Sprint")}
           </h3>

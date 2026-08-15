@@ -16,10 +16,11 @@ import {
 } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import { useMemo, useState } from "react";
-import { Badge, Card, Empty } from "@/components/ui";
+import { Badge, Card, Empty, SegmentedTabs } from "@/components/ui";
 import { IconCalendar, IconPlus } from "@/components/icons";
+import { promptAction } from "@/components/feedback";
 import type { Task, ViewCtx } from "@/lib/types";
-import { PRIORITY_CONFIG, STATUS_CONFIG } from "@/lib/types";
+import { fmtNumber, PRIORITY_CONFIG, STATUS_CONFIG } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import {
   calendarDayFromKey,
@@ -31,12 +32,6 @@ import {
   taskOccursOnCalendarDay,
   type TaskCalendarMode,
 } from "./task-calendar-range";
-
-const modeLabels: Record<TaskCalendarMode, { ar: string; en: string }> = {
-  day: { ar: "يومي", en: "Day" },
-  week: { ar: "أسبوعي", en: "Week" },
-  month: { ar: "شهري", en: "Month" },
-};
 
 function isSameDay(left: Date, right: Date) {
   return calendarDayKey(left) === calendarDayKey(right);
@@ -69,7 +64,7 @@ function CalendarDayDropZone({
       className={cn(
         className,
         "transition-[background-color,box-shadow]",
-        isOver && "bg-indigo-100/80 shadow-[inset_0_0_0_2px_rgb(79_70_229)] dark:bg-indigo-500/15",
+        isOver && "bg-accent/10 shadow-[inset_0_0_0_2px_var(--color-accent)]",
       )}
     >
       {children}
@@ -123,13 +118,13 @@ function TaskCalendarCard({
         opacity: isMoving ? 0.35 : 1,
       }}
       className={cn(
-        "flex w-full items-center overflow-hidden rounded-lg border text-start transition hover:brightness-105 dark:hover:brightness-125",
+        "flex w-full items-center overflow-hidden rounded-lg border text-start transition hover:brightness-105",
         compact ? "text-[10.5px]" : "text-[12px]",
         STATUS_CONFIG[task.status]?.tone === "emerald"
-          ? "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-500/25 dark:bg-emerald-500/10 dark:text-emerald-200"
+          ? "border-emerald-500/25 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200"
           : STATUS_CONFIG[task.status]?.tone === "amber"
-            ? "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-500/25 dark:bg-amber-500/10 dark:text-amber-200"
-            : "border-indigo-200 bg-indigo-50 text-indigo-800 dark:border-indigo-500/25 dark:bg-indigo-500/10 dark:text-indigo-200",
+            ? "border-amber-500/25 bg-amber-500/10 text-amber-800 dark:text-amber-200"
+            : "border-accent/25 bg-accent/10 text-ink",
       )}
     >
       <button
@@ -224,12 +219,16 @@ export function AdvancedTaskCalendar({ ctx }: { ctx: ViewCtx }) {
     return grouped;
   }, [ctx.tasks, days]);
 
-  const createTaskForDay = (day: Date) => {
+  const createTaskForDay = async (day: Date) => {
     if (!ctx.can("tasks.create")) return;
-    const title = prompt(
-      ctx.t(`مهمة جديدة في ${day.toLocaleDateString("ar-SA")}:`, `New task on ${day.toLocaleDateString("en-US")}:`),
-      ctx.t("مهمة مجدولة", "Scheduled task"),
-    );
+    const title = await promptAction({
+      title: ctx.t("مهمة جديدة", "New task"),
+      label: ctx.t(
+        `أدخل عنوان المهمة لتاريخ ${day.toLocaleDateString(ctx.locale === "ar" ? "ar-SA" : "en-US")}:`,
+        `Enter task title for ${day.toLocaleDateString(ctx.locale === "ar" ? "ar-SA" : "en-US")}:`,
+      ),
+      defaultValue: ctx.t("مهمة مجدولة", "Scheduled task"),
+    });
     if (!title?.trim()) return;
     const dueDate = new Date(day.getFullYear(), day.getMonth(), day.getDate(), 12);
     ctx.createTask({ title: title.trim(), dueDate: dueDate.toISOString() });
@@ -282,227 +281,310 @@ export function AdvancedTaskCalendar({ ctx }: { ctx: ViewCtx }) {
       onDragCancel={() => setActiveDrag(null)}
       onDragEnd={handleDragEnd}
     >
-      <Card className="overflow-hidden">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 dark:border-white/[0.06]">
+      <Card className="overflow-hidden border border-line bg-surface">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-3">
           <div className="flex items-center gap-2">
             <button
               onClick={() => setAnchor(shiftCalendarAnchor(anchor, mode, -1))}
               aria-label={ctx.t("الفترة السابقة", "Previous period")}
-              className="grid h-8 w-8 place-items-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-300"
+              className="grid h-8 w-8 place-items-center rounded-lg border border-line bg-surface text-ink-soft hover:bg-raised transition"
             >
-              ‹
+              {ctx.locale === "ar" ? "›" : "‹"}
             </button>
             <button
               onClick={() => setAnchor(new Date())}
-              className="h-8 rounded-lg border border-slate-200 bg-white px-3 text-[11.5px] font-bold text-slate-700 hover:bg-slate-50 dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-300"
+              className="h-8 rounded-lg border border-line bg-surface px-3 text-[11.5px] font-bold text-ink hover:bg-raised transition"
             >
               {ctx.t("اليوم", "Today")}
             </button>
             <button
               onClick={() => setAnchor(shiftCalendarAnchor(anchor, mode, 1))}
               aria-label={ctx.t("الفترة التالية", "Next period")}
-              className="grid h-8 w-8 place-items-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-300"
+              className="grid h-8 w-8 place-items-center rounded-lg border border-line bg-surface text-ink-soft hover:bg-raised transition"
             >
-              ›
+              {ctx.locale === "ar" ? "‹" : "›"}
             </button>
-            <h3 className="ms-2 text-[14px] font-bold text-slate-900 dark:text-white">
-              {formatCalendarTitle(anchor, mode, ctx.locale)}
-            </h3>
+            <h3 className="ms-2 text-[14px] font-bold text-ink">{formatCalendarTitle(anchor, mode, ctx.locale)}</h3>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
             <Badge tone="indigo">
-              {ctx.tasks.filter((task) => task.startDate || task.dueDate).length} {ctx.t("مجدولة", "scheduled")}
+              {fmtNumber(ctx.tasks.filter((task) => task.startDate || task.dueDate).length, ctx.locale)}{" "}
+              {ctx.t("مجدولة", "scheduled")}
             </Badge>
-            <div className="flex rounded-xl border border-slate-200 bg-slate-100 p-1 dark:border-white/10 dark:bg-white/[0.04]">
-              {(Object.keys(modeLabels) as TaskCalendarMode[]).map((key) => (
-                <button
-                  key={key}
-                  onClick={() => setMode(key)}
-                  className={cn(
-                    "rounded-lg px-3 py-1.5 text-[11px] font-bold transition",
-                    mode === key
-                      ? "bg-white text-indigo-700 shadow-sm dark:bg-zinc-800 dark:text-indigo-300"
-                      : "text-slate-500 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-white",
-                  )}
-                >
-                  {ctx.t(modeLabels[key].ar, modeLabels[key].en)}
-                </button>
-              ))}
-            </div>
+            <SegmentedTabs
+              label={ctx.t("طريقة عرض التقويم", "Calendar view mode")}
+              value={mode}
+              onChange={(val) => setMode(val as TaskCalendarMode)}
+              items={[
+                { id: "day", label: ctx.t("يومي", "Day") },
+                { id: "week", label: ctx.t("أسبوعي", "Week") },
+                { id: "month", label: ctx.t("شهري", "Month") },
+              ]}
+            />
           </div>
         </div>
 
-        {mode === "day" && (
-          <div className="p-4">
-            <CalendarDayDropZone
-              day={days[0]!}
-              className="mx-auto max-w-3xl rounded-xl border border-slate-200 dark:border-white/[0.07]"
-            >
-              <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3 dark:border-white/[0.06]">
-                <div>
-                  <div className="text-[13px] font-bold text-slate-900 dark:text-white">
-                    {days[0]!.toLocaleDateString(ctx.locale === "ar" ? "ar-SA" : "en-US", {
-                      weekday: "long",
-                      month: "long",
-                      day: "numeric",
-                    })}
-                  </div>
-                  <div className="text-[10.5px] text-slate-500 dark:text-zinc-500">
-                    {(tasksByDay.get(calendarDayKey(days[0]!)) ?? []).length} {ctx.t("مهمة", "tasks")}
-                  </div>
-                </div>
-                <button
-                  disabled={!ctx.can("tasks.create")}
-                  onClick={() => createTaskForDay(days[0]!)}
-                  className="flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-[11.5px] font-bold text-white disabled:hidden"
+        {mode === "day" &&
+          (() => {
+            const dayTasks = tasksByDay.get(calendarDayKey(days[0]!)) ?? [];
+            return (
+              <div className="p-4">
+                <CalendarDayDropZone
+                  day={days[0]!}
+                  className="mx-auto max-w-3xl rounded-xl border border-line bg-surface"
                 >
-                  <IconPlus size={12} />
-                  {ctx.t("إضافة مهمة", "Add task")}
-                </button>
+                  <div className="flex items-center justify-between border-b border-line px-4 py-3">
+                    <div>
+                      <div className="text-[13px] font-bold text-ink">
+                        {days[0]!.toLocaleDateString(ctx.locale === "ar" ? "ar-SA" : "en-US", {
+                          weekday: "long",
+                          month: "long",
+                          day: "numeric",
+                        })}
+                      </div>
+                      <div className="text-[10.5px] text-ink-faint">
+                        {fmtNumber(dayTasks.length, ctx.locale)} {ctx.t("مهام", "tasks")}
+                      </div>
+                    </div>
+                    <button
+                      disabled={!ctx.can("tasks.create")}
+                      onClick={() => void createTaskForDay(days[0]!)}
+                      className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-[11.5px] font-bold text-white transition hover:brightness-110 disabled:hidden"
+                    >
+                      <IconPlus size={12} />
+                      {ctx.t("إضافة مهمة", "Add task")}
+                    </button>
+                  </div>
+                  <div className="space-y-2 p-4">
+                    {dayTasks.map((task) => (
+                      <TaskCalendarCard key={task.id} task={task} ctx={ctx} day={days[0]!} />
+                    ))}
+                    {dayTasks.length === 0 && (
+                      <Empty
+                        icon={<IconCalendar size={22} />}
+                        title={ctx.t("لا توجد مهام في هذا اليوم", "No tasks on this day")}
+                        action={
+                          ctx.can("tasks.create") ? (
+                            <button
+                              onClick={() => void createTaskForDay(days[0]!)}
+                              className="text-[12px] font-bold text-accent hover:underline"
+                            >
+                              {ctx.t("إنشاء مهمة مجدولة", "Create a scheduled task")}
+                            </button>
+                          ) : undefined
+                        }
+                      />
+                    )}
+                  </div>
+                </CalendarDayDropZone>
               </div>
-              <div className="space-y-2 p-4">
-                {(tasksByDay.get(calendarDayKey(days[0]!)) ?? []).map((task) => (
-                  <TaskCalendarCard key={task.id} task={task} ctx={ctx} day={days[0]!} />
-                ))}
-                {(tasksByDay.get(calendarDayKey(days[0]!)) ?? []).length === 0 && (
-                  <Empty
-                    icon={<IconCalendar size={22} />}
-                    title={ctx.t("لا توجد مهام في هذا اليوم", "No tasks on this day")}
-                    action={
-                      ctx.can("tasks.create") ? (
-                        <button
-                          onClick={() => createTaskForDay(days[0]!)}
-                          className="text-[12px] font-bold text-indigo-600 dark:text-indigo-300"
-                        >
-                          {ctx.t("إنشاء مهمة مجدولة", "Create a scheduled task")}
-                        </button>
-                      ) : undefined
-                    }
-                  />
-                )}
-              </div>
-            </CalendarDayDropZone>
-          </div>
-        )}
+            );
+          })()}
 
         {mode === "week" && (
-          <div className="overflow-x-auto">
-            <div className="grid min-w-[980px] grid-cols-7">
+          <>
+            <div className="space-y-2 p-3 sm:hidden">
               {days.map((day) => {
                 const dayTasks = tasksByDay.get(calendarDayKey(day)) ?? [];
                 return (
-                  <CalendarDayDropZone
+                  <div
                     key={calendarDayKey(day)}
-                    day={day}
                     className={cn(
-                      "min-h-[430px] border-e border-slate-100 p-2.5 last:border-e-0 dark:border-white/[0.05]",
-                      isSameDay(day, today) && "bg-indigo-50/50 dark:bg-indigo-500/[0.04]",
+                      "rounded-xl border border-line p-3 transition",
+                      isSameDay(day, today) && "border-accent/40 bg-accent/5",
                     )}
                   >
-                    <div className="mb-3 flex items-center justify-between">
-                      <div>
-                        <div className="text-[10px] font-bold uppercase text-slate-400 dark:text-zinc-500">
-                          {day.toLocaleDateString(ctx.locale === "ar" ? "ar-SA" : "en-US", { weekday: "short" })}
-                        </div>
-                        <div
+                    <div className="mb-2 flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span
                           className={cn(
-                            "mt-0.5 text-[16px] font-bold text-slate-700 dark:text-zinc-300",
-                            isSameDay(day, today) && "text-indigo-600 dark:text-indigo-300",
+                            "grid h-6 w-6 place-items-center rounded-lg text-[12px] font-bold",
+                            isSameDay(day, today) ? "bg-accent text-white" : "bg-raised text-ink",
                           )}
                         >
-                          {day.getDate()}
-                        </div>
+                          {fmtNumber(day.getDate(), ctx.locale)}
+                        </span>
+                        <span className="text-[12px] font-semibold text-ink">
+                          {day.toLocaleDateString(ctx.locale === "ar" ? "ar-SA" : "en-US", { weekday: "long" })}
+                        </span>
                       </div>
                       <button
                         disabled={!ctx.can("tasks.create")}
-                        onClick={() => createTaskForDay(day)}
-                        className="grid h-6 w-6 place-items-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-indigo-600 disabled:hidden dark:hover:bg-white/[0.06]"
+                        onClick={() => void createTaskForDay(day)}
+                        className="flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-semibold text-accent hover:bg-accent/10 disabled:hidden"
                       >
                         <IconPlus size={12} />
+                        <span>{ctx.t("إضافة", "Add")}</span>
                       </button>
                     </div>
-                    <div className="space-y-1.5">
-                      {dayTasks.map((task) => (
-                        <TaskCalendarCard key={task.id} task={task} ctx={ctx} day={day} compact />
-                      ))}
-                    </div>
-                  </CalendarDayDropZone>
+                    {dayTasks.length > 0 ? (
+                      <div className="space-y-1.5">
+                        {dayTasks.map((task) => (
+                          <TaskCalendarCard key={task.id} task={task} ctx={ctx} day={day} compact />
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-[11px] text-ink-faint">{ctx.t("لا توجد مهام", "No tasks")}</div>
+                    )}
+                  </div>
                 );
               })}
             </div>
-          </div>
+            <div className="hidden overflow-x-auto overscroll-x-contain sm:block">
+              <div className="grid min-w-[980px] grid-cols-7">
+                {days.map((day) => {
+                  const dayTasks = tasksByDay.get(calendarDayKey(day)) ?? [];
+                  return (
+                    <CalendarDayDropZone
+                      key={calendarDayKey(day)}
+                      day={day}
+                      className={cn(
+                        "min-h-[430px] border-e border-b border-line p-2.5 last:border-e-0",
+                        isSameDay(day, today) && "bg-accent/5",
+                      )}
+                    >
+                      <div className="mb-3 flex items-center justify-between">
+                        <div>
+                          <div className="text-[10px] font-bold uppercase text-ink-faint">
+                            {day.toLocaleDateString(ctx.locale === "ar" ? "ar-SA" : "en-US", { weekday: "short" })}
+                          </div>
+                          <div
+                            className={cn(
+                              "mt-0.5 text-[16px] font-bold text-ink",
+                              isSameDay(day, today) && "text-accent",
+                            )}
+                          >
+                            {fmtNumber(day.getDate(), ctx.locale)}
+                          </div>
+                        </div>
+                        <button
+                          disabled={!ctx.can("tasks.create")}
+                          onClick={() => void createTaskForDay(day)}
+                          className="grid h-6 w-6 place-items-center rounded-md text-ink-soft hover:bg-raised hover:text-accent focus-visible:opacity-100 disabled:hidden transition"
+                        >
+                          <IconPlus size={12} />
+                        </button>
+                      </div>
+                      <div className="space-y-1.5">
+                        {dayTasks.map((task) => (
+                          <TaskCalendarCard key={task.id} task={task} ctx={ctx} day={day} compact />
+                        ))}
+                      </div>
+                    </CalendarDayDropZone>
+                  );
+                })}
+              </div>
+            </div>
+          </>
         )}
 
         {mode === "month" && (
           <>
-            <div className="grid grid-cols-7 border-b border-slate-100 dark:border-white/[0.06]">
-              {days.slice(0, 7).map((day) => (
-                <div
-                  key={calendarDayKey(day)}
-                  className="border-e border-slate-100 px-3 py-2.5 text-center text-[10.5px] font-semibold uppercase tracking-wider text-slate-500 last:border-e-0 dark:border-white/[0.04] dark:text-zinc-500"
-                >
-                  {day.toLocaleDateString(ctx.locale === "ar" ? "ar-SA" : "en-US", { weekday: "short" })}
-                </div>
-              ))}
+            <div className="p-2 sm:hidden">
+              <div className="grid grid-cols-7 gap-1">
+                {days.map((day) => {
+                  const dayTasks = tasksByDay.get(calendarDayKey(day)) ?? [];
+                  const inMonth = day.getMonth() === anchor.getMonth();
+                  return (
+                    <button
+                      key={calendarDayKey(day)}
+                      type="button"
+                      onClick={() => {
+                        setAnchor(day);
+                        setMode("day");
+                      }}
+                      className={cn(
+                        "flex flex-col items-center rounded-xl p-1.5 text-center transition",
+                        !inMonth && "opacity-30",
+                        isSameDay(day, today) ? "bg-accent text-white" : "hover:bg-raised text-ink",
+                      )}
+                    >
+                      <span className="text-[11px] font-bold">{fmtNumber(day.getDate(), ctx.locale)}</span>
+                      {dayTasks.length > 0 && (
+                        <span
+                          className={cn(
+                            "mt-1 h-1.5 w-1.5 rounded-full",
+                            isSameDay(day, today) ? "bg-white" : "bg-accent",
+                          )}
+                        />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
-            <div className="grid grid-cols-7">
-              {days.map((day) => {
-                const dayTasks = tasksByDay.get(calendarDayKey(day)) ?? [];
-                const inMonth = day.getMonth() === anchor.getMonth();
-                return (
-                  <CalendarDayDropZone
-                    key={calendarDayKey(day)}
-                    day={day}
-                    className={cn(
-                      "group min-h-[112px] border-b border-e border-slate-100 p-2 last:border-e-0 dark:border-white/[0.04]",
-                      !inMonth && "bg-slate-50/70 dark:bg-white/[0.01]",
-                      isSameDay(day, today) && "bg-indigo-50/60 dark:bg-indigo-500/[0.05]",
-                    )}
-                  >
-                    <div className="mb-1.5 flex items-center justify-between">
-                      <span
+            <div className="hidden overflow-x-auto overscroll-x-contain sm:block">
+              <div className="min-w-[640px]">
+                <div className="grid grid-cols-7 border-b border-line">
+                  {days.slice(0, 7).map((day) => (
+                    <div
+                      key={calendarDayKey(day)}
+                      className="border-e border-line px-3 py-2.5 text-center text-[10.5px] font-semibold uppercase tracking-wider text-ink-faint last:border-e-0"
+                    >
+                      {day.toLocaleDateString(ctx.locale === "ar" ? "ar-SA" : "en-US", { weekday: "short" })}
+                    </div>
+                  ))}
+                </div>
+                <div className="grid grid-cols-7">
+                  {days.map((day) => {
+                    const dayTasks = tasksByDay.get(calendarDayKey(day)) ?? [];
+                    const inMonth = day.getMonth() === anchor.getMonth();
+                    return (
+                      <CalendarDayDropZone
+                        key={calendarDayKey(day)}
+                        day={day}
                         className={cn(
-                          "grid h-6 w-6 place-items-center rounded-lg text-[11px] font-semibold",
-                          inMonth ? "text-slate-700 dark:text-zinc-400" : "text-slate-400 dark:text-zinc-700",
-                          isSameDay(day, today) && "bg-indigo-600 text-white dark:text-white",
+                          "group min-h-28 border-e border-b border-line p-2 last:border-e-0",
+                          !inMonth && "bg-raised/30 text-ink-faint",
+                          isSameDay(day, today) && "bg-accent/5",
                         )}
                       >
-                        {day.getDate()}
-                      </span>
-                      <button
-                        disabled={!ctx.can("tasks.create")}
-                        onClick={() => createTaskForDay(day)}
-                        className="grid h-5 w-5 place-items-center rounded text-slate-400 opacity-0 hover:bg-slate-200/60 hover:text-indigo-600 disabled:hidden group-hover:opacity-100 dark:hover:bg-white/[0.06]"
-                      >
-                        <IconPlus size={11} />
-                      </button>
-                    </div>
-                    <div className="space-y-1">
-                      {dayTasks.slice(0, 3).map((task) => (
-                        <TaskCalendarCard key={task.id} task={task} ctx={ctx} day={day} compact />
-                      ))}
-                      {dayTasks.length > 3 && (
-                        <button
-                          onClick={() => {
-                            setAnchor(day);
-                            setMode("day");
-                          }}
-                          className="px-1 text-[10px] font-semibold text-indigo-600 dark:text-indigo-300"
-                        >
-                          +{dayTasks.length - 3} {ctx.t("أخرى", "more")}
-                        </button>
-                      )}
-                    </div>
-                  </CalendarDayDropZone>
-                );
-              })}
+                        <div className="mb-1.5 flex items-center justify-between">
+                          <span
+                            className={cn(
+                              "grid h-6 w-6 place-items-center rounded-lg text-[11px] font-semibold",
+                              inMonth ? "text-ink" : "text-ink-faint",
+                              isSameDay(day, today) && "bg-accent text-white",
+                            )}
+                          >
+                            {fmtNumber(day.getDate(), ctx.locale)}
+                          </span>
+                          <button
+                            disabled={!ctx.can("tasks.create")}
+                            onClick={() => void createTaskForDay(day)}
+                            className="grid h-5 w-5 place-items-center rounded text-ink-soft opacity-0 hover:bg-raised hover:text-accent focus-visible:opacity-100 disabled:hidden group-hover:opacity-100 transition"
+                          >
+                            <IconPlus size={11} />
+                          </button>
+                        </div>
+                        <div className="space-y-1">
+                          {dayTasks.slice(0, 3).map((task) => (
+                            <TaskCalendarCard key={task.id} task={task} ctx={ctx} day={day} compact />
+                          ))}
+                          {dayTasks.length > 3 && (
+                            <button
+                              onClick={() => {
+                                setAnchor(day);
+                                setMode("day");
+                              }}
+                              className="px-1 text-[10px] font-semibold text-accent hover:underline"
+                            >
+                              +{fmtNumber(dayTasks.length - 3, ctx.locale)} {ctx.t("أخرى", "more")}
+                            </button>
+                          )}
+                        </div>
+                      </CalendarDayDropZone>
+                    );
+                  })}
+                </div>
+              </div>
             </div>
           </>
         )}
       </Card>
       <DragOverlay>
         {activeDrag ? (
-          <div className="max-w-72 rounded-lg border border-indigo-300 bg-white px-3 py-2 text-[12px] font-bold text-indigo-800 shadow-xl dark:border-indigo-400/30 dark:bg-zinc-900 dark:text-indigo-200">
+          <div className="max-w-72 rounded-lg border border-accent/30 bg-surface px-3 py-2 text-[12px] font-bold text-ink shadow-xl">
             {activeDrag.type === "move" ? ctx.t("نقل", "Move") : ctx.t("تغيير المدة", "Resize")} ·{" "}
             {activeDrag.task.serial} · {activeDrag.task.title}
           </div>

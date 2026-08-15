@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ViewCtx } from "@/lib/types";
+import { confirmAction } from "@/components/feedback";
 import {
   disconnectOAuthIntegration,
   integrationOAuthProviders,
@@ -23,14 +24,16 @@ export function useIntegrationCredentials(ctx: ViewCtx) {
   const [credentials, setCredentials] = useState<IntegrationCredentialSummary[]>([]);
   const [availability, setAvailability] = useState<IntegrationOAuthAvailability>(unavailableProviders);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [pendingProvider, setPendingProvider] = useState<IntegrationOAuthProvider | null>(null);
 
   const refresh = useCallback(async () => {
     if (!ctx.can("integrations.manage") || !ctx.activeOrg?.id || !ctx.activeWorkspace?.id || !ctx.currentUser?.id) {
-      setCredentials([]);
       setLoading(false);
       return;
     }
     setLoading(true);
+    setLoadError(null);
     try {
       const [listedCredentials, providerAvailability] = await Promise.all([
         listIntegrationCredentials({
@@ -42,10 +45,13 @@ export function useIntegrationCredentials(ctx: ViewCtx) {
       ]);
       setCredentials(listedCredentials);
       setAvailability(providerAvailability);
-    } catch {
-      setCredentials([]);
-      setAvailability(unavailableProviders);
-      ctx.notify(ctx.t("تعذر تحميل حالة التكاملات", "Unable to load integration status"), "error");
+    } catch (error) {
+      const readableError =
+        error instanceof Error
+          ? error.message
+          : ctx.t("تعذر تحميل حالة التكاملات", "Unable to load integration status");
+      setLoadError(readableError);
+      ctx.notify(readableError, "error");
     } finally {
       setLoading(false);
     }
@@ -83,7 +89,7 @@ export function useIntegrationCredentials(ctx: ViewCtx) {
   );
 
   const toggle = async (provider: IntegrationOAuthProvider) => {
-    if (!ctx.can("integrations.manage")) return;
+    if (!ctx.can("integrations.manage") || pendingProvider !== null) return;
     if (!ctx.activeOrg?.id || !ctx.activeWorkspace?.id || !ctx.currentUser?.id) return;
     const credential = credentialByProvider.get(provider);
     if (!credential && !availability[provider]) {
@@ -100,6 +106,18 @@ export function useIntegrationCredentials(ctx: ViewCtx) {
       );
       return;
     }
+
+    const confirmed = await confirmAction({
+      title: ctx.t("فصل التكامل", "Disconnect integration"),
+      message: ctx.t(
+        "هل أنت متأكد من فصل هذا التكامل وإبطال رموز الوصول الخاصة به؟",
+        "Are you sure you want to disconnect this integration and revoke its access tokens?",
+      ),
+      tone: "danger",
+    });
+    if (!confirmed) return;
+
+    setPendingProvider(provider);
     try {
       await disconnectOAuthIntegration(provider, {
         organizationId: ctx.activeOrg.id,
@@ -110,8 +128,10 @@ export function useIntegrationCredentials(ctx: ViewCtx) {
       ctx.notify(ctx.t("تم فصل التكامل وإبطال اعتماده", "Integration disconnected and credential revoked"));
     } catch {
       ctx.notify(ctx.t("تعذر فصل التكامل", "Unable to disconnect integration"), "error");
+    } finally {
+      setPendingProvider(null);
     }
   };
 
-  return { availability, credentialByProvider, loading, toggle, refresh };
+  return { availability, credentialByProvider, loading, loadError, pendingProvider, toggle, refresh };
 }

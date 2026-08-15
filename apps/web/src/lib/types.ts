@@ -540,6 +540,7 @@ export type ViewCtx = {
   notifications: Notification[];
   openNotification: (notification: Notification) => void;
   markAllNotificationsRead: () => Promise<void>;
+  markAsRead?: (id: string) => Promise<void>;
   savedViews: SavedView[];
   forms: Form[];
   invoices: Invoice[];

@@ -35,7 +35,7 @@ export function useTimesheetOperations(input: TimesheetOperationsInput) {
       replaceTimesheet(updated);
       notify(t("تم إرسال الجدول للمراجعة", "Timesheet submitted for review"));
     } catch (error) {
-      notify(error instanceof Error ? error.message : t("تعذر إرسال الجدول", "Could not submit timesheet"), "error");
+      notify(t("تعذر إرسال الجدول. حاول مجدداً.", "Could not submit timesheet. Try again."), "error");
     }
   };
 
@@ -53,8 +53,8 @@ export function useTimesheetOperations(input: TimesheetOperationsInput) {
           ? t("تم اعتماد الفترة وقفلها", "Timesheet approved and locked")
           : t("تم رفض الجدول وإعادته للعضو", "Timesheet rejected and returned"),
       );
-    } catch (error) {
-      notify(error instanceof Error ? error.message : t("تعذر تحديث الجدول", "Could not update timesheet"), "error");
+    } catch {
+      notify(t("تعذر تحديث الجدول. حاول مجدداً.", "Could not update timesheet. Try again."), "error");
     }
   };
 

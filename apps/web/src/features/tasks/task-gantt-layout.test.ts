@@ -22,7 +22,7 @@ describe("Gantt layout contract", () => {
     assert.match(source, /function isWeekend/);
     assert.match(source, /function taskBarTone/);
     assert.match(source, /conflictingTaskIds/);
-    assert.match(source, /outline outline-2 outline-offset-2 outline-rose-500/);
+    assert.match(source, /outline-2 outline-offset-2 outline-rose-500/);
   });
 
   it("mirrors the complete timeline for Arabic instead of only aligning its text", () => {

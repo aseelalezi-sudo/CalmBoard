@@ -10,8 +10,8 @@ describe("dropdown viewport and focus contract", () => {
   it("keeps topbar account and project menus inside the mobile viewport", () => {
     const user = source("./user-profile-dropdown.tsx");
     const project = source("./project-switcher-dropdown.tsx");
-    assert.match(user, /fixed inset-x-2 top-\[4\.5rem\]/);
-    assert.match(project, /fixed inset-x-2 top-\[4\.5rem\]/);
+    assert.match(user, /fixed inset-x-2 (?:top-18|top-\[4\.5rem\])/);
+    assert.match(project, /fixed inset-x-2 (?:top-18|top-\[4\.5rem\])/);
     assert.match(user, /100dvh/);
   });
 

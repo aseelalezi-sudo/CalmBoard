@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError } from "@/lib/client-api";
 import type {
   Activity,
@@ -71,24 +71,34 @@ export function useWorkspaceData(t: Translator, notify: Notify) {
   const [loading, setLoading] = useState(true);
   const [dataError, setDataError] = useState<string | null>(null);
 
+  const fetchRequestIdRef = useRef(0);
+  const moduleRequestIdRef = useRef(0);
+
   const loadWorkspaceModules = useCallback(async (workspaceId: string, organizationId?: string, userId?: string) => {
-    const modules = await getWorkspaceModules(workspaceId, organizationId, userId);
-    setAuthorization(modules.authorization);
-    setDocs(modules.docs);
-    setGoals(modules.goals);
-    setAutomations(modules.automations);
-    setAutomationRuns(modules.automationRuns);
-    setActivities(modules.activities);
-    setSavedViews(modules.savedViews);
-    setTimeLogs(modules.timeLogs);
-    setTimesheets(modules.timesheets);
-    setTimesheetReviewQueue(modules.timesheetReviewQueue);
-    setTimeTotals(modules.timeTotals);
-    setMembers(modules.members);
-    setInvitations(modules.invitations);
-    setForms(modules.forms);
-    setInvoices(modules.invoices);
-    setCustomFields(modules.customFields);
+    const moduleReqId = ++moduleRequestIdRef.current;
+    try {
+      const modules = await getWorkspaceModules(workspaceId, organizationId, userId);
+      if (moduleReqId !== moduleRequestIdRef.current) return;
+      setAuthorization(modules.authorization);
+      setDocs(modules.docs);
+      setGoals(modules.goals);
+      setAutomations(modules.automations);
+      setAutomationRuns(modules.automationRuns);
+      setActivities(modules.activities);
+      setSavedViews(modules.savedViews);
+      setTimeLogs(modules.timeLogs);
+      setTimesheets(modules.timesheets);
+      setTimesheetReviewQueue(modules.timesheetReviewQueue);
+      setTimeTotals(modules.timeTotals);
+      setMembers(modules.members);
+      setInvitations(modules.invitations);
+      setForms(modules.forms);
+      setInvoices(modules.invoices);
+      setCustomFields(modules.customFields);
+    } catch (error) {
+      // Failed modules were not replaced with empty data
+      throw error;
+    }
   }, []);
 
   const refreshWorkspaceScope = useCallback(
@@ -107,6 +117,7 @@ export function useWorkspaceData(t: Translator, notify: Notify) {
   );
 
   const fetchData = useCallback(async () => {
+    const requestId = ++fetchRequestIdRef.current;
     try {
       setLoading(true);
       setDataError(null);
@@ -115,6 +126,8 @@ export function useWorkspaceData(t: Translator, notify: Notify) {
         queryFn: getCurrentSession,
         staleTime: 0,
       });
+      if (requestId !== fetchRequestIdRef.current) return;
+
       const authenticatedUser = auth?.user;
       if (authenticatedUser) setCurrentUser(authenticatedUser);
       const directory = authenticatedUser
@@ -124,6 +137,7 @@ export function useWorkspaceData(t: Translator, notify: Notify) {
           })
         : { workspaces: [], organizations: [], users: [], teams: [] };
 
+      if (requestId !== fetchRequestIdRef.current) return;
       if (!directory.workspaces?.length) return;
 
       setWorkspaces(directory.workspaces);
@@ -154,6 +168,7 @@ export function useWorkspaceData(t: Translator, notify: Notify) {
       }
       await loadWorkspaceModules(workspace.id, organization?.id, user?.id);
     } catch (error) {
+      if (requestId !== fetchRequestIdRef.current) return;
       if (error instanceof ApiError && error.status === 401) {
         setCurrentUser(null);
         setAuthorization(null);
@@ -161,11 +176,13 @@ export function useWorkspaceData(t: Translator, notify: Notify) {
         return;
       }
       console.error(error);
-      const message = error instanceof Error ? error.message : t("تعذر تحميل البيانات", "Failed to load data");
+      const message = t("تعذر تحميل البيانات", "Failed to load data");
       setDataError(message);
       notify(message, "error");
     } finally {
-      setLoading(false);
+      if (requestId === fetchRequestIdRef.current) {
+        setLoading(false);
+      }
     }
   }, [loadWorkspaceModules, notify, queryClient, t]);
 

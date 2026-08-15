@@ -75,7 +75,7 @@ export function readableError(error: unknown, fallback?: string) {
 }
 
 export function apiServiceUrl(path: string) {
-  const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
+  const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:5500";
   return `${baseUrl.replace(/\/$/, "")}/${path.replace(/^\//, "")}`;
 }
 
@@ -135,7 +135,10 @@ async function refreshSession() {
     refreshInFlight = requestInit(apiServiceUrl("/auth/refresh"), { method: "POST" })
       .then((request) => networkFetch(apiServiceUrl("/auth/refresh"), request))
       .then((response) => response.ok)
-      .catch(() => false)
+      .catch((error) => {
+        if (error instanceof ApiError && error.status === 0) throw error;
+        return false;
+      })
       .finally(() => {
         refreshInFlight = undefined;
       });

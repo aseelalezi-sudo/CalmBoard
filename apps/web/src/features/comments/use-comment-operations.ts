@@ -1,5 +1,6 @@
 import type { Dispatch, SetStateAction } from "react";
 import type { Comment, Organization, Task, User, Workspace } from "@/lib/types";
+import { confirmAction } from "@/components/feedback";
 import { createCommentRecord, deleteCommentRecord, updateCommentRecord } from "@/features/comments/api";
 
 type Setter<T> = Dispatch<SetStateAction<T>>;
@@ -70,7 +71,12 @@ export function useCommentOperations(input: CommentOperationsInput) {
 
   const deleteComment = async (id: string) => {
     if (!activeOrg || !activeWorkspace) return;
-    if (!confirm(t("هل أنت متأكد من حذف التعليق؟", "Delete comment?"))) return;
+    const confirmed = await confirmAction({
+      title: t("حذف التعليق", "Delete comment"),
+      message: t("هل أنت متأكد من حذف التعليق؟", "Delete comment?"),
+      tone: "danger",
+    });
+    if (!confirmed) return;
     setComments((previous) => previous.filter((comment) => comment.id !== id));
     await deleteCommentRecord(id, {
       organizationId: activeOrg.id,

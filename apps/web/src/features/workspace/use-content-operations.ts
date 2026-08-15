@@ -77,8 +77,9 @@ export function useContentOperations(input: ContentOperationsInput) {
     try {
       replaceGoal(await checkInGoalRecord(id, checkin, scope));
       notify(t("تم تسجيل تقدم الهدف ✓", "Goal check-in recorded ✓"));
-    } catch {
+    } catch (error) {
       notify(t("تعذر تسجيل تقدم الهدف", "Failed to record goal check-in"), "error");
+      throw error;
     }
   };
 
@@ -88,8 +89,9 @@ export function useContentOperations(input: ContentOperationsInput) {
     try {
       replaceGoal(await linkGoalTaskRecord(goalId, taskId, weight, scope));
       notify(t("تم ربط المهمة بالنتيجة الرئيسية", "Task linked to key result"));
-    } catch {
+    } catch (error) {
       notify(t("تعذر ربط المهمة بالنتيجة الرئيسية", "Failed to link task"), "error");
+      throw error;
     }
   };
 
@@ -98,8 +100,9 @@ export function useContentOperations(input: ContentOperationsInput) {
     if (!scope) return;
     try {
       replaceGoal(await unlinkGoalTaskRecord(goalId, taskId, scope));
-    } catch {
+    } catch (error) {
       notify(t("تعذر إزالة ارتباط المهمة", "Failed to unlink task"), "error");
+      throw error;
     }
   };
 
@@ -114,12 +117,12 @@ export function useContentOperations(input: ContentOperationsInput) {
         workspaceId: activeWorkspace.id,
         actorId: currentUser?.id,
       });
-    } catch {
+    } catch (error) {
       setAutomations((previous) =>
         previous.map((automation) => (automation.id === id ? { ...automation, enabled: !enabled } : automation)),
       );
       notify(t("تعذر تحديث قاعدة الأتمتة", "Failed to update automation"), "error");
-      return;
+      throw error;
     }
     notify(enabled ? t("فُعّلت القاعدة", "Rule enabled") : t("عُطّلت القاعدة", "Rule disabled"));
   };

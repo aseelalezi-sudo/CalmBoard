@@ -7,7 +7,7 @@ const shell = readFileSync(new URL("../shell/calmboard-app.tsx", import.meta.url
 
 test("derived creation steps refresh from persisted workspace data", () => {
   assert.match(checklist, /progressKey: string/);
-  assert.match(checklist, /\[scope, props\.progressKey, retryKey\]/);
+  assert.match(checklist, /\[scope, progressKey, retryKey, t\]/);
   assert.match(shell, /progressKey=\{`\$\{projects\.length\}:\$\{tasks\.length\}:\$\{invitations\.length\}`\}/);
   assert.match(checklist, /step !== "board_explored"/);
   assert.doesNotMatch(

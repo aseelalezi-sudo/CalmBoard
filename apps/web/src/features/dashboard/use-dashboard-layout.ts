@@ -19,6 +19,7 @@ export function useDashboardLayout({
 }) {
   const [widgets, setWidgets] = useState<DashboardWidget[]>(defaultDashboardWidgets);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const versionRef = useRef(0);
   const queueRef = useRef(Promise.resolve());
@@ -31,11 +32,13 @@ export function useDashboardLayout({
       if (scopeRef.current === requestedScopeKey) {
         setWidgets(defaultDashboardWidgets);
         versionRef.current = 0;
+        setLoadError(null);
         setLoading(false);
       }
       return;
     }
     setLoading(true);
+    setLoadError(null);
     try {
       const layout = await getDashboardLayout({
         organizationId: activeOrg.id,
@@ -46,12 +49,10 @@ export function useDashboardLayout({
       versionRef.current = layout.version;
     } catch (error) {
       if (scopeRef.current !== requestedScopeKey) return;
-      setWidgets(defaultDashboardWidgets);
-      versionRef.current = 0;
-      notify(
-        error instanceof Error ? error.message : t("تعذر تحميل تخطيط لوحة التحكم", "Could not load dashboard layout"),
-        "error",
-      );
+      const readableError =
+        error instanceof Error ? error.message : t("تعذر تحميل تخطيط لوحة التحكم", "Could not load dashboard layout");
+      setLoadError(readableError);
+      notify(readableError, "error");
     } finally {
       if (scopeRef.current === requestedScopeKey) setLoading(false);
     }
@@ -65,7 +66,7 @@ export function useDashboardLayout({
   }, [load, scopeKey]);
 
   const save = (nextWidgets: DashboardWidget[]) => {
-    if (!activeOrg || !activeWorkspace) return;
+    if (!activeOrg || !activeWorkspace || loading || loadError) return;
     setWidgets(nextWidgets);
     setSaving(true);
     const scope = { organizationId: activeOrg.id, workspaceId: activeWorkspace.id };
@@ -88,5 +89,13 @@ export function useDashboardLayout({
       });
   };
 
-  return { widgets, loading, saving, save, reset: () => save(defaultDashboardWidgets) };
+  return {
+    widgets,
+    loading,
+    loadError,
+    saving,
+    save,
+    reset: () => save(defaultDashboardWidgets),
+    retry: load,
+  };
 }

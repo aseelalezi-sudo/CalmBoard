@@ -41,7 +41,7 @@ describe("mobile layout contract", () => {
   it("pins notifications to the mobile viewport instead of the crowded trigger row", () => {
     const shell = source("./calmboard-app.tsx");
 
-    assert.match(shell, /fixed inset-x-2 top-\[4\.5rem\]/);
+    assert.match(shell, /fixed inset-x-2 (?:top-18|top-\[4\.5rem\])/);
     assert.match(shell, /max-h-\[calc\(100dvh-5rem\)\]/);
     assert.match(shell, /dropdown-options min-h-0 flex-1/);
   });

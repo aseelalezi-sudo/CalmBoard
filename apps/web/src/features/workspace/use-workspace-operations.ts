@@ -1,4 +1,5 @@
 import { useRef, type Dispatch, type SetStateAction } from "react";
+import { confirmAction } from "@/components/feedback";
 import type {
   CustomField,
   Form,
@@ -114,31 +115,39 @@ export function useWorkspaceOperations(input: WorkspaceOperationsInput) {
 
   const markAllRead = async () => {
     if (!currentUser || !activeOrg || !activeWorkspace) return;
-    await markNotificationsRead({
-      userId: currentUser.id,
-      organizationId: activeOrg.id,
-      workspaceId: activeWorkspace.id,
-      markAllRead: true,
-    });
-    setNotifications((previous) => previous.map((notification) => ({ ...notification, isRead: true })));
+    try {
+      await markNotificationsRead({
+        userId: currentUser.id,
+        organizationId: activeOrg.id,
+        workspaceId: activeWorkspace.id,
+        markAllRead: true,
+      });
+      setNotifications((previous) => previous.map((notification) => ({ ...notification, isRead: true })));
+      notify(t("تم تعليم جميع الإشعارات كمقروءة", "All notifications marked as read"));
+    } catch {
+      notify(t("تعذر تعليم الإشعارات كمقروءة", "Failed to mark notifications as read"), "error");
+    }
   };
 
   const markAsRead = async (id: string) => {
     if (!currentUser || !activeOrg || !activeWorkspace) return;
-    await markNotificationsRead({
-      userId: currentUser.id,
-      organizationId: activeOrg.id,
-      workspaceId: activeWorkspace.id,
-      id,
-    });
-    setNotifications((previous) =>
-      previous.map((notification) => (notification.id === id ? { ...notification, isRead: true } : notification)),
-    );
+    try {
+      await markNotificationsRead({
+        userId: currentUser.id,
+        organizationId: activeOrg.id,
+        workspaceId: activeWorkspace.id,
+        id,
+      });
+      setNotifications((previous) =>
+        previous.map((notification) => (notification.id === id ? { ...notification, isRead: true } : notification)),
+      );
+    } catch {
+      // safe fallback
+    }
   };
 
   const updateMemberRole = async (id: string, role: string) => {
     if (!activeOrg || !activeWorkspace || !currentUser) return;
-    setMembers((previous) => previous.map((member) => (member.id === id ? { ...member, role } : member)));
     try {
       await updateMemberRoleRecord({
         id,
@@ -147,49 +156,61 @@ export function useWorkspaceOperations(input: WorkspaceOperationsInput) {
         workspaceId: activeWorkspace.id,
         actorId: currentUser.id,
       });
-    } catch (error) {
+      setMembers((previous) => previous.map((member) => (member.id === id ? { ...member, role } : member)));
+      notify(t("حُدّث الدور", "Role updated"));
+    } catch {
       await loadWorkspaceModules(activeWorkspace.id, activeOrg.id, currentUser.id);
-      notify(error instanceof Error ? error.message : t("تعذر تحديث الدور", "Failed to update role"), "error");
-      return;
+      notify(t("تعذر تحديث الدور. حاول مجدداً.", "Could not update role. Try again."), "error");
     }
-    notify(t("حُدّث الدور", "Role updated"));
   };
 
   const resendInvitation = async (id: string) => {
     if (!activeOrg || !activeWorkspace || !currentUser) return;
-    const updated = (await resendInvitationRecord(id, {
-      organizationId: activeOrg.id,
-      workspaceId: activeWorkspace.id,
-      actorId: currentUser.id,
-    })) as Invitation;
-    setInvitations((previous) => previous.map((invitation) => (invitation.id === id ? updated : invitation)));
-    notify(t("تم تدوير رمز الدعوة وإعادة إرسالها", "Invitation token rotated and resent"));
+    try {
+      const updated = (await resendInvitationRecord(id, {
+        organizationId: activeOrg.id,
+        workspaceId: activeWorkspace.id,
+        actorId: currentUser.id,
+      })) as Invitation;
+      setInvitations((previous) => previous.map((invitation) => (invitation.id === id ? updated : invitation)));
+      notify(t("تم تدوير رمز الدعوة وإعادة إرسالها", "Invitation token rotated and resent"));
+    } catch {
+      notify(t("تعذر إعادة إرسال الدعوة. حاول مجدداً.", "Could not resend invitation. Try again."), "error");
+    }
   };
 
   const revokeInvitation = async (id: string) => {
     if (!activeOrg || !activeWorkspace || !currentUser) return;
-    await revokeInvitationRecord(id, {
-      organizationId: activeOrg.id,
-      workspaceId: activeWorkspace.id,
-      actorId: currentUser.id,
-    });
-    setInvitations((previous) =>
-      previous.map((invitation) => (invitation.id === id ? { ...invitation, status: "revoked" } : invitation)),
-    );
-    notify(t("تم إلغاء الدعوة", "Invitation revoked"));
+    try {
+      await revokeInvitationRecord(id, {
+        organizationId: activeOrg.id,
+        workspaceId: activeWorkspace.id,
+        actorId: currentUser.id,
+      });
+      setInvitations((previous) =>
+        previous.map((invitation) => (invitation.id === id ? { ...invitation, status: "revoked" } : invitation)),
+      );
+      notify(t("تم إلغاء الدعوة", "Invitation revoked"));
+    } catch {
+      notify(t("تعذر إلغاء الدعوة. حاول مجدداً.", "Could not revoke invitation. Try again."), "error");
+    }
   };
 
   const updateUserSkills = async (userId: string, skills: string[]) => {
     if (!activeOrg || !activeWorkspace || !currentUser) return;
-    setUsers((previous) => previous.map((user) => (user.id === userId ? { ...user, skills } : user)));
-    await updateUserSkillsRecord({
-      userId,
-      skills,
-      organizationId: activeOrg.id,
-      workspaceId: activeWorkspace.id,
-      actorId: currentUser.id,
-    });
-    notify(t("تم تحديث وسوم المهارات بنجاح ✓", "Skills updated ✓"));
+    try {
+      await updateUserSkillsRecord({
+        userId,
+        skills,
+        organizationId: activeOrg.id,
+        workspaceId: activeWorkspace.id,
+        actorId: currentUser.id,
+      });
+      setUsers((previous) => previous.map((user) => (user.id === userId ? { ...user, skills } : user)));
+      notify(t("تم تحديث وسوم المهارات بنجاح ✓", "Skills updated ✓"));
+    } catch {
+      notify(t("تعذر تحديث المهارات. حاول مجدداً.", "Could not update skills. Try again."), "error");
+    }
   };
 
   const updateWorkspace = async (patch: Partial<Workspace>, targetWorkspace = activeWorkspace) => {
@@ -308,7 +329,12 @@ export function useWorkspaceOperations(input: WorkspaceOperationsInput) {
 
   const deleteCustomField = async (id: string) => {
     if (!activeWorkspace || !activeOrg || !currentUser) return;
-    if (!confirm(t("حذف هذا الحقل من مساحة العمل؟", "Delete this workspace custom field?"))) return;
+    const confirmed = await confirmAction({
+      title: t("حذف الحقل المخصص", "Delete Custom Field"),
+      message: t("حذف هذا الحقل من مساحة العمل؟", "Delete this workspace custom field?"),
+      tone: "danger",
+    });
+    if (!confirmed) return;
     try {
       await deleteCustomFieldRecord(id, {
         organizationId: activeOrg.id,
@@ -352,11 +378,17 @@ export function useWorkspaceOperations(input: WorkspaceOperationsInput) {
   const toggleForm = async (id: string, isActive: boolean) => {
     if (!activeWorkspace || !activeOrg) return;
     setForms((previous) => previous.map((form) => (form.id === id ? { ...form, isActive } : form)));
-    await updateFormStatusRecord(id, isActive, {
-      organizationId: activeOrg.id,
-      workspaceId: activeWorkspace.id,
-      actorId: currentUser?.id,
-    });
+    try {
+      await updateFormStatusRecord(id, isActive, {
+        organizationId: activeOrg.id,
+        workspaceId: activeWorkspace.id,
+        actorId: currentUser?.id,
+      });
+      notify(isActive ? t("تم تفعيل النموذج", "Form enabled") : t("تم إيقاف النموذج", "Form disabled"));
+    } catch {
+      setForms((previous) => previous.map((form) => (form.id === id ? { ...form, isActive: !isActive } : form)));
+      notify(t("تعذر تحديث حالة النموذج. حاول مجدداً.", "Failed to update form status. Try again."), "error");
+    }
   };
 
   return {

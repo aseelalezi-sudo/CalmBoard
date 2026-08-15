@@ -80,6 +80,9 @@ describe("scheduled report dispatcher", () => {
           "insert into memberships (user_id, organization_id, workspace_id, status) values ($1, $2, $3, 'active')",
           [userId, organizationId, workspaceId],
         );
+        while ((await enqueueScheduledReports(pool, { batchSize: 50 })).claimed > 0) {
+          // drain any pre-existing due schedules
+        }
         await pool.query(
           `insert into report_schedules (
            id, organization_id, workspace_id, created_by, name, format, cadence, timezone,

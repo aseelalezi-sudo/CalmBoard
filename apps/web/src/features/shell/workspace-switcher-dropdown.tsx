@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { cn } from "@/lib/utils";
 import { Workspace, Organization } from "@/lib/types";
 import { LogoMark, IconCollapse, IconSearch, IconPlus, IconCheck, IconChevron } from "@/components/icons";
@@ -12,7 +12,9 @@ type WorkspaceSwitcherDropdownProps = {
   workspaces: Workspace[];
   switchWorkspace: (w: Workspace) => void;
   collapsed: boolean;
-  setCollapsed: (v: boolean) => void;
+  setCollapsed?: (v: boolean) => void;
+  onLogoClick?: () => void;
+  reserveEndSpace?: boolean;
   onAddWorkspace: () => void;
   canManageWorkspace: boolean;
   t: (ar: string, en: string) => string;
@@ -33,10 +35,20 @@ export function WorkspaceSwitcherDropdown({
   const [search, setSearch] = useState("");
   const [focusedIndex, setFocusedIndex] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
   const filteredWorkspaces = workspaces.filter((w) => w.name.toLowerCase().includes(search.toLowerCase()));
+
+  const handleSelectWorkspace = useCallback(
+    (w: Workspace) => {
+      switchWorkspace(w);
+      setOpen(false);
+      triggerRef.current?.focus();
+    },
+    [switchWorkspace],
+  );
 
   // Close when clicking outside or pressing Escape
   useEffect(() => {
@@ -55,6 +67,7 @@ export function WorkspaceSwitcherDropdown({
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         setOpen(false);
+        triggerRef.current?.focus();
       } else if (e.key === "ArrowDown") {
         e.preventDefault();
         setFocusedIndex((prev) => Math.min(prev + 1, filteredWorkspaces.length - 1));
@@ -64,8 +77,7 @@ export function WorkspaceSwitcherDropdown({
       } else if (e.key === "Enter") {
         e.preventDefault();
         if (filteredWorkspaces[focusedIndex]) {
-          switchWorkspace(filteredWorkspaces[focusedIndex]);
-          setOpen(false);
+          handleSelectWorkspace(filteredWorkspaces[focusedIndex]);
         }
       }
     };
@@ -83,7 +95,7 @@ export function WorkspaceSwitcherDropdown({
       document.removeEventListener("keydown", handleKeyDown);
       clearTimeout(timeout);
     };
-  }, [open, filteredWorkspaces, focusedIndex, switchWorkspace]);
+  }, [open, filteredWorkspaces, focusedIndex, handleSelectWorkspace]);
 
   // Scroll focused item into view
   useEffect(() => {
@@ -101,6 +113,7 @@ export function WorkspaceSwitcherDropdown({
         <LogoMark size={30} />
         {!collapsed && (
           <button
+            ref={triggerRef}
             onClick={() => setOpen(!open)}
             className="min-w-0 flex-1 rounded-xl p-1.5 text-start hover:bg-slate-100 dark:hover:bg-white/5 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/50"
             aria-haspopup="listbox"
@@ -126,7 +139,7 @@ export function WorkspaceSwitcherDropdown({
           </button>
         )}
         <button
-          onClick={() => setCollapsed(!collapsed)}
+          onClick={() => setCollapsed?.(!collapsed)}
           className="grid h-7 w-7 shrink-0 place-items-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-800 dark:text-zinc-500 dark:hover:bg-white/6 dark:hover:text-white"
         >
           <IconCollapse size={14} />
@@ -134,7 +147,7 @@ export function WorkspaceSwitcherDropdown({
       </div>
 
       {open && !collapsed && (
-        <div className="absolute top-14 left-4 right-4 z-50 overflow-hidden rounded-xl border border-slate-200/80 bg-white shadow-[0_8px_30px_rgba(0,0,0,0.12)] dark:border-white/10 dark:bg-[#1a1a24] dark:shadow-[0_8px_40px_rgba(0,0,0,0.4)] animate-pop">
+        <div className="absolute top-14 left-4 right-4 z-50 max-h-[calc(100dvh-1rem)] flex flex-col overflow-hidden rounded-xl border border-slate-200/80 bg-white shadow-[0_8px_30px_rgba(0,0,0,0.12)] dark:border-white/10 dark:bg-[#1a1a24] dark:shadow-[0_8px_40px_rgba(0,0,0,0.4)] animate-pop">
           <div className="p-2 border-b border-slate-100 dark:border-white/5 flex items-center gap-2 px-3">
             <IconSearch size={14} className="text-slate-400 dark:text-zinc-500 shrink-0" />
             <input
@@ -159,8 +172,7 @@ export function WorkspaceSwitcherDropdown({
                 <button
                   key={w.id}
                   onClick={() => {
-                    switchWorkspace(w);
-                    setOpen(false);
+                    handleSelectWorkspace(w);
                   }}
                   onMouseEnter={() => setFocusedIndex(i)}
                   className={cn(
