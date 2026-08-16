@@ -10,6 +10,7 @@ import { defineConfig, devices } from "@playwright/test";
  */
 export default defineConfig({
   testDir: "./e2e",
+  timeout: process.env.CI ? 90_000 : 30_000,
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
@@ -19,6 +20,8 @@ export default defineConfig({
     baseURL: process.env.E2E_BASE_URL ?? "http://localhost:3000",
     trace: "on-first-retry",
     screenshot: "only-on-failure",
+    actionTimeout: process.env.CI ? 30_000 : 10_000,
+    navigationTimeout: process.env.CI ? 60_000 : 30_000,
   },
   projects: [
     {

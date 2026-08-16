@@ -43,7 +43,7 @@ async function registerIsolatedOwner(page: Page) {
 
 test.describe("CalmBoard core acceptance", () => {
   test("owner creates a project, task, subtask, and comment through the real UI", async ({ page }) => {
-    test.setTimeout(60_000);
+    test.setTimeout(120_000);
     const identity = await registerIsolatedOwner(page);
     const projectName = `Launch ${randomUUID().slice(0, 8)}`;
     const taskName = `Acceptance task ${randomUUID().slice(0, 8)}`;

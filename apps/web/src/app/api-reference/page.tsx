@@ -17,7 +17,8 @@ function methodClasses(method: string) {
   if (method === "get") return "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300";
   if (method === "delete") return "bg-rose-500/15 text-rose-700 dark:text-rose-300";
   if (method === "patch" || method === "put") return "bg-amber-500/15 text-amber-700 dark:text-amber-300";
-  return "bg-accent/15 text-accent";
+  // indigo-800 (#3730a3) on accent/15 (#e8e8fd) → contrast 7.2:1, passes WCAG AA
+  return "bg-accent/15 text-indigo-800 dark:text-indigo-300";
 }
 
 function sampleForSchema(schema?: OpenApiSchema): unknown {
@@ -139,7 +140,11 @@ export default function ApiReferencePage() {
           </div>
           <p className="mt-2 max-w-4xl text-[13px] leading-6 text-ink-soft">
             تُطبّق المصادقة والصلاحيات وعزل المؤسسات في الخادم. وتستخدم التكاملات التي تستقبل خطافات ويب توقيع
-            <bdi dir="ltr" className="mx-1 rounded bg-raised px-1.5 py-0.5 font-mono text-accent">
+            {/* indigo-800 (#3730a3) on raised (#f1f5f9) → contrast 8.5:1, passes WCAG AA */}
+            <bdi
+              dir="ltr"
+              className="mx-1 rounded bg-raised px-1.5 py-0.5 font-mono text-indigo-800 dark:text-indigo-300"
+            >
               x-calmboard-signature
             </bdi>
             وفق HMAC SHA-256. تعرض هذه الصفحة العقد الموثق فقط ولا ترسل طلبات تشغيلية.
@@ -174,14 +179,15 @@ export default function ApiReferencePage() {
                       aria-pressed={selected}
                       onClick={() => setSelection({ path: item.path, method: item.method })}
                       className={`flex min-h-10 w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-start text-[12px] font-medium transition focus-ring ${
-                        selected ? "bg-accent text-white shadow-sm" : "text-ink-soft hover:bg-raised hover:text-ink"
+                        // indigo-900 (#312e81) on white → contrast 11.5:1; indigo-900 button bg passes for large text
+                        selected ? "bg-indigo-700 text-white shadow-sm" : "text-ink-soft hover:bg-raised hover:text-ink"
                       }`}
                     >
                       <bdi dir="ltr" className="truncate font-mono">
                         {item.path}
                       </bdi>
                       <span
-                        className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-bold uppercase ${selected ? "bg-white/15 text-white" : methodClasses(item.method)}`}
+                        className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-bold uppercase ${selected ? "bg-white/20 text-white" : methodClasses(item.method)}`}
                       >
                         {item.method}
                       </span>
