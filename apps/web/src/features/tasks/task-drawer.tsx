@@ -178,6 +178,9 @@ export function TaskDrawer({
     { id: "activity", label: ctx.t("النشاط والتعليقات", "Activity & Comments") },
   ] as const;
 
+  const parentTask = task.parentId ? ctx.tasks.find((t) => t.id === task.parentId) : null;
+  const candidateParentTasks = ctx.tasks.filter((t) => !t.parentId && t.id !== task.id);
+
   const st = STATUS_CONFIG[task.status];
   const pr = PRIORITY_CONFIG[task.priority];
   return (
@@ -193,12 +196,36 @@ export function TaskDrawer({
         className="theme-adaptive-panel animate-slide relative flex w-full max-w-[580px] flex-col border-s border-line bg-surface/98 text-ink shadow-2xl"
         style={{ "--slide-x": "-32px" } as CSSProperties}
       >
+        {/* Parent Task Breadcrumb / Banner */}
+        {parentTask && (
+          <div className="flex items-center gap-2 border-b border-accent/20 bg-accent/5 px-5 py-2 text-[11.5px] select-none">
+            <span className="text-accent font-bold">↳ {ctx.t("مهمة فرعية تابعة لـ:", "Subtask of:")}</span>
+            <button
+              type="button"
+              onClick={() => ctx.openTask(parentTask)}
+              className="flex items-center gap-1.5 font-bold text-accent hover:underline rounded bg-accent/10 px-2 py-0.5"
+            >
+              <span className="mono">{parentTask.serial}</span>
+              <span className="truncate max-w-[200px] sm:max-w-[260px]">{parentTask.title}</span>
+            </button>
+            <Btn
+              size="sm"
+              variant="ghost"
+              onClick={() => ctx.openTask(parentTask)}
+              className="ms-auto text-[11px] h-6.5 px-2.5 text-accent font-semibold hover:bg-accent/10"
+            >
+              {ctx.t("الانتقال للمهمة الرئيسية ←", "Go to Parent →")}
+            </Btn>
+          </div>
+        )}
+
         <div className="flex h-16 shrink-0 items-center gap-2.5 border-b border-line px-5 bg-surface/90">
           <span className="mono rounded-lg border border-line bg-raised px-2.5 py-1 text-[11px] font-bold text-accent shadow-xs">
             {task.serial}
           </span>
           <Badge tone={st?.tone}>{st?.[ctx.locale === "ar" ? "ar" : "en"]}</Badge>
           <Badge tone={pr?.tone}>{pr?.[ctx.locale === "ar" ? "ar" : "en"]}</Badge>
+          {task.parentId && <Badge tone="indigo">{ctx.t("مهمة فرعية", "Subtask")}</Badge>}
           <div className="flex-1" />
           <button
             onClick={onClose}
@@ -299,6 +326,75 @@ export function TaskDrawer({
                       className={inputCls}
                     />
                   </Field>
+
+                  {/* Parent Task & Hierarchy Management */}
+                  <div className="sm:col-span-2">
+                    <div className="rounded-2xl border border-line bg-raised/30 p-3.5 space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11.5px] font-bold text-ink flex items-center gap-1.5">
+                          <IconSubtask size={14} className="text-accent" />
+                          {ctx.t("المهمة الرئيسية والتبعية (Parent Task)", "Parent Task & Hierarchy")}
+                        </span>
+                        {parentTask ? (
+                          <Badge tone="indigo">{ctx.t("مهمة فرعية", "Subtask")}</Badge>
+                        ) : (
+                          <Badge tone="neutral">{ctx.t("مهمة رئيسية مستقلة", "Top-level Task")}</Badge>
+                        )}
+                      </div>
+
+                      {parentTask ? (
+                        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 rounded-xl border border-line bg-surface p-3">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="mono rounded bg-raised px-1.5 py-0.5 text-[10.5px] font-bold text-accent">
+                              {parentTask.serial}
+                            </span>
+                            <span className="truncate text-[13px] font-semibold text-ink">{parentTask.title}</span>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <Btn
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => ctx.openTask(parentTask)}
+                              className="h-7.5 text-[11.5px]"
+                            >
+                              {ctx.t("فتح الأصل", "Open")}
+                            </Btn>
+                            <button
+                              type="button"
+                              onClick={() => ctx.updateTask(task.id, { parentId: null })}
+                              className="text-[11px] text-rose-600 dark:text-rose-400 hover:underline px-2 py-1 font-medium"
+                            >
+                              {ctx.t("فصل لتصبح رئيسية", "Make Top-Level")}
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2">
+                          <select
+                            value=""
+                            onChange={(e) => {
+                              if (e.target.value) {
+                                ctx.updateTask(task.id, { parentId: e.target.value });
+                              }
+                            }}
+                            className={cn(selectCls, "h-9 text-[12px]")}
+                          >
+                            <option value="">
+                              {ctx.t(
+                                "+ ربط هذه المهمة كمهمة فرعية لمهمة رئيسية أخرى…",
+                                "+ Attach as subtask to another task…",
+                              )}
+                            </option>
+                            {candidateParentTasks.map((candidate) => (
+                              <option key={candidate.id} value={candidate.id}>
+                                {candidate.serial} — {candidate.title}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
+                    </div>
+                  </div>
 
                   <div className="sm:col-span-2">
                     <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 rounded-xl border border-accent/25 bg-accent/5 p-3 text-[12px]">
@@ -502,76 +598,127 @@ export function TaskDrawer({
                   </div>
                 </div>
 
-                {/* Subtasks */}
-                <div className="rounded-2xl border border-line bg-raised/40 p-4">
-                  <div className="mb-3.5 flex items-center justify-between gap-2.5">
-                    <div className="flex items-center gap-2">
-                      <IconSubtask size={15} className="text-accent" />
-                      <span className="text-[13px] font-semibold text-ink">{ctx.t("المهام الفرعية", "Subtasks")}</span>
-                      <span className="mono rounded-full bg-raised border border-line px-2 py-0.5 text-[10.5px] font-bold text-ink-soft tabular">
-                        {subtasks.filter((s) => s.status === "done").length}/{subtasks.length}
-                      </span>
-                    </div>
-                    {subtasks.length > 0 && (
-                      <Bar
-                        value={(subtasks.filter((s) => s.status === "done").length / subtasks.length) * 100}
-                        className="max-w-[120px]"
-                      />
-                    )}
-                  </div>
-                  <div className="space-y-2">
-                    {subtasks.map((s) => (
-                      <div
-                        key={s.id}
-                        className="flex items-center gap-3 rounded-xl border border-line bg-surface px-3.5 py-2.5 shadow-xs transition-colors hover:bg-raised/60"
-                      >
-                        <button
-                          onClick={() => toggleSubtask(s)}
-                          className={cn(
-                            "grid h-5 w-5 place-items-center rounded-md border transition-all duration-150 active:scale-90",
-                            s.status === "done"
-                              ? "border-emerald-500 bg-emerald-500 text-white"
-                              : "border-line text-transparent hover:border-accent",
-                          )}
-                          style={{ height: 18, width: 18 }}
-                        >
-                          <IconCheck size={11} />
-                        </button>
-                        <span
-                          className={cn(
-                            "flex-1 text-[12.5px] font-medium transition-colors",
-                            s.status === "done" ? "text-ink-faint line-through" : "text-ink",
-                          )}
-                        >
-                          {s.title}
+                {/* Subtasks Section */}
+                {parentTask ? (
+                  <div className="rounded-2xl border border-accent/25 bg-accent/5 p-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <IconSubtask size={16} className="text-accent" />
+                        <span className="text-[13px] font-bold text-ink">
+                          {ctx.t("مهمة فرعية تابعة لـ", "Subtask of")}
                         </span>
-                        <span className="mono text-[10px] text-ink-faint">{s.serial}</span>
                       </div>
-                    ))}
-                    <form
-                      onSubmit={(e) => {
-                        e.preventDefault();
-                        const f = e.target as HTMLFormElement;
-                        const i = f.elements.namedItem("sub") as HTMLInputElement;
-                        if (i.value.trim()) {
-                          addSubtask(i.value.trim());
-                          i.value = "";
-                        }
-                      }}
-                      className="flex gap-2 pt-1"
+                      <Badge tone="indigo">{ctx.t("مهمة فرعية", "Subtask")}</Badge>
+                    </div>
+                    <div
+                      onClick={() => ctx.openTask(parentTask)}
+                      className="flex items-center justify-between gap-3 p-3 rounded-xl border border-line bg-surface hover:bg-raised/70 cursor-pointer transition shadow-xs"
                     >
-                      <input
-                        name="sub"
-                        placeholder={ctx.t("أضف مهمة فرعية جديدة…", "New subtask…")}
-                        className={cn(inputCls, "flex-1 h-9 text-[12.5px]")}
-                      />
-                      <Btn type="submit" variant="primary" size="sm">
-                        <IconPlus size={14} />
-                        <span>{ctx.t("إضافة", "Add")}</span>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="mono rounded bg-raised px-1.5 py-0.5 text-[10.5px] font-bold text-accent">
+                          {parentTask.serial}
+                        </span>
+                        <span className="truncate text-[13px] font-semibold text-ink">{parentTask.title}</span>
+                      </div>
+                      <Btn size="sm" variant="ghost" onClick={() => ctx.openTask(parentTask)} className="text-accent">
+                        {ctx.t("الانتقال للأصل ←", "Go to Parent →")}
                       </Btn>
-                    </form>
+                    </div>
+                    <div className="flex justify-end">
+                      <button
+                        type="button"
+                        onClick={() => ctx.updateTask(task.id, { parentId: null })}
+                        className="text-[11.5px] text-rose-600 dark:text-rose-400 hover:underline flex items-center gap-1 font-medium"
+                      >
+                        {ctx.t("فصل لتصبح مهمة رئيسية مستقلة", "Convert to Standalone Top-Level Task")}
+                      </button>
+                    </div>
                   </div>
-                </div>
+                ) : (
+                  <div className="rounded-2xl border border-line bg-raised/40 p-4">
+                    <div className="mb-3.5 flex items-center justify-between gap-2.5">
+                      <div className="flex items-center gap-2">
+                        <IconSubtask size={15} className="text-accent" />
+                        <span className="text-[13px] font-semibold text-ink">
+                          {ctx.t("المهام الفرعية", "Subtasks")}
+                        </span>
+                        <span className="mono rounded-full bg-raised border border-line px-2 py-0.5 text-[10.5px] font-bold text-ink-soft tabular">
+                          {subtasks.filter((s) => s.status === "done").length}/{subtasks.length}
+                        </span>
+                      </div>
+                      {subtasks.length > 0 && (
+                        <Bar
+                          value={(subtasks.filter((s) => s.status === "done").length / subtasks.length) * 100}
+                          className="max-w-[120px]"
+                        />
+                      )}
+                    </div>
+                    <div className="space-y-2">
+                      {subtasks.map((s) => (
+                        <div
+                          key={s.id}
+                          className="flex items-center gap-3 rounded-xl border border-line bg-surface px-3.5 py-2.5 shadow-xs transition-colors hover:bg-raised/60 group"
+                        >
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleSubtask(s);
+                            }}
+                            className={cn(
+                              "grid h-5 w-5 place-items-center rounded-md border transition-all duration-150 active:scale-90",
+                              s.status === "done"
+                                ? "border-emerald-500 bg-emerald-500 text-white"
+                                : "border-line text-transparent hover:border-accent",
+                            )}
+                            style={{ height: 18, width: 18 }}
+                          >
+                            <IconCheck size={11} />
+                          </button>
+                          <span
+                            onClick={() => ctx.openTask(s)}
+                            className={cn(
+                              "flex-1 text-[12.5px] font-medium transition-colors cursor-pointer hover:text-accent hover:underline",
+                              s.status === "done" ? "text-ink-faint line-through" : "text-ink",
+                            )}
+                          >
+                            {s.title}
+                          </span>
+                          <span className="mono text-[10px] text-ink-faint">{s.serial}</span>
+                          <button
+                            type="button"
+                            onClick={() => ctx.openTask(s)}
+                            className="opacity-0 group-hover:opacity-100 transition-opacity text-[10.5px] text-accent font-semibold px-1.5 py-0.5 rounded bg-accent/10 hover:bg-accent/20"
+                          >
+                            {ctx.t("عرض", "View")}
+                          </button>
+                        </div>
+                      ))}
+                      <form
+                        onSubmit={(e) => {
+                          e.preventDefault();
+                          const f = e.target as HTMLFormElement;
+                          const i = f.elements.namedItem("sub") as HTMLInputElement;
+                          if (i.value.trim()) {
+                            addSubtask(i.value.trim());
+                            i.value = "";
+                          }
+                        }}
+                        className="flex gap-2 pt-1"
+                      >
+                        <input
+                          name="sub"
+                          placeholder={ctx.t("أضف مهمة فرعية جديدة…", "New subtask…")}
+                          className={cn(inputCls, "flex-1 h-9 text-[12.5px]")}
+                        />
+                        <Btn type="submit" variant="primary" size="sm">
+                          <IconPlus size={14} />
+                          <span>{ctx.t("إضافة", "Add")}</span>
+                        </Btn>
+                      </form>
+                    </div>
+                  </div>
+                )}
 
                 {/* Estimation, Points, Recurrence */}
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
