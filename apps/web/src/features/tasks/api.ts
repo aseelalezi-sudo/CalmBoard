@@ -29,6 +29,8 @@ export type CreateTaskInput = TaskScope & {
   reporterId?: string | null;
   tags?: string[];
   dueDate?: string | Date | null;
+  storyPoints?: number | null;
+  estimatedHours?: number | null;
   order?: number;
   reminders?: Task["reminders"];
   recurrence?: Partial<TaskRecurrence> & Pick<TaskRecurrence, "frequency">;

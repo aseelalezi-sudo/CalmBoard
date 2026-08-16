@@ -156,12 +156,15 @@ export function useTaskOperations(input: TaskOperationsInput) {
         ...projectTaskScope(activeProject, currentUser.id),
         title: data.title,
         description: data.description,
+        parentId: data.parentId ?? null,
         status: data.status || "todo",
         priority: data.priority || "medium",
         assigneeId: data.assigneeId || currentUser.id,
         reporterId: currentUser.id,
         tags: data.tags || [],
         dueDate: data.dueDate,
+        storyPoints: data.storyPoints,
+        estimatedHours: data.estimatedHours,
       });
       if (!created.id) throw new Error("task_not_created");
       notify(`${t("تم إنشاء", "Created")} ${created.serial}`);

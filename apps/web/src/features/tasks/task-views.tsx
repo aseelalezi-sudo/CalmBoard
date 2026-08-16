@@ -41,6 +41,7 @@ import {
   IconTrend,
   IconFlag,
   IconCollapse,
+  IconChevronDown,
   IconX,
 } from "@/components/icons";
 
@@ -136,9 +137,16 @@ function TaskCard({
   dragHandle?: { attributes: DraggableAttributes; listeners: DraggableSyntheticListeners };
   overlay?: boolean;
 }) {
+  const [expandedSubtasks, setExpandedSubtasks] = useState(false);
+  const [subtaskInput, setSubtaskInput] = useState("");
+  const [subtaskSubmitting, setSubtaskSubmitting] = useState(false);
+
   const pr = PRIORITY_CONFIG[task.priority];
   const isDone = task.status === "done";
   const overdue = task.dueDate && new Date(task.dueDate) < new Date() && !isDone;
+
+  const taskSubtasks = useMemo(() => ctx.tasks.filter((t) => t.parentId === task.id), [ctx.tasks, task.id]);
+
   return (
     <div
       onClick={() => {
@@ -218,18 +226,41 @@ function TaskCard({
           )}
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
-          {task.subtaskStats && task.subtaskStats.total > 0 && (
-            <span
+          {taskSubtasks.length > 0 ? (
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                setExpandedSubtasks((prev) => !prev);
+              }}
+              title={ctx.t("عرض/إخفاء المهام الفرعية", "Toggle subtasks checklist")}
               className={cn(
-                "inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] font-medium",
-                task.subtaskStats.done === task.subtaskStats.total
+                "inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] font-medium transition hover:scale-105 active:scale-95",
+                taskSubtasks.filter((s) => s.status === "done").length === taskSubtasks.length &&
+                  taskSubtasks.length > 0
                   ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-300"
                   : "border-slate-200 bg-slate-100 text-slate-600 dark:border-white/[0.07] dark:bg-white/3 dark:text-zinc-400",
               )}
             >
               <IconSubtask size={10} />
-              {task.subtaskStats.done}/{task.subtaskStats.total}
-            </span>
+              {taskSubtasks.filter((s) => s.status === "done").length}/{taskSubtasks.length}
+              <IconChevronDown
+                size={10}
+                className={cn("transition-transform duration-200", expandedSubtasks && "rotate-180")}
+              />
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                setExpandedSubtasks((prev) => !prev);
+              }}
+              title={ctx.t("إضافة مهمة فرعية", "Add subtask")}
+              className="opacity-0 group-hover:opacity-100 inline-flex items-center gap-1 rounded-md border border-dashed border-slate-300 px-1.5 py-0.5 text-[10px] text-slate-500 hover:border-accent hover:text-accent dark:border-white/10 dark:text-zinc-400 transition"
+            >
+              <IconSubtask size={10} />+
+            </button>
           )}
           {task.storyPoints && (
             <span className="grid h-5 w-5 place-items-center rounded-md border border-amber-300 bg-amber-50 text-[10px] font-bold text-amber-700 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-300">
@@ -238,6 +269,67 @@ function TaskCard({
           )}
         </div>
       </div>
+
+      {expandedSubtasks && (
+        <div
+          className="mt-3 pt-2.5 border-t border-line/60 space-y-1.5 animate-fade-in"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {taskSubtasks.map((sub) => {
+            const isSubDone = sub.status === "done";
+            return (
+              <div
+                key={sub.id}
+                className="flex items-center gap-2 rounded-lg px-1.5 py-1 text-[11px] hover:bg-slate-50 dark:hover:bg-white/5 transition"
+              >
+                <input
+                  type="checkbox"
+                  checked={isSubDone}
+                  onChange={async () => {
+                    await ctx.updateTask(sub.id, {
+                      status: isSubDone ? "todo" : "done",
+                      progress: isSubDone ? 0 : 100,
+                    });
+                  }}
+                  className="h-3.5 w-3.5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500/20 cursor-pointer"
+                />
+                <span
+                  className={cn(
+                    "truncate flex-1 font-medium",
+                    isSubDone ? "line-through text-slate-400 dark:text-zinc-500" : "text-slate-700 dark:text-zinc-300",
+                  )}
+                >
+                  {sub.title}
+                </span>
+              </div>
+            );
+          })}
+          <div className="flex items-center gap-1.5 pt-1 px-1">
+            <input
+              type="text"
+              value={subtaskInput}
+              disabled={subtaskSubmitting}
+              onChange={(e) => setSubtaskInput(e.target.value)}
+              onKeyDown={async (e) => {
+                if (e.key === "Enter" && !e.shiftKey && subtaskInput.trim()) {
+                  e.preventDefault();
+                  const val = subtaskInput.trim();
+                  setSubtaskSubmitting(true);
+                  await ctx.createTask({
+                    title: val,
+                    parentId: task.id,
+                  });
+                  setSubtaskSubmitting(false);
+                  setSubtaskInput("");
+                }
+              }}
+              placeholder={ctx.t("+ أضف مهمة فرعية… (Enter)", "+ Add subtask… (Enter)")}
+              className="flex-1 rounded-md border border-line bg-transparent px-2 py-1 text-[11px] text-ink placeholder:text-ink-faint focus:border-accent focus:outline-none"
+            />
+          </div>
+        </div>
+      )}
+
       <Bar value={task.progress} className={cn("mt-3 h-[3px]", isDone && "bg-emerald-100 dark:bg-emerald-950")} />
     </div>
   );
