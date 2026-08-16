@@ -202,21 +202,43 @@ export function TaskDrawer({
         style={{ "--slide-x": "-32px" } as CSSProperties}
       >
         {/* Parent Task Breadcrumb / Banner */}
-        {parentTask && (
+        {task.parentId && (
           <div className="flex items-center gap-2 border-b border-accent/20 bg-accent/5 px-5 py-2 text-[11.5px] select-none">
             <span className="text-accent font-bold">↳ {ctx.t("مهمة فرعية تابعة لـ:", "Subtask of:")}</span>
             <button
               type="button"
-              onClick={() => ctx.openTask(parentTask)}
+              onClick={() =>
+                parentTask
+                  ? ctx.openTask(parentTask)
+                  : ctx.openTaskById?.({
+                      id: task.parentId!,
+                      organizationId: task.organizationId,
+                      workspaceId: task.workspaceId,
+                    })
+              }
               className="flex items-center gap-1.5 font-bold text-accent hover:underline rounded bg-accent/10 px-2 py-0.5"
             >
-              <span className="mono">{parentTask.serial}</span>
-              <span className="truncate max-w-[200px] sm:max-w-[260px]">{parentTask.title}</span>
+              {parentTask ? (
+                <>
+                  <span className="mono">{parentTask.serial}</span>
+                  <span className="truncate max-w-[200px] sm:max-w-[260px]">{parentTask.title}</span>
+                </>
+              ) : (
+                <span>{ctx.t("المهمة الرئيسية", "Parent Task")}</span>
+              )}
             </button>
             <Btn
               size="sm"
               variant="ghost"
-              onClick={() => ctx.openTask(parentTask)}
+              onClick={() =>
+                parentTask
+                  ? ctx.openTask(parentTask)
+                  : ctx.openTaskById?.({
+                      id: task.parentId!,
+                      organizationId: task.organizationId,
+                      workspaceId: task.workspaceId,
+                    })
+              }
               className="ms-auto text-[11px] h-6.5 px-2.5 text-accent font-semibold hover:bg-accent/10"
             >
               {ctx.t("الانتقال للمهمة الرئيسية ←", "Go to Parent →")}

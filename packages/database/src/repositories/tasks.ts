@@ -551,29 +551,8 @@ export function createTasksRepository(context: DatabaseTenantContext) {
     if (!task) {
       throw new TenantResourceNotFoundError("task");
     }
-    const { remindersByTask, recurrenceByTask } = await loadSchedules([task.id]);
-    const dependencyLinks = (await loadDependencyLinks([task.id])).get(task.id) ?? [];
-    const participants = await loadParticipants([task.id]);
-    const participantIds = [
-      ...participants.assigneeRows.map((row) => row.userId),
-      ...participants.followerRows.map((row) => row.userId),
-    ];
-    const participantUsers = participantIds.length
-      ? await db
-          .select()
-          .from(users)
-          .where(inArray(users.id, [...new Set(participantIds)]))
-      : [];
-    const userMap = new Map(participantUsers.map((user) => [user.id, user]));
-    return {
-      ...withTaskMetadata(task, remindersByTask.get(task.id) ?? [], recurrenceByTask.get(task.id) ?? null),
-      dependencies: dependencyLinks.map((link) => link.blockingTaskSerial),
-      dependencyLinks,
-      assigneeIds: participants.assigneeRows.map((row) => row.userId),
-      followerIds: participants.followerRows.map((row) => row.userId),
-      assignees: participants.assigneeRows.map((row) => userMap.get(row.userId)).filter(Boolean),
-      followers: participants.followerRows.map((row) => userMap.get(row.userId)).filter(Boolean),
-    };
+    const [hydrated] = await hydrateTaskRows([task]);
+    return hydrated!;
   }
 
   async function validateCreateInput(input: CreateTaskInput) {
@@ -629,7 +608,7 @@ export function createTasksRepository(context: DatabaseTenantContext) {
   async function validateUpdateInput(taskId: string, projectId: string, input: UpdateTaskInput) {
     if (input.parentId) {
       if (input.parentId === taskId) {
-        throw new TenantResourceNotFoundError("parent task");
+        throw new TenantConflictError("A task cannot be its own parent");
       }
       const parent = await getById(input.parentId);
       if (parent.projectId !== projectId) {
@@ -1596,6 +1575,11 @@ export function createTasksRepository(context: DatabaseTenantContext) {
           .returning();
 
         if (!updated) return undefined;
+
+        await transaction
+          .update(tasks)
+          .set({ deletedAt: now, updatedAt: now, sprintId: null })
+          .where(and(eq(tasks.parentId, taskId), tenantScope, isNull(tasks.deletedAt)));
 
         if (before.sprintId) {
           await transaction

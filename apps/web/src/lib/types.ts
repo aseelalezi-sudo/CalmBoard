@@ -569,6 +569,7 @@ export type ViewCtx = {
   setTimerTask: (id: string | null) => void;
   setTimerRunning: (v: boolean) => void;
   openTask: (task: Task) => void;
+  openTaskById?: (task: Pick<Task, "id" | "organizationId" | "workspaceId">) => void;
   setTaskSprintMembership: (taskId: string, sprintId: string | null) => void;
   refreshProjectTasks: () => Promise<void>;
   updateTask: (id: string, updates: Partial<Task>) => boolean | Promise<boolean>;

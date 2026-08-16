@@ -205,17 +205,22 @@ export function useTaskOperations(input: TaskOperationsInput) {
 
   const addSubtask = async (title: string) => {
     if (!taskDetail || !activeProject || !activeWorkspace || !activeOrg || !title.trim()) return;
-    const created = await createTaskRecord({
-      ...projectTaskScope(activeProject, currentUser?.id),
-      parentId: taskDetail.id,
-      title,
-      status: "todo",
-      priority: "medium",
-      reporterId: currentUser?.id,
-    });
-    if (created.id) {
-      setSubtasks((previous) => [...previous, created]);
-      notify(t("أضيفت مهمة فرعية", "Subtask added"));
+    try {
+      const created = await createTaskRecord({
+        ...projectTaskScope(activeProject, currentUser?.id),
+        parentId: taskDetail.id,
+        title: title.trim(),
+        status: "todo",
+        priority: "medium",
+        reporterId: currentUser?.id,
+      });
+      if (created.id) {
+        setSubtasks((previous) => [...previous, created]);
+        notify(t("أضيفت مهمة فرعية", "Subtask added"));
+        await refreshTasks();
+      }
+    } catch {
+      notify(t("تعذر إضافة المهمة الفرعية.", "Could not add subtask."), "error");
     }
   };
 
@@ -225,7 +230,7 @@ export function useTaskOperations(input: TaskOperationsInput) {
     const snapshot = subtask;
     setSubtasks((previous) => previous.map((item) => (item.id === subtask.id ? { ...item, status, progress } : item)));
     try {
-      await updateTaskRecord({
+      const updated = await updateTaskRecord({
         id: subtask.id,
         expectedVersion: subtask.version,
         status,
@@ -234,12 +239,30 @@ export function useTaskOperations(input: TaskOperationsInput) {
         workspaceId: subtask.workspaceId,
         actorId: currentUser?.id,
       });
+      setSubtasks((previous) => previous.map((item) => (item.id === subtask.id ? updated : item)));
+      await refreshTasks();
     } catch {
       setSubtasks((previous) => previous.map((item) => (item.id === subtask.id ? snapshot : item)));
       notify(
         t("تعذر تحديث المهمة الفرعية. تمت استعادة حالتها.", "Could not update subtask. Previous state restored."),
         "error",
       );
+    }
+  };
+
+  const deleteSubtask = async (subtask: Task) => {
+    let previousSubtasks: Task[] = [];
+    setSubtasks((previous) => {
+      previousSubtasks = previous;
+      return previous.filter((item) => item.id !== subtask.id);
+    });
+    try {
+      await deleteTaskRecord(subtask, currentUser?.id);
+      notify(t("تم حذف المهمة الفرعية بنجاح", "Subtask deleted successfully"));
+      await refreshTasks();
+    } catch {
+      setSubtasks(previousSubtasks);
+      notify(t("تعذر حذف المهمة الفرعية.", "Could not delete subtask."), "error");
     }
   };
 
@@ -312,6 +335,7 @@ export function useTaskOperations(input: TaskOperationsInput) {
     openTaskById,
     addSubtask,
     toggleSubtask,
+    deleteSubtask,
     logTime,
     addAttachment,
   };

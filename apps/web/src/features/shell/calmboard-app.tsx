@@ -385,6 +385,7 @@ export function CalmBoardApp() {
     openTaskById,
     addSubtask,
     toggleSubtask,
+    deleteSubtask,
     logTime,
     addAttachment,
   } = useTaskOperations({
@@ -627,6 +628,7 @@ export function CalmBoardApp() {
     setTimerTask,
     setTimerRunning,
     openTask,
+    openTaskById,
     setTaskSprintMembership: (taskId, sprintId) =>
       setTasks((current) => current.map((task) => (task.id === taskId ? { ...task, sprintId } : task))),
     refreshProjectTasks: refreshTasks,
@@ -1520,6 +1522,7 @@ export function CalmBoardApp() {
         subtasks={subtasks}
         addSubtask={can("tasks.create") ? addSubtask : () => denyMutation()}
         toggleSubtask={can("tasks.update") ? toggleSubtask : () => denyMutation()}
+        deleteSubtask={can("tasks.delete") ? deleteSubtask : async () => denyMutation()}
         deleteTask={can("tasks.delete") ? deleteTask : async () => denyMutation()}
         addComment={can("comments.manage") ? addComment : () => denyMutation()}
         editComment={can("comments.manage") ? editComment : () => denyMutation()}
