@@ -42,6 +42,7 @@ import {
   IconFlag,
   IconCollapse,
   IconChevronDown,
+  IconTrash,
   IconX,
 } from "@/components/icons";
 
@@ -1210,22 +1211,30 @@ export function LegacyTableView({ ctx }: { ctx: ViewCtx }) {
       </div>
       {ctx.tasks.length === 0 && <Empty icon={<IconSearch size={22} />} title={ctx.t("لا توجد بيانات", "No data")} />}
 
-      {/* Floating Bulk Actions Bar */}
+      {/* Floating Bulk Actions Island Toolbar */}
       {selectedIds.length > 0 && (
-        <div className="sticky bottom-4 mx-auto mt-4 flex w-fit items-center gap-3 rounded-2xl border border-slate-200 bg-slate-900 px-5 py-3 text-white shadow-2xl dark:border-white/20 dark:bg-zinc-900/95 animate-pop z-30">
-          <span className="text-[13px] font-bold text-indigo-300 dark:text-violet-300">
-            ⚡ {selectedIds.length} {ctx.t("مهمة محددة", "selected")}
-          </span>
-          <div className="h-4 w-px bg-white/20" />
+        <div
+          className="fixed bottom-6 inset-x-0 mx-auto w-fit z-50 flex items-center gap-2.5 rounded-2xl border border-line/80 bg-surface/95 dark:bg-zinc-900/95 px-4 py-2.5 shadow-2xl backdrop-blur-xl animate-slide-up text-ink ring-1 ring-black/10 dark:ring-white/10"
+          style={{ maxWidth: "calc(100vw - 2rem)" }}
+        >
+          <div className="flex items-center gap-1.5 rounded-xl bg-accent/15 px-3 py-1.5 text-[12px] font-bold text-accent shrink-0 select-none">
+            <IconCheck size={13} />
+            <span>
+              {fmtNumber(selectedIds.length, ctx.locale)} {ctx.t("مهمة محددة", "selected")}
+            </span>
+          </div>
+
+          <div className="h-4 w-px bg-line/60 shrink-0" />
 
           <select
             name="auto-field-iwa4v9b"
             onChange={(e) => {
               if (e.target.value) bulkStatusChange(e.target.value);
             }}
-            className="h-8 rounded-lg bg-white/10 px-2.5 text-[12px] font-medium text-white outline-none [&>option]:bg-zinc-900"
+            className="h-8 rounded-xl border border-line bg-raised/80 px-2.5 text-[11.5px] font-semibold text-ink outline-none cursor-pointer hover:bg-surface transition shrink-0"
+            aria-label={ctx.t("تغيير الحالة لجميع المهام المحددة", "Bulk change status")}
           >
-            <option value="">{ctx.t("تغيير الحالة...", "Change status...")}</option>
+            <option value="">⚡ {ctx.t("تغيير الحالة…", "Change status…")}</option>
             {Object.entries(STATUS_CONFIG).map(([k, v]) => (
               <option key={k} value={k}>
                 {ctx.t(v.ar, v.en)}
@@ -1238,9 +1247,11 @@ export function LegacyTableView({ ctx }: { ctx: ViewCtx }) {
             onChange={(e) => {
               if (e.target.value !== undefined) bulkAssignChange(e.target.value);
             }}
-            className="h-8 rounded-lg bg-white/10 px-2.5 text-[12px] font-medium text-white outline-none [&>option]:bg-zinc-900"
+            className="h-8 rounded-xl border border-line bg-raised/80 px-2.5 text-[11.5px] font-semibold text-ink outline-none cursor-pointer hover:bg-surface transition shrink-0 max-w-[130px] truncate"
+            aria-label={ctx.t("تعيين مسؤول لجميع المهام المحددة", "Bulk assign user")}
           >
-            <option value="">{ctx.t("تعيين لـ...", "Assign to...")}</option>
+            <option value="">👤 {ctx.t("تعيين لـ…", "Assign to…")}</option>
+            <option value="">{ctx.t("غير محدد (إلغاء التعيين)", "Unassigned")}</option>
             {ctx.users.map((u) => (
               <option key={u.id} value={u.id}>
                 {u.name}
@@ -1248,30 +1259,40 @@ export function LegacyTableView({ ctx }: { ctx: ViewCtx }) {
             ))}
           </select>
 
-          <button
-            onClick={async () => {
-              const confirmed = await confirmAction({
-                title: ctx.t("حذف المهام المحددة", "Delete selected tasks"),
-                message: ctx.t("هل أنت متأكد من الحذف؟", "Are you sure?"),
-                tone: "danger",
-              });
-              if (confirmed) {
-                void deleteTasks(selectedIds).then(() => {
-                  setSelectedIds([]);
-                  window.location.reload();
+          <div className="h-4 w-px bg-line/60 shrink-0" />
+
+          {ctx.can("tasks.delete") && (
+            <button
+              type="button"
+              onClick={async () => {
+                const confirmed = await confirmAction({
+                  title: ctx.t("حذف المهام المحددة", "Delete selected tasks"),
+                  message: ctx.t(
+                    `هل أنت متأكد من حذف ${fmtNumber(selectedIds.length, ctx.locale)} مهمة؟ لا يمكن التراجع عن هذا الإجراء.`,
+                    `Are you sure you want to delete ${selectedIds.length} selected task(s)?`,
+                  ),
+                  confirmLabel: ctx.t("حذف", "Delete"),
+                  tone: "danger",
                 });
-              }
-            }}
-            className="h-8 rounded-lg bg-rose-500/20 px-3 text-[12px] font-semibold text-rose-300 hover:bg-rose-500/30 transition"
-          >
-            🗑️ {ctx.t("حذف جماعي", "Delete")}
-          </button>
+                if (confirmed) {
+                  await deleteTasks(selectedIds);
+                  setSelectedIds([]);
+                }
+              }}
+              className="flex items-center gap-1.5 h-8 rounded-xl bg-rose-500/15 border border-rose-500/30 px-3 text-[11.5px] font-bold text-rose-600 dark:text-rose-400 hover:bg-rose-500/25 transition active:scale-95 shrink-0"
+            >
+              <IconTrash size={13} />
+              <span>{ctx.t("حذف جماعي", "Delete")}</span>
+            </button>
+          )}
 
           <button
+            type="button"
             onClick={() => setSelectedIds([])}
-            className="h-8 rounded-lg bg-white/10 px-2.5 text-[12px] text-zinc-300 hover:bg-white/20 transition"
+            className="h-8 w-8 grid place-items-center rounded-xl text-ink-faint hover:text-ink hover:bg-raised transition active:scale-95 shrink-0"
+            title={ctx.t("إلغاء التحديد", "Deselect")}
           >
-            ✕ {ctx.t("إلغاء", "Cancel")}
+            <IconX size={14} />
           </button>
         </div>
       )}

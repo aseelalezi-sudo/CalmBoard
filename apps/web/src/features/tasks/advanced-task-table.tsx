@@ -18,6 +18,7 @@ import {
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Avatar, Badge, Btn, Card, Empty, selectCls } from "@/components/ui";
 import {
+  IconCheck,
   IconChevronDown,
   IconFolder,
   IconPlus,
@@ -872,6 +873,16 @@ export function AdvancedTaskTable({ ctx }: { ctx: ViewCtx }) {
     setRowSelection({});
   };
 
+  const bulkPriorityChange = (priority: string) => {
+    selectedIds.forEach((id) => ctx.updateTask(id, { priority }));
+    setRowSelection({});
+  };
+
+  const bulkAssigneeChange = (assigneeId: string) => {
+    selectedIds.forEach((id) => ctx.updateTask(id, { assigneeId: assigneeId || undefined }));
+    setRowSelection({});
+  };
+
   return (
     <div
       tabIndex={0}
@@ -1524,46 +1535,104 @@ export function AdvancedTaskTable({ ctx }: { ctx: ViewCtx }) {
           </div>
         )}
 
+        {/* Floating Bulk Action Island Toolbar */}
         {selectedIds.length > 0 && (
-          <div className="sticky bottom-4 z-30 mx-auto mt-4 flex max-w-[calc(100%-1rem)] flex-wrap items-center gap-3 rounded-2xl border border-line bg-raised px-5 py-3 text-ink shadow-2xl backdrop-blur-md">
-            <span className="text-[13px] font-bold text-accent">
-              {fmtNumber(selectedIds.length, ctx.locale)} {ctx.t("مهمة محددة", "selected")}
-            </span>
+          <div className="fixed bottom-6 inset-x-0 mx-auto w-fit max-w-[calc(100%-1rem)] z-50 flex items-center gap-2.5 rounded-2xl border border-line/80 bg-surface/95 dark:bg-zinc-900/95 px-4 py-2.5 shadow-2xl backdrop-blur-xl animate-slide-up text-ink ring-1 ring-black/10 dark:ring-white/10">
+            {/* Selection Badge */}
+            <div className="flex items-center gap-1.5 rounded-xl bg-accent/15 px-3 py-1.5 text-[12px] font-bold text-accent shrink-0 select-none">
+              <IconCheck size={13} />
+              <span>
+                {fmtNumber(selectedIds.length, ctx.locale)} {ctx.t("مهمة محددة", "selected")}
+              </span>
+            </div>
+
+            <div className="h-4 w-px bg-line/60 shrink-0" />
+
+            {/* Quick Status Select */}
             <select
               name="bulk-status-select"
               defaultValue=""
               onChange={(event) => event.target.value && bulkStatusChange(event.target.value)}
               className={`${selectCls} h-8 w-auto`}
+              aria-label={ctx.t("تغيير الحالة لجميع المهام المحددة", "Bulk change status")}
             >
-              <option value="">{ctx.t("تغيير الحالة...", "Change status...")}</option>
+              <option value="">⚡ {ctx.t("تغيير الحالة…", "Change status…")}</option>
               {Object.entries(STATUS_CONFIG).map(([key, value]) => (
                 <option key={key} value={key}>
                   {ctx.t(value.ar, value.en)}
                 </option>
               ))}
             </select>
-            <Btn
-              size="sm"
-              variant="danger"
-              onClick={async () => {
-                const confirmed = await confirmAction({
-                  title: ctx.t("حذف المهام المحددة", "Delete selected tasks"),
-                  message: ctx.t(
-                    "هل أنت متأكد من حذف المهام المحددة؟ لا يمكن التراجع عن هذا الإجراء.",
-                    "Are you sure you want to delete the selected tasks?",
-                  ),
-                  tone: "danger",
-                });
-                if (!confirmed) return;
-                await deleteTasks(selectedIds);
-                setRowSelection({});
-              }}
+
+            {/* Quick Priority Select */}
+            <select
+              name="bulk-priority-select"
+              defaultValue=""
+              onChange={(event) => event.target.value && bulkPriorityChange(event.target.value)}
+              className="h-8 rounded-xl border border-line bg-raised/80 px-2.5 text-[11.5px] font-semibold text-ink outline-none cursor-pointer hover:bg-surface transition shrink-0"
+              aria-label={ctx.t("تغيير الأولوية لجميع المهام المحددة", "Bulk change priority")}
             >
-              {ctx.t("حذف جماعي", "Delete")}
-            </Btn>
-            <Btn size="sm" variant="outline" onClick={() => setRowSelection({})}>
-              {ctx.t("إلغاء", "Cancel")}
-            </Btn>
+              <option value="">🎯 {ctx.t("الأولوية…", "Priority…")}</option>
+              {Object.entries(PRIORITY_CONFIG).map(([key, value]) => (
+                <option key={key} value={key}>
+                  {ctx.t(value.ar, value.en)}
+                </option>
+              ))}
+            </select>
+
+            {/* Quick Assignee Select */}
+            <select
+              name="bulk-assignee-select"
+              defaultValue=""
+              onChange={(event) => bulkAssigneeChange(event.target.value)}
+              className="h-8 rounded-xl border border-line bg-raised/80 px-2.5 text-[11.5px] font-semibold text-ink outline-none cursor-pointer hover:bg-surface transition shrink-0 max-w-[130px] truncate"
+              aria-label={ctx.t("تعيين مسؤول لجميع المهام المحددة", "Bulk assign user")}
+            >
+              <option value="">👤 {ctx.t("تعيين لـ…", "Assign to…")}</option>
+              <option value="">{ctx.t("غير محدد (إلغاء التعيين)", "Unassigned")}</option>
+              {ctx.users.map((user) => (
+                <option key={user.id} value={user.id}>
+                  {user.name}
+                </option>
+              ))}
+            </select>
+
+            <div className="h-4 w-px bg-line/60 shrink-0" />
+
+            {/* Delete Selected Tasks */}
+            {ctx.can("tasks.delete") && (
+              <button
+                type="button"
+                onClick={async () => {
+                  const confirmed = await confirmAction({
+                    title: ctx.t("حذف المهام المحددة", "Delete selected tasks"),
+                    message: ctx.t(
+                      `هل أنت متأكد من حذف ${fmtNumber(selectedIds.length, ctx.locale)} مهمة؟ لا يمكن التراجع عن هذا الإجراء.`,
+                      `Are you sure you want to delete ${selectedIds.length} selected task(s)?`,
+                    ),
+                    confirmLabel: ctx.t("حذف", "Delete"),
+                    tone: "danger",
+                  });
+                  if (!confirmed) return;
+                  await deleteTasks(selectedIds);
+                  setRowSelection({});
+                }}
+                className="flex items-center gap-1.5 h-8 rounded-xl bg-rose-500/15 border border-rose-500/30 px-3 text-[11.5px] font-bold text-rose-600 dark:text-rose-400 hover:bg-rose-500/25 transition active:scale-95 shrink-0"
+              >
+                <IconTrash size={13} />
+                <span>{ctx.t("حذف جماعي", "Delete")}</span>
+              </button>
+            )}
+
+            {/* Deselect / Cancel */}
+            <button
+              type="button"
+              onClick={() => setRowSelection({})}
+              className="h-8 w-8 grid place-items-center rounded-xl text-ink-faint hover:text-ink hover:bg-raised transition active:scale-95 shrink-0"
+              title={ctx.t("إلغاء التحديد", "Deselect")}
+            >
+              <IconX size={14} />
+            </button>
           </div>
         )}
       </Card>
