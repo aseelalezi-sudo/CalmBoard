@@ -79,7 +79,7 @@ export function getProjects(organizationId: string, workspaceId: string) {
 
 export function getTasks(project: Pick<Project, "id" | "organizationId" | "workspaceId">) {
   return requestJson<Task[]>(
-    `${apiServiceUrl("/tasks")}?projectId=${encodeURIComponent(project.id)}&organizationId=${encodeURIComponent(project.organizationId)}&workspaceId=${encodeURIComponent(project.workspaceId)}`,
+    `${apiServiceUrl("/tasks")}?projectId=${encodeURIComponent(project.id)}&organizationId=${encodeURIComponent(project.organizationId)}&workspaceId=${encodeURIComponent(project.workspaceId)}&includeSubtasks=true`,
   );
 }
 
@@ -119,6 +119,7 @@ export function getTaskPage(
     projectId: project.id,
     organizationId: project.organizationId,
     workspaceId: project.workspaceId,
+    includeSubtasks: "true",
     limit: String(filters.limit ?? 100),
   });
   for (const [key, value] of Object.entries(filters)) {

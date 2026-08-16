@@ -104,6 +104,7 @@ test("workspace API service", async (t) => {
       projectId: "project/a",
       organizationId: "organization/a",
       workspaceId: "workspace/a",
+      includeSubtasks: "true",
       limit: "100",
       cursor: "current/page",
       search: "release plan",

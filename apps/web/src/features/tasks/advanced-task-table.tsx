@@ -578,10 +578,18 @@ export function AdvancedTaskTable({ ctx }: { ctx: ViewCtx }) {
       };
     });
   }, [ctx, customGroups, groupBy, rows]);
+
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => scrollRef.current,
-    estimateSize: () => 49,
+    estimateSize: (index) => {
+      const row = rows[index];
+      if (!row) return 49;
+      const isExp = expandedSubtaskTaskIds[row.original.id];
+      if (!isExp) return 49;
+      const subtasks = subtasksByParentId.get(row.original.id) || [];
+      return 49 + Math.max(1, subtasks.length) * 36 + 48;
+    },
     overscan: 12,
   });
   const virtualRows = virtualizer.getVirtualItems();
