@@ -1273,8 +1273,23 @@ export function LegacyTableView({ ctx }: { ctx: ViewCtx }) {
                     tone: "danger",
                   });
                   if (confirmed) {
-                    await deleteTasks(selectedIds);
-                    setSelectedIds([]);
+                    try {
+                      if (ctx.deleteTask) {
+                        await Promise.all(selectedIds.map((id) => ctx.deleteTask!(id)));
+                      } else {
+                        await deleteTasks(selectedIds);
+                      }
+                      setSelectedIds([]);
+                    } catch (error: any) {
+                      ctx.notify(
+                        error?.message ||
+                          ctx.t(
+                            "تعذر حذف المهام. تحقق من صلاحياتك.",
+                            "Could not delete tasks. Check your permissions.",
+                          ),
+                        "error",
+                      );
+                    }
                   }
                 }}
                 className="flex items-center gap-1.5 h-8 rounded-xl bg-rose-500/15 border border-rose-500/30 px-3 text-[11.5px] font-bold text-rose-600 dark:text-rose-400 hover:bg-rose-500/25 transition active:scale-95 shrink-0"
