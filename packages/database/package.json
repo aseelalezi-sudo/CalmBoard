@@ -4,20 +4,22 @@
   "type": "module",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "types": "./src/index.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
     },
     "./schema": {
-      "types": "./dist/schema.d.ts",
-      "import": "./dist/schema.js"
+      "types": "./src/schema.ts",
+      "import": "./dist/schema.js",
+      "default": "./dist/schema.js"
     },
     "./errors": {
-      "types": "./dist/errors.d.ts",
+      "types": "./src/errors.ts",
       "import": "./dist/errors.js",
       "default": "./dist/errors.js"
     }
   },
-  "types": "./dist/index.d.ts",
+  "types": "./src/index.ts",
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "lint": "pnpm run typecheck",
