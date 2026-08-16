@@ -15,6 +15,7 @@ import { getAutomationState } from "@/features/automations/api";
 import { createTimeLog } from "@/features/workspace/actions-api";
 import {
   createTaskRecord,
+  deleteTaskRecord,
   getTaskDetailBundle,
   moveTaskRecord,
   projectTaskScope,
@@ -279,9 +280,31 @@ export function useTaskOperations(input: TaskOperationsInput) {
     }
   };
 
+  const deleteTask = async (taskId: string) => {
+    const target = tasks.find((t) => t.id === taskId) ?? (taskDetail?.id === taskId ? taskDetail : null);
+    if (!target) return false;
+    const snapshotTasks = tasks;
+    setTasks((prev) => prev.filter((t) => t.id !== taskId && t.parentId !== taskId));
+    setSubtasks((prev) => prev.filter((t) => t.id !== taskId));
+    if (taskDetail?.id === taskId) {
+      setTaskDetail(null);
+    }
+    try {
+      await deleteTaskRecord(target, currentUser?.id);
+      notify(t("تم حذف المهمة بنجاح", "Task deleted successfully"));
+      await refreshTasks();
+      return true;
+    } catch {
+      setTasks(snapshotTasks);
+      notify(t("تعذر حذف المهمة. تحقق من الاتصال.", "Could not delete task. Check connection."), "error");
+      return false;
+    }
+  };
+
   return {
     refreshTasks,
     updateTask,
+    deleteTask,
     moveTask,
     updateProjectWipLimit,
     createTask,

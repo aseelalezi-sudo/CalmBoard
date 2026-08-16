@@ -572,6 +572,7 @@ export type ViewCtx = {
   setTaskSprintMembership: (taskId: string, sprintId: string | null) => void;
   refreshProjectTasks: () => Promise<void>;
   updateTask: (id: string, updates: Partial<Task>) => boolean | Promise<boolean>;
+  deleteTask?: (id: string) => Promise<boolean>;
   moveTask: (
     id: string,
     status: string,

@@ -4,7 +4,7 @@ import type { Comment, Task, User, ViewCtx, Workspace } from "@/lib/types";
 import { PRIORITY_CONFIG, STATUS_CONFIG } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { areaCls, Avatar, Badge, Bar, Btn, Field, inputCls, selectCls } from "@/components/ui";
-import { promptAction } from "@/components/feedback";
+import { confirmAction, promptAction } from "@/components/feedback";
 import {
   IconAt,
   IconCheck,
@@ -17,6 +17,7 @@ import {
   IconShield,
   IconSparkle,
   IconSubtask,
+  IconTrash,
   IconX,
 } from "@/components/icons";
 import { useMentionUsers } from "@/features/comments/use-mention-users";
@@ -30,6 +31,8 @@ export function TaskDrawer({
   subtasks,
   addSubtask,
   toggleSubtask,
+  deleteSubtask,
+  deleteTask,
   addComment,
   editComment,
   logTime,
@@ -41,6 +44,8 @@ export function TaskDrawer({
   subtasks: Task[];
   addSubtask: (t: string) => void;
   toggleSubtask: (s: Task) => void;
+  deleteSubtask?: (s: Task) => void | Promise<void>;
+  deleteTask?: (id: string) => Promise<boolean | void>;
   addComment: (c: string, options?: { parentId?: string; mentionedUserIds?: string[] }) => void | Promise<void>;
   editComment: (id: string, content: string, mentionedUserIds?: string[]) => void | Promise<void>;
   logTime: (id: string, m: number, d: string) => void;
@@ -685,13 +690,41 @@ export function TaskDrawer({
                             {s.title}
                           </span>
                           <span className="mono text-[10px] text-ink-faint">{s.serial}</span>
-                          <button
-                            type="button"
-                            onClick={() => ctx.openTask(s)}
-                            className="opacity-0 group-hover:opacity-100 transition-opacity text-[10.5px] text-accent font-semibold px-1.5 py-0.5 rounded bg-accent/10 hover:bg-accent/20"
-                          >
-                            {ctx.t("عرض", "View")}
-                          </button>
+                          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button
+                              type="button"
+                              onClick={() => ctx.openTask(s)}
+                              className="text-[10.5px] text-accent font-semibold px-2 py-0.5 rounded bg-accent/10 hover:bg-accent/20 transition"
+                            >
+                              {ctx.t("تعديل", "Edit")}
+                            </button>
+                            {ctx.can("tasks.delete") && (
+                              <button
+                                type="button"
+                                title={ctx.t("حذف المهمة الفرعية", "Delete subtask")}
+                                onClick={async (e) => {
+                                  e.stopPropagation();
+                                  const ok = await confirmAction({
+                                    title: ctx.t("حذف المهمة الفرعية", "Delete Subtask"),
+                                    message: ctx.t(
+                                      `هل أنت متأكد من حذف المهمة الفرعية "${s.title}"؟`,
+                                      `Are you sure you want to delete subtask "${s.title}"?`,
+                                    ),
+                                    confirmLabel: ctx.t("حذف", "Delete"),
+                                    tone: "danger",
+                                  });
+                                  if (ok) {
+                                    if (deleteSubtask) await deleteSubtask(s);
+                                    else if (deleteTask) await deleteTask(s.id);
+                                    else if (ctx.deleteTask) await ctx.deleteTask(s.id);
+                                  }
+                                }}
+                                className="p-1 text-ink-faint hover:text-rose-500 rounded hover:bg-rose-500/10 transition"
+                              >
+                                <IconTrash size={12} />
+                              </button>
+                            )}
+                          </div>
                         </div>
                       ))}
                       <form
@@ -1402,6 +1435,47 @@ export function TaskDrawer({
                 </div>
               </div>
             )}
+          </div>
+        </div>
+
+        {/* Drawer Sticky Footer */}
+        <div className="shrink-0 flex items-center justify-between gap-3 border-t border-line bg-surface/95 px-5 py-3.5 backdrop-blur-md">
+          {ctx.can("tasks.delete") ? (
+            <button
+              type="button"
+              onClick={async () => {
+                const ok = await confirmAction({
+                  title: task.parentId
+                    ? ctx.t("حذف المهمة الفرعية", "Delete Subtask")
+                    : ctx.t("حذف المهمة", "Delete Task"),
+                  message: ctx.t(
+                    `هل أنت متأكد من حذف "${task.title}"؟ لا يمكن التراجع عن هذا الإجراء.`,
+                    `Are you sure you want to delete "${task.title}"? This cannot be undone.`,
+                  ),
+                  confirmLabel: ctx.t("حذف", "Delete"),
+                  tone: "danger",
+                });
+                if (ok) {
+                  if (deleteTask) await deleteTask(task.id);
+                  else if (ctx.deleteTask) await ctx.deleteTask(task.id);
+                  onClose();
+                }
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-rose-500/30 bg-rose-500/10 text-[11.5px] font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-500/20 transition active:scale-95"
+            >
+              <IconTrash size={13} />
+              <span>
+                {task.parentId ? ctx.t("حذف المهمة الفرعية", "Delete Subtask") : ctx.t("حذف المهمة", "Delete Task")}
+              </span>
+            </button>
+          ) : (
+            <div />
+          )}
+
+          <div className="flex items-center gap-2">
+            <Btn variant="outline" size="sm" onClick={onClose}>
+              {ctx.t("إغلاق", "Close")}
+            </Btn>
           </div>
         </div>
       </div>

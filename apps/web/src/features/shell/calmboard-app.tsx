@@ -377,6 +377,7 @@ export function CalmBoardApp() {
   const {
     refreshTasks,
     updateTask,
+    deleteTask,
     moveTask,
     updateProjectWipLimit,
     createTask,
@@ -632,6 +633,12 @@ export function CalmBoardApp() {
     updateTask: can("tasks.update")
       ? updateTask
       : () => {
+          denyMutation();
+          return false;
+        },
+    deleteTask: can("tasks.delete")
+      ? deleteTask
+      : async () => {
           denyMutation();
           return false;
         },
@@ -1513,6 +1520,7 @@ export function CalmBoardApp() {
         subtasks={subtasks}
         addSubtask={can("tasks.create") ? addSubtask : () => denyMutation()}
         toggleSubtask={can("tasks.update") ? toggleSubtask : () => denyMutation()}
+        deleteTask={can("tasks.delete") ? deleteTask : async () => denyMutation()}
         addComment={can("comments.manage") ? addComment : () => denyMutation()}
         editComment={can("comments.manage") ? editComment : () => denyMutation()}
         logTime={can("time_logs.manage") ? logTime : () => denyMutation()}

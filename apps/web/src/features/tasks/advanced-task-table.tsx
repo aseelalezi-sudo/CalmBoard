@@ -131,19 +131,45 @@ function SubtaskTableRow({ subtask, ctx, columns }: { subtask: Task; ctx: ViewCt
             )}
 
             {col.id === "title" && (
-              <div className="flex min-w-0 items-center gap-2 ps-7 flex-1">
+              <div className="flex min-w-0 items-center gap-2 ps-7 flex-1 group/subrow">
                 <span className="text-accent/80 text-[12px] select-none font-bold">↳</span>
                 <span className="mono shrink-0 rounded-md bg-accent/10 px-1.5 py-0.5 text-[9px] font-semibold text-accent">
                   {subtask.serial}
                 </span>
                 <span
                   className={cn(
-                    "truncate font-medium text-ink",
+                    "truncate font-medium text-ink flex-1 hover:text-accent transition-colors",
                     isDone && "line-through text-ink-faint decoration-ink-faint/50",
                   )}
                 >
                   {subtask.title}
                 </span>
+                {ctx.can("tasks.delete") && (
+                  <button
+                    type="button"
+                    title={ctx.t("حذف المهمة الفرعية", "Delete subtask")}
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      const ok = await confirmAction({
+                        title: ctx.t("حذف المهمة الفرعية", "Delete Subtask"),
+                        message: ctx.t(
+                          `هل أنت متأكد من حذف المهمة الفرعية "${subtask.title}"؟`,
+                          `Are you sure you want to delete subtask "${subtask.title}"?`,
+                        ),
+                        confirmLabel: ctx.t("حذف", "Delete"),
+                        tone: "danger",
+                      });
+                      if (ok) {
+                        if (ctx.deleteTask) {
+                          await ctx.deleteTask(subtask.id);
+                        }
+                      }
+                    }}
+                    className="opacity-0 group-hover/subrow:opacity-100 p-1 text-ink-faint hover:text-rose-500 rounded hover:bg-rose-500/10 transition"
+                  >
+                    <IconTrash size={12} />
+                  </button>
+                )}
               </div>
             )}
 
