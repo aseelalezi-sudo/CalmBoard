@@ -1,3 +1,4 @@
+import "dotenv/config";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
@@ -33,16 +34,29 @@ export async function runDatabaseCommand(argv = process.argv.slice(2), env = pro
   const [command, ...forwardedArgs] = argv;
   assertDatabaseCommandAllowed(command, env);
 
-  if (command === "migrate" && env.DATABASE_URL) {
+  if (command === "migrate") {
+    if (!env.DATABASE_URL) throw new Error("DATABASE_URL is required to run migrations.");
+    const pg = await import("pg");
+    const { drizzle } = await import("drizzle-orm/node-postgres");
+    const { migrate } = await import("drizzle-orm/node-postgres/migrator");
+
+    const Client = pg.default?.Client ?? pg.Client;
+    const client = new Client({ connectionString: env.DATABASE_URL });
+    await client.connect();
     try {
-      const pg = await import("pg");
-      const Client = pg.default?.Client ?? pg.Client;
-      const client = new Client({ connectionString: env.DATABASE_URL });
-      await client.connect();
       await client.query("CREATE SCHEMA IF NOT EXISTS drizzle;");
+      const db = drizzle(client);
+      console.log("Applying migrations via Drizzle migrator...");
+      await migrate(db, {
+        migrationsFolder: resolve("packages/database/migrations"),
+        migrationsTable: "__drizzle_migrations",
+        migrationsSchema: "drizzle",
+      });
+      console.log("✓ Migrations applied successfully!");
+      process.exitCode = 0;
+      return;
+    } finally {
       await client.end();
-    } catch {
-      // ignore
     }
   }
 
