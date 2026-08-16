@@ -556,6 +556,8 @@ function normalizedTaskProgress(task: Task) {
 
 /* ================= List View ================= */
 export function ListView({ ctx }: { ctx: ViewCtx }) {
+  const topLevelTasks = useMemo(() => ctx.tasks.filter((t) => !t.parentId), [ctx.tasks]);
+
   if (ctx.workspaceDataError) {
     return (
       <div
@@ -571,7 +573,7 @@ export function ListView({ ctx }: { ctx: ViewCtx }) {
     <div className="space-y-4">
       {/* Phone layout */}
       <div className="space-y-3 md:hidden">
-        {ctx.tasks.map((task) => {
+        {topLevelTasks.map((task) => {
           const progress = normalizedTaskProgress(task);
           const pr = PRIORITY_CONFIG[task.priority];
           const st = STATUS_CONFIG[task.status];
@@ -596,7 +598,7 @@ export function ListView({ ctx }: { ctx: ViewCtx }) {
             </Card>
           );
         })}
-        {ctx.tasks.length === 0 && (
+        {topLevelTasks.length === 0 && (
           <Empty
             icon={<IconSearch size={22} />}
             title={ctx.t("لا توجد مهام", "No tasks found")}
@@ -620,7 +622,7 @@ export function ListView({ ctx }: { ctx: ViewCtx }) {
               </tr>
             </thead>
             <tbody className="divide-y divide-line">
-              {ctx.tasks.map((task) => {
+              {topLevelTasks.map((task) => {
                 const st = STATUS_CONFIG[task.status];
                 const pr = PRIORITY_CONFIG[task.priority];
                 const progress = normalizedTaskProgress(task);

@@ -431,13 +431,15 @@ export function AdvancedTaskTable({ ctx }: { ctx: ViewCtx }) {
         cell: ({ row }) => <span>{fmtDate(row.original.dueDate, ctx.locale)}</span>,
       },
     ],
-    [ctx],
+    [ctx, expandedSubtaskTaskIds, subtasksByParentId],
   );
+
+  const topLevelTasks = useMemo(() => ctx.tasks.filter((task) => !task.parentId), [ctx.tasks]);
 
   // TanStack Table intentionally exposes mutable handler functions; the table state remains explicitly controlled here.
   // eslint-disable-next-line react-hooks/incompatible-library
   const table = useReactTable({
-    data: ctx.tasks,
+    data: topLevelTasks,
     columns,
     state: { sorting, rowSelection, columnVisibility, columnOrder, columnPinning, columnSizing },
     onSortingChange: (updater) =>

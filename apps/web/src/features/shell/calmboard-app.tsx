@@ -310,7 +310,7 @@ export function CalmBoardApp() {
   const groupedByStatus = useMemo(() => {
     const g: Record<string, Task[]> = {};
     STATUS_ORDER.forEach((s) => (g[s] = []));
-    filteredTasks.forEach((x) => (g[x.status] ? g[x.status].push(x) : g.backlog.push(x)));
+    filteredTasks.filter((x) => !x.parentId).forEach((x) => (g[x.status] ? g[x.status].push(x) : g.backlog.push(x)));
     return g;
   }, [filteredTasks]);
 
