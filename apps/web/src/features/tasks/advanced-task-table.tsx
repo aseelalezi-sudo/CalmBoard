@@ -99,7 +99,7 @@ function SubtaskTableRow({ subtask, ctx, columns }: { subtask: Task; ctx: ViewCt
   return (
     <div
       onClick={() => ctx.openTask(subtask)}
-      className="flex cursor-pointer text-[12px] bg-surface/70 hover:bg-raised/60 transition border-t border-line"
+      className="flex cursor-pointer text-[12px] bg-raised/25 dark:bg-raised/15 hover:bg-raised/60 transition-all border-t border-line/60 relative group"
     >
       {columns.map((col) => {
         const isPinned = col.getIsPinned();
@@ -109,7 +109,7 @@ function SubtaskTableRow({ subtask, ctx, columns }: { subtask: Task; ctx: ViewCt
             key={col.id}
             style={pinnedColumnStyle(col)}
             className={cn(
-              "flex h-10 shrink-0 items-center overflow-hidden border-e border-line px-3 text-ink-soft",
+              "flex h-9.5 shrink-0 items-center overflow-hidden border-e border-line/60 px-3 text-ink-soft",
               isPinned && "bg-surface",
             )}
           >
@@ -131,14 +131,14 @@ function SubtaskTableRow({ subtask, ctx, columns }: { subtask: Task; ctx: ViewCt
             )}
 
             {col.id === "title" && (
-              <div className="flex min-w-0 items-center gap-2 ps-6 flex-1">
-                <span className="text-ink-faint text-[11px] select-none">↳</span>
-                <span className="mono shrink-0 rounded bg-raised px-1 py-0.5 text-[9.5px] text-ink-faint">
+              <div className="flex min-w-0 items-center gap-2 ps-7 flex-1">
+                <span className="text-accent/80 text-[12px] select-none font-bold">↳</span>
+                <span className="mono shrink-0 rounded-md bg-accent/10 px-1.5 py-0.5 text-[9px] font-semibold text-accent">
                   {subtask.serial}
                 </span>
                 <span
                   className={cn(
-                    "truncate font-semibold text-ink",
+                    "truncate font-medium text-ink",
                     isDone && "line-through text-ink-faint decoration-ink-faint/50",
                   )}
                 >
@@ -151,7 +151,7 @@ function SubtaskTableRow({ subtask, ctx, columns }: { subtask: Task; ctx: ViewCt
               <div className="relative inline-flex items-center" onClick={(e) => e.stopPropagation()}>
                 <Badge
                   tone={st.tone}
-                  className="cursor-pointer text-[10.5px] py-0.5 px-2 hover:opacity-85 transition-opacity"
+                  className="cursor-pointer text-[10px] py-0.5 px-2 hover:opacity-85 transition-opacity"
                 >
                   <span className={`h-1.5 w-1.5 rounded-full ${st.dot}`} />
                   <span>{ctx.t(st.ar, st.en)}</span>
@@ -182,7 +182,7 @@ function SubtaskTableRow({ subtask, ctx, columns }: { subtask: Task; ctx: ViewCt
               <div className="relative inline-flex items-center" onClick={(e) => e.stopPropagation()}>
                 <Badge
                   tone={pr.tone}
-                  className="cursor-pointer text-[10.5px] py-0.5 px-2 hover:opacity-85 transition-opacity"
+                  className="cursor-pointer text-[10px] py-0.5 px-2 hover:opacity-85 transition-opacity"
                 >
                   <span>{ctx.t(pr.ar, pr.en)}</span>
                 </Badge>
@@ -205,11 +205,11 @@ function SubtaskTableRow({ subtask, ctx, columns }: { subtask: Task; ctx: ViewCt
 
             {col.id === "assignee" && (
               <div
-                className="group relative inline-flex items-center gap-1.5 rounded-lg px-1.5 py-0.5 transition-colors hover:bg-raised cursor-pointer max-w-full"
+                className="group/assignee relative inline-flex items-center gap-1.5 rounded-lg px-1.5 py-0.5 transition-colors hover:bg-raised cursor-pointer max-w-full"
                 onClick={(e) => e.stopPropagation()}
               >
-                <Avatar src={avatarUrl} name={assigneeName} size={18} />
-                <span className="truncate text-[11px] font-medium text-ink-soft group-hover:text-ink">
+                <Avatar src={avatarUrl} name={assigneeName} size={16} />
+                <span className="truncate text-[10.5px] font-medium text-ink-soft group-hover/assignee:text-ink">
                   {assigneeName || ctx.t("غير محدد", "Unassigned")}
                 </span>
                 <select
@@ -231,7 +231,7 @@ function SubtaskTableRow({ subtask, ctx, columns }: { subtask: Task; ctx: ViewCt
             )}
 
             {col.id === "points" && (
-              <span className="mono tabular font-medium">
+              <span className="mono tabular text-[11px] font-medium">
                 {subtask.storyPoints !== null && subtask.storyPoints !== undefined
                   ? fmtNumber(subtask.storyPoints, ctx.locale)
                   : "—"}
@@ -239,18 +239,18 @@ function SubtaskTableRow({ subtask, ctx, columns }: { subtask: Task; ctx: ViewCt
             )}
 
             {col.id === "estimated" && (
-              <span className="mono tabular">
+              <span className="mono tabular text-[11px]">
                 {subtask.estimatedHours ? fmtMinutes(subtask.estimatedHours * 60, ctx.locale) : "—"}
               </span>
             )}
 
             {col.id === "logged" && (
-              <span className="mono tabular text-accent">
+              <span className="mono tabular text-[11px] text-accent font-medium">
                 {subtask.loggedHours ? fmtMinutes(subtask.loggedHours * 60, ctx.locale) : "—"}
               </span>
             )}
 
-            {col.id === "due" && <span>{fmtDate(subtask.dueDate, ctx.locale)}</span>}
+            {col.id === "due" && <span className="text-[11px]">{fmtDate(subtask.dueDate, ctx.locale)}</span>}
           </div>
         );
       })}
@@ -1111,16 +1111,32 @@ export function AdvancedTaskTable({ ctx }: { ctx: ViewCtx }) {
 
                       {/* Inline Subtasks List */}
                       {isExpanded && (
-                        <div className="bg-surface/40" onClick={(e) => e.stopPropagation()}>
+                        <div
+                          className="border-t border-accent/20 bg-accent/5 dark:bg-accent/10 border-s-4 border-s-accent/70 shadow-inner transition-all"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {/* Sub-table Header bar */}
+                          <div className="flex items-center gap-2 border-b border-line/60 bg-accent/5 px-4 py-1.5 text-[11px] font-semibold text-accent select-none">
+                            <span className="text-[12px] font-bold">↳</span>
+                            <span>{ctx.t("المهام الفرعية التابعة للمهمة", "Nested Subtasks")}</span>
+                            <span className="mono rounded-full bg-accent/15 px-1.5 py-0.2 text-[9.5px] font-bold">
+                              {fmtNumber(taskSubtasks.length, ctx.locale)}
+                            </span>
+                            <span className="text-ink-faint text-[10px] ms-auto font-normal">
+                              {taskSubtasks.filter((s) => s.status === "done").length}/{taskSubtasks.length}{" "}
+                              {ctx.t("مكتملة", "completed")}
+                            </span>
+                          </div>
+
                           {taskSubtasks.map((subtask) => (
                             <SubtaskTableRow key={subtask.id} subtask={subtask} ctx={ctx} columns={visibleColumns} />
                           ))}
 
                           {/* Quick add subtask input */}
                           {ctx.can("tasks.create") && (
-                            <div className="flex items-center border-t border-dashed border-line bg-surface/60 px-4 py-2">
-                              <div className="ps-6 flex items-center gap-2 flex-1">
-                                <IconPlus size={11} className="text-accent shrink-0" />
+                            <div className="flex items-center border-t border-dashed border-accent/25 bg-surface/60 px-4 py-2 hover:bg-surface/90 transition">
+                              <div className="ps-7 flex items-center gap-2 flex-1">
+                                <IconPlus size={12} className="text-accent shrink-0" />
                                 <input
                                   type="text"
                                   value={inlineSubtaskInput[taskId] || ""}
@@ -1256,7 +1272,23 @@ export function AdvancedTaskTable({ ctx }: { ctx: ViewCtx }) {
 
                                 {/* Inline Subtasks List in Group */}
                                 {isSubExpanded && (
-                                  <div className="bg-surface/40" onClick={(e) => e.stopPropagation()}>
+                                  <div
+                                    className="border-t border-accent/20 bg-accent/5 dark:bg-accent/10 border-s-4 border-s-accent/70 shadow-inner transition-all"
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    {/* Sub-table Header bar */}
+                                    <div className="flex items-center gap-2 border-b border-line/60 bg-accent/5 px-4 py-1.5 text-[11px] font-semibold text-accent select-none">
+                                      <span className="text-[12px] font-bold">↳</span>
+                                      <span>{ctx.t("المهام الفرعية التابعة للمهمة", "Nested Subtasks")}</span>
+                                      <span className="mono rounded-full bg-accent/15 px-1.5 py-0.2 text-[9.5px] font-bold">
+                                        {fmtNumber(taskSubtasks.length, ctx.locale)}
+                                      </span>
+                                      <span className="text-ink-faint text-[10px] ms-auto font-normal">
+                                        {taskSubtasks.filter((s) => s.status === "done").length}/{taskSubtasks.length}{" "}
+                                        {ctx.t("مكتملة", "completed")}
+                                      </span>
+                                    </div>
+
                                     {taskSubtasks.map((subtask) => (
                                       <SubtaskTableRow
                                         key={subtask.id}
@@ -1268,9 +1300,9 @@ export function AdvancedTaskTable({ ctx }: { ctx: ViewCtx }) {
 
                                     {/* Quick add subtask input */}
                                     {ctx.can("tasks.create") && (
-                                      <div className="flex items-center border-t border-dashed border-line bg-surface/60 px-4 py-2">
-                                        <div className="ps-6 flex items-center gap-2 flex-1">
-                                          <IconPlus size={11} className="text-accent shrink-0" />
+                                      <div className="flex items-center border-t border-dashed border-accent/25 bg-surface/60 px-4 py-2 hover:bg-surface/90 transition">
+                                        <div className="ps-7 flex items-center gap-2 flex-1">
+                                          <IconPlus size={12} className="text-accent shrink-0" />
                                           <input
                                             type="text"
                                             value={inlineSubtaskInput[taskId] || ""}
