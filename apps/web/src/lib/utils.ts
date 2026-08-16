@@ -7,7 +7,7 @@ export function uid() {
 export function formatDate(d: Date | string | null | undefined, locale: string = "ar") {
   if (!d) return "-";
   const date = typeof d === "string" ? new Date(d) : d;
-  return new Intl.DateTimeFormat(locale === "ar" ? "ar-EG" : "en-US", {
+  return new Intl.DateTimeFormat(locale === "ar" ? "ar-u-nu-latn" : "en-US", {
     month: "short",
     day: "numeric",
     year: "numeric",

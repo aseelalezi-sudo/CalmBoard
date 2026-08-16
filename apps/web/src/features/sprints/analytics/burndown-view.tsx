@@ -5,7 +5,7 @@ import type { ViewCtx } from "@/lib/types";
 import { fmtNumber } from "@/lib/types";
 import { useSprintTimeline } from "./use-sprint-analytics";
 import { useSprints } from "../use-sprints";
-import { Card, Btn, ScreenState } from "@/components/ui";
+import { Card, Btn, ScreenState, selectSmCls } from "@/components/ui";
 import { IconTimeline, IconDash, IconShield } from "@/components/icons";
 import { isAnalyticsIntegrityError } from "./api";
 
@@ -85,7 +85,7 @@ export function BurndownView({ ctx }: { ctx: ViewCtx }) {
           <select
             value={selectedSprintId ?? ""}
             onChange={(e) => setSelectedSprintId(e.target.value)}
-            className="rounded-lg border border-line bg-surface px-3 py-1.5 text-sm font-medium text-ink shadow-xs outline-none focus:border-accent"
+            className={`${selectSmCls} w-auto min-w-[160px]`}
           >
             {eligibleSprints.map((sprint) => (
               <option key={sprint.id} value={sprint.id}>
@@ -226,7 +226,7 @@ function BurndownChart({
             <div className="absolute inset-0 flex justify-between">
               {series.map((point) => {
                 const dateObj = new Date(point.date);
-                const dateStr = dateObj.toLocaleDateString(ctx.locale === "ar" ? "ar-SA" : "en-US", {
+                const dateStr = dateObj.toLocaleDateString(ctx.locale === "ar" ? "ar-u-nu-latn" : "en-US", {
                   month: "short",
                   day: "numeric",
                 });

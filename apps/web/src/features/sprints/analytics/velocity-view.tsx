@@ -4,7 +4,7 @@ import { useState } from "react";
 import type { ViewCtx } from "@/lib/types";
 import { fmtNumber } from "@/lib/types";
 import { useVelocitySeries } from "./use-sprint-analytics";
-import { Card, Btn, ScreenState } from "@/components/ui";
+import { Card, Btn, ScreenState, selectSmCls } from "@/components/ui";
 import { IconRocket, IconList, IconShield } from "@/components/icons";
 
 export function VelocityView({ ctx }: { ctx: ViewCtx }) {
@@ -80,7 +80,7 @@ export function VelocityView({ ctx }: { ctx: ViewCtx }) {
         <select
           value={limit}
           onChange={(e) => setLimit(Number(e.target.value))}
-          className="rounded-lg border border-line bg-surface px-3 py-1.5 text-sm text-ink shadow-xs outline-none focus:border-accent"
+          className={`${selectSmCls} w-auto min-w-[140px]`}
         >
           <option value={5}>{ctx.t("آخر 5 سبرنتات", "Last 5 sprints")}</option>
           <option value={10}>{ctx.t("آخر 10 سبرنتات", "Last 10 sprints")}</option>
@@ -160,7 +160,7 @@ export function VelocityView({ ctx }: { ctx: ViewCtx }) {
                 <span className="font-semibold text-ink">{sprint.name}</span>
                 <span className="text-[11px] text-ink-faint tabular-nums">
                   {sprint.completedAt
-                    ? new Date(sprint.completedAt).toLocaleDateString(ctx.locale === "ar" ? "ar-SA" : "en-US")
+                    ? new Date(sprint.completedAt).toLocaleDateString(ctx.locale === "ar" ? "ar-u-nu-latn" : "en-US")
                     : "—"}
                 </span>
               </div>
@@ -199,7 +199,7 @@ export function VelocityView({ ctx }: { ctx: ViewCtx }) {
                   <td className="px-5 py-3 font-medium text-ink">{sprint.name}</td>
                   <td className="px-5 py-3 tabular-nums">
                     {sprint.completedAt
-                      ? new Date(sprint.completedAt).toLocaleDateString(ctx.locale === "ar" ? "ar-SA" : "en-US")
+                      ? new Date(sprint.completedAt).toLocaleDateString(ctx.locale === "ar" ? "ar-u-nu-latn" : "en-US")
                       : "—"}
                   </td>
                   <td className="px-5 py-3 text-right rtl:text-left font-bold mono text-accent">

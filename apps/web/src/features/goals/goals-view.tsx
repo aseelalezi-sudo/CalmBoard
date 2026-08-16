@@ -21,7 +21,7 @@ function measurementSummary(goal: Goal, ctx: ViewCtx) {
   if (goal.progressMode === "children") return ctx.t("محسوب من النتائج الرئيسية", "Calculated from key results");
   if (goal.progressMode === "manual") return ctx.t("تحديث يدوي", "Manual check-in");
   if (goal.measurementUnit === "currency") {
-    const currencyFmt = new Intl.NumberFormat(ctx.locale === "ar" ? "ar-EG" : "en-US", {
+    const currencyFmt = new Intl.NumberFormat(ctx.locale === "ar" ? "ar-u-nu-latn" : "en-US", {
       style: "currency",
       currency: "SAR",
     });
@@ -140,7 +140,7 @@ export function GoalsView({ ctx }: { ctx: ViewCtx }) {
                 name="auto-field-acsllgh"
                 value={taskSelections[goal.id] ?? ""}
                 onChange={(event) => setTaskSelections((current) => ({ ...current, [goal.id]: event.target.value }))}
-                className="min-w-44 flex-1 rounded-xl border border-line bg-surface px-2.5 py-2 text-[11px] text-ink outline-none focus:border-indigo-500"
+                className="h-8.5 min-w-44 flex-1 rounded-xl border border-line bg-surface px-2.5 text-[11.5px] font-medium text-ink shadow-xs outline-none transition focus:border-accent"
               >
                 <option value="">{ctx.t("ربط مهمة…", "Link a task…")}</option>
                 {availableTasks.map((task) => (
@@ -346,7 +346,7 @@ export function GoalsView({ ctx }: { ctx: ViewCtx }) {
                         {checkin.author || ctx.t("عضو", "Member")} • {fmtNumber(checkin.progress, ctx.locale)}%
                       </span>
                       <time dateTime={new Date(checkin.date).toISOString()} className="text-ink-faint">
-                        {new Date(checkin.date).toLocaleDateString(ctx.locale === "ar" ? "ar-EG" : "en-US")}
+                        {new Date(checkin.date).toLocaleDateString(ctx.locale === "ar" ? "ar-u-nu-latn" : "en-US")}
                       </time>
                     </div>
                     <p className="mt-1 text-ink-soft">{checkin.note}</p>

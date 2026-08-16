@@ -32,7 +32,10 @@ import {
   IconShare,
   IconCollapse,
   IconFolder,
+  IconDoc,
+  IconChevronDown,
 } from "@/components/icons";
+import { notificationBody, notificationTitle } from "@/lib/notification-labels";
 import { AuthScreen } from "@/features/auth/auth-screen";
 import { useAuthOperations } from "@/features/auth/use-auth-operations";
 import { AIPanel } from "@/features/ai/ai-panel";
@@ -89,6 +92,7 @@ export function CalmBoardApp() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [showNotif, setShowNotif] = useState(false);
+  const [notifFilter, setNotifFilter] = useState<"all" | "unread">("all");
   const [showAI, setShowAI] = useState(false);
   const [showGuide, setShowGuide] = useState(false);
   const [showTelemetry, setShowTelemetry] = useState(false);
@@ -493,10 +497,36 @@ export function CalmBoardApp() {
   };
   const openNotification = (notification: Notification) => {
     if (!notification.isRead) markAsRead(notification.id).catch(() => undefined);
+
+    // 1. Task notifications (by entityId, serial, or task title match)
+    const serialMatch = (
+      notification.title +
+      " " +
+      (notification.body || "") +
+      " " +
+      (notification.entityId || "")
+    ).match(/TASK-\d+/i);
+    const matchedSerial = serialMatch ? serialMatch[0].toUpperCase() : null;
+
+    const matchedTask = tasks.find(
+      (task) =>
+        (notification.entityId &&
+          (task.id === notification.entityId || task.serial?.toUpperCase() === notification.entityId.toUpperCase())) ||
+        (matchedSerial && task.serial?.toUpperCase() === matchedSerial) ||
+        (task.title && (notification.body?.includes(task.title) || notification.title?.includes(task.title))),
+    );
+
+    if (matchedTask) {
+      if (matchedTask.projectId && activeProject?.id !== matchedTask.projectId) {
+        const targetProj = projects.find((p) => p.id === matchedTask.projectId);
+        if (targetProj) switchProject(targetProj);
+      }
+      openTask(matchedTask);
+      return;
+    }
+
     if (notification.entityType === "task" && notification.entityId) {
-      const loadedTask = tasks.find((task) => task.id === notification.entityId);
-      if (loadedTask) setTaskDetail(loadedTask);
-      else if (activeOrg && activeWorkspace) {
+      if (activeOrg && activeWorkspace) {
         void openTaskById({
           id: notification.entityId,
           organizationId: activeOrg.id,
@@ -505,14 +535,55 @@ export function CalmBoardApp() {
       }
       return;
     }
+
+    // 2. Project notifications
     if (notification.entityType === "project" && notification.entityId) {
       const project = projects.find((item) => item.id === notification.entityId);
       if (project) switchProject(project);
       return;
     }
+
+    // 3. Timesheets & Time tracking / Approvals notifications
+    const isTimesheet =
+      notification.entityType === "timesheet" ||
+      notification.entityType === "time" ||
+      notification.entityType === "time_log" ||
+      notification.actionPath?.includes("view=time") ||
+      notification.actionPath?.includes("view=timesheets") ||
+      /timesheet|ساعات|جدول|اعتماد|موافقة/i.test(notification.title || "") ||
+      /timesheet|ساعات|جدول|اعتماد|موافقة/i.test(notification.body || "");
+
+    if (isTimesheet && canOpenWorkspaceView("time")) {
+      setActiveView("time");
+      return;
+    }
+
+    // 4. Docs notifications
+    if ((notification.entityType === "doc" || notification.entityType === "document") && canOpenWorkspaceView("docs")) {
+      setActiveView("docs");
+      return;
+    }
+
+    // 5. Goals notifications
+    if (notification.entityType === "goal" && canOpenWorkspaceView("goals")) {
+      setActiveView("goals");
+      return;
+    }
+
+    // 6. Member & Invitation notifications
+    if (
+      (notification.entityType === "member" || notification.entityType === "invitation") &&
+      canOpenWorkspaceView("members")
+    ) {
+      setActiveView("members");
+      return;
+    }
+
+    // 7. Action path navigation
     if (notification.actionPath?.startsWith("/") && !notification.actionPath.startsWith("//")) {
       const target = new URL(notification.actionPath, window.location.origin);
-      const view = target.searchParams.get("view");
+      let view = target.searchParams.get("view");
+      if (view === "timesheets") view = "time";
       if (view && canOpenWorkspaceView(view)) setActiveView(view);
       else window.location.assign(`${target.pathname}${target.search}${target.hash}`);
     }
@@ -655,8 +726,8 @@ export function CalmBoardApp() {
       {/* ============ SIDEBAR ============ */}
       <aside
         className={cn(
-          "sticky top-0 z-30 hidden h-screen shrink-0 flex-col border-e border-slate-200/80 bg-white/90 backdrop-blur-xl transition-all duration-300 dark:border-white/6 dark:bg-[#0a0a11]/90 lg:flex",
-          collapsed ? "w-[74px]" : "w-[280px]",
+          "sticky top-0 z-30 hidden h-screen shrink-0 flex-col border-e border-line bg-surface/95 backdrop-blur-2xl transition-all duration-300 dark:bg-[#0c0d14]/95 lg:flex",
+          collapsed ? "w-[74px]" : "w-[270px]",
         )}
       >
         {/* Workspace Switcher Header */}
@@ -672,24 +743,15 @@ export function CalmBoardApp() {
           t={t}
         />
 
-        <div className="flex-1 space-y-6 overflow-y-auto px-3 py-4">
-          {!collapsed && (
-            <button
-              disabled={!can("tasks.create")}
-              onClick={() => ctx.setShowAddTask(true)}
-              className="group flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-linear-to-r from-indigo-500 to-violet-500 text-[13px] font-semibold text-white shadow-[0_4px_20px_rgba(99,102,241,0.3)] transition hover:shadow-[0_4px_28px_rgba(139,92,246,0.38)] hover:brightness-105"
-            >
-              <IconPlus size={15} />
-              {t("مهمة جديدة", "New Task")}
-              <Kbd>⌘N</Kbd>
-            </button>
-          )}
-
+        <div className="flex-1 space-y-5 overflow-y-auto px-3 py-3.5 scrollbar-thin">
+          {/* Nav Work */}
           <nav>
-            {!collapsed && (
-              <div className="mb-2 px-2 text-[10px] font-bold uppercase tracking-widest text-slate-400 dark:text-zinc-600">
+            {!collapsed ? (
+              <div className="mb-2 px-3 text-[11px] font-bold uppercase tracking-wider text-indigo-500 dark:text-indigo-400">
                 {t("العمل", "Work")}
               </div>
+            ) : (
+              <div className="my-2 mx-auto h-px w-6 bg-line/80" />
             )}
             <ul className="space-y-1">
               {NAV_WORK.map(({ id, ar, en, Icon }) => (
@@ -698,16 +760,26 @@ export function CalmBoardApp() {
                     onClick={() => setActiveView(id)}
                     title={t(ar, en)}
                     className={cn(
-                      "flex w-full items-center gap-3 rounded-xl px-3 py-2 text-[13px] transition",
+                      "group relative flex w-full items-center rounded-xl py-2 text-[13px] font-medium transition-all duration-150",
+                      collapsed ? "justify-center px-1" : "gap-3 px-3",
                       activeView === id
-                        ? "bg-slate-100 font-semibold text-slate-900 dark:bg-white/[0.07] dark:text-white shadow-[inset_2px_0_0_#06b6d4] dark:shadow-[inset_2px_0_0_#22d3ee]"
-                        : "text-slate-500 hover:bg-slate-50 hover:text-slate-900 dark:text-zinc-500 dark:hover:bg-white/4 dark:hover:text-zinc-200",
+                        ? "bg-accent/10 font-semibold text-accent dark:bg-accent/15 dark:text-white shadow-xs"
+                        : "text-ink-soft hover:bg-raised/70 hover:text-ink active:scale-[0.99]",
                     )}
                   >
-                    <Icon size={16} className={activeView === id ? "text-indigo-600 dark:text-violet-300" : ""} />
-                    {!collapsed && <span className="flex-1 text-start">{t(ar, en)}</span>}
+                    {activeView === id && (
+                      <span className="absolute start-0 inset-y-1.5 w-1 rounded-full bg-accent shadow-[0_0_8px_var(--color-accent)]" />
+                    )}
+                    <Icon
+                      size={16}
+                      className={cn(
+                        "shrink-0 transition-transform duration-150 group-hover:scale-110",
+                        activeView === id ? "text-accent" : "text-ink-faint group-hover:text-ink",
+                      )}
+                    />
+                    {!collapsed && <span className="flex-1 text-start truncate">{t(ar, en)}</span>}
                     {!collapsed && id === "inbox" && unread > 0 && (
-                      <span className="grid h-5 min-w-5 place-items-center rounded-full bg-linear-to-r from-indigo-500 to-violet-500 px-1 text-[10px] font-bold text-white tabular">
+                      <span className="grid h-5 min-w-5 place-items-center rounded-full bg-linear-to-r from-indigo-500 to-violet-500 px-1.5 text-[10px] font-bold text-white shadow-xs">
                         {unread}
                       </span>
                     )}
@@ -717,13 +789,14 @@ export function CalmBoardApp() {
             </ul>
           </nav>
 
-          {/* Project nav moved to header dropdown */}
-
+          {/* Nav Space */}
           <nav>
-            {!collapsed && (
-              <div className="mb-2 px-2 text-[10px] font-bold uppercase tracking-widest text-slate-400 dark:text-zinc-600">
+            {!collapsed ? (
+              <div className="mb-2 px-3 text-[11px] font-bold uppercase tracking-wider text-indigo-500 dark:text-indigo-400">
                 {t("مساحة العمل", "Workspace")}
               </div>
+            ) : (
+              <div className="my-2 mx-auto h-px w-6 bg-line/80" />
             )}
             <ul className="space-y-1">
               {NAV_SPACE.filter(({ id }) => canOpenWorkspaceView(id)).map(({ id, ar, en, Icon }) => (
@@ -732,26 +805,39 @@ export function CalmBoardApp() {
                     onClick={() => setActiveView(id)}
                     title={t(ar, en)}
                     className={cn(
-                      "flex w-full items-center gap-3 rounded-xl px-3 py-2 text-[13px] transition",
+                      "group relative flex w-full items-center rounded-xl py-2 text-[13px] font-medium transition-all duration-150",
+                      collapsed ? "justify-center px-1" : "gap-3 px-3",
                       activeView === id
-                        ? "bg-slate-100 font-semibold text-slate-900 dark:bg-white/[0.07] dark:text-white shadow-[inset_2px_0_0_#6366f1] dark:shadow-[inset_2px_0_0_#818cf8]"
-                        : "text-slate-500 hover:bg-slate-50 hover:text-slate-900 dark:text-zinc-500 dark:hover:bg-white/4 dark:hover:text-zinc-200",
+                        ? "bg-accent/10 font-semibold text-accent dark:bg-accent/15 dark:text-white shadow-xs"
+                        : "text-ink-soft hover:bg-raised/70 hover:text-ink active:scale-[0.99]",
                     )}
                   >
-                    <Icon size={16} className={activeView === id ? "text-indigo-600 dark:text-indigo-300" : ""} />
-                    {!collapsed && <span className="flex-1 text-start">{t(ar, en)}</span>}
+                    {activeView === id && (
+                      <span className="absolute start-0 inset-y-1.5 w-1 rounded-full bg-accent shadow-[0_0_8px_var(--color-accent)]" />
+                    )}
+                    <Icon
+                      size={16}
+                      className={cn(
+                        "shrink-0 transition-transform duration-150 group-hover:scale-110",
+                        activeView === id ? "text-accent" : "text-ink-faint group-hover:text-ink",
+                      )}
+                    />
+                    {!collapsed && <span className="flex-1 text-start truncate">{t(ar, en)}</span>}
                   </button>
                 </li>
               ))}
             </ul>
           </nav>
 
+          {/* Nav Tools */}
           {NAV_TOOLS.filter(({ id }) => canOpenWorkspaceView(id)).length > 0 && (
             <nav>
-              {!collapsed && (
-                <div className="mb-2 px-2 text-[10px] font-bold uppercase tracking-widest text-slate-400 dark:text-zinc-600">
+              {!collapsed ? (
+                <div className="mb-2 px-3 text-[11px] font-bold uppercase tracking-wider text-indigo-500 dark:text-indigo-400">
                   {t("الأدوات", "Tools")}
                 </div>
+              ) : (
+                <div className="my-2 mx-auto h-px w-6 bg-line/80" />
               )}
               <ul className="space-y-1">
                 {NAV_TOOLS.filter(({ id }) => canOpenWorkspaceView(id)).map(({ id, ar, en, Icon }) => (
@@ -760,14 +846,24 @@ export function CalmBoardApp() {
                       onClick={() => setActiveView(id)}
                       title={t(ar, en)}
                       className={cn(
-                        "flex w-full items-center gap-3 rounded-xl px-3 py-2 text-[13px] transition",
+                        "group relative flex w-full items-center rounded-xl py-2 text-[13px] font-medium transition-all duration-150",
+                        collapsed ? "justify-center px-1" : "gap-3 px-3",
                         activeView === id
-                          ? "bg-slate-100 font-semibold text-slate-900 shadow-[inset_2px_0_0_#8b5cf6] dark:bg-white/[0.07] dark:text-white"
-                          : "text-slate-500 hover:bg-slate-50 hover:text-slate-900 dark:text-zinc-500 dark:hover:bg-white/4 dark:hover:text-zinc-200",
+                          ? "bg-accent/10 font-semibold text-accent dark:bg-accent/15 dark:text-white shadow-xs"
+                          : "text-ink-soft hover:bg-raised/70 hover:text-ink active:scale-[0.99]",
                       )}
                     >
-                      <Icon size={16} className={activeView === id ? "text-violet-600 dark:text-violet-300" : ""} />
-                      {!collapsed && <span className="flex-1 text-start">{t(ar, en)}</span>}
+                      {activeView === id && (
+                        <span className="absolute start-0 inset-y-1.5 w-1 rounded-full bg-accent shadow-[0_0_8px_var(--color-accent)]" />
+                      )}
+                      <Icon
+                        size={16}
+                        className={cn(
+                          "shrink-0 transition-transform duration-150 group-hover:scale-110",
+                          activeView === id ? "text-accent" : "text-ink-faint group-hover:text-ink",
+                        )}
+                      />
+                      {!collapsed && <span className="flex-1 text-start truncate">{t(ar, en)}</span>}
                     </button>
                   </li>
                 ))}
@@ -775,12 +871,15 @@ export function CalmBoardApp() {
             </nav>
           )}
 
+          {/* Nav Admin */}
           {NAV_ADMIN.filter(({ id }) => canOpenWorkspaceView(id)).length > 0 && (
             <nav>
-              {!collapsed && (
-                <div className="mb-2 px-2 text-[10px] font-bold uppercase tracking-widest text-slate-400 dark:text-zinc-600">
+              {!collapsed ? (
+                <div className="mb-2 px-3 text-[11px] font-bold uppercase tracking-wider text-indigo-500 dark:text-indigo-400">
                   {t("الإدارة", "Administration")}
                 </div>
+              ) : (
+                <div className="my-2 mx-auto h-px w-6 bg-line/80" />
               )}
               <ul className="space-y-1">
                 {NAV_ADMIN.filter(({ id }) => canOpenWorkspaceView(id)).map(({ id, ar, en, Icon }) => (
@@ -789,14 +888,24 @@ export function CalmBoardApp() {
                       onClick={() => setActiveView(id)}
                       title={t(ar, en)}
                       className={cn(
-                        "flex w-full items-center gap-3 rounded-xl px-3 py-2 text-[13px] transition",
+                        "group relative flex w-full items-center rounded-xl py-2 text-[13px] font-medium transition-all duration-150",
+                        collapsed ? "justify-center px-1" : "gap-3 px-3",
                         activeView === id
-                          ? "bg-slate-100 font-semibold text-slate-900 shadow-[inset_2px_0_0_#64748b] dark:bg-white/[0.07] dark:text-white"
-                          : "text-slate-500 hover:bg-slate-50 hover:text-slate-900 dark:text-zinc-500 dark:hover:bg-white/4 dark:hover:text-zinc-200",
+                          ? "bg-accent/10 font-semibold text-accent dark:bg-accent/15 dark:text-white shadow-xs"
+                          : "text-ink-soft hover:bg-raised/70 hover:text-ink active:scale-[0.99]",
                       )}
                     >
-                      <Icon size={16} className={activeView === id ? "text-slate-700 dark:text-zinc-200" : ""} />
-                      {!collapsed && <span className="flex-1 text-start">{t(ar, en)}</span>}
+                      {activeView === id && (
+                        <span className="absolute start-0 inset-y-1.5 w-1 rounded-full bg-accent shadow-[0_0_8px_var(--color-accent)]" />
+                      )}
+                      <Icon
+                        size={16}
+                        className={cn(
+                          "shrink-0 transition-transform duration-150 group-hover:scale-110",
+                          activeView === id ? "text-accent" : "text-ink-faint group-hover:text-ink",
+                        )}
+                      />
+                      {!collapsed && <span className="flex-1 text-start truncate">{t(ar, en)}</span>}
                     </button>
                   </li>
                 ))}
@@ -805,16 +914,41 @@ export function CalmBoardApp() {
           )}
         </div>
 
-        <div className="shrink-0 border-t border-line bg-surface/80 p-3">
-          <UserProfileDropdown
-            currentUser={currentUser}
-            collapsed={collapsed}
-            setActiveView={setActiveView}
-            setShowGuide={setShowGuide}
-            setShowTelemetry={setShowTelemetry}
-            telemetryUiEnabled={telemetryUiEnabled}
-            t={t}
-          />
+        {/* Sidebar Footer with Collapse Toggle */}
+        <div className="shrink-0 border-t border-line bg-surface/80 p-2">
+          <button
+            type="button"
+            onClick={() => setCollapsed(!collapsed)}
+            aria-label={
+              collapsed ? t("توسيع القائمة الجانبية", "Expand sidebar") : t("طي القائمة الجانبية", "Collapse sidebar")
+            }
+            title={
+              collapsed ? t("توسيع القائمة الجانبية", "Expand sidebar") : t("طي القائمة الجانبية", "Collapse sidebar")
+            }
+            className={cn(
+              "group flex h-9 w-full items-center rounded-xl text-[12.5px] font-medium text-ink-soft transition-all duration-150 hover:bg-raised hover:text-ink active:scale-[0.98]",
+              collapsed ? "justify-center px-0" : "justify-between px-2.5",
+            )}
+          >
+            {!collapsed && (
+              <span className="truncate font-semibold text-[12.5px]">{t("طي القائمة", "Collapse sidebar")}</span>
+            )}
+            <span className="grid h-7 w-7 place-items-center rounded-lg text-ink-soft group-hover:text-accent transition-colors">
+              <IconCollapse
+                size={17}
+                className={cn(
+                  "transition-transform duration-300",
+                  locale === "ar"
+                    ? collapsed
+                      ? "scale-x-100"
+                      : "-scale-x-100"
+                    : collapsed
+                      ? "-scale-x-100"
+                      : "scale-x-100",
+                )}
+              />
+            </span>
+          </button>
         </div>
       </aside>
 
@@ -885,13 +1019,12 @@ export function CalmBoardApp() {
             type="button"
             disabled={!can("tasks.create") || !activeProject}
             onClick={() => ctx.setShowAddTask(true)}
-            title={t("إنشاء مهمة", "Create task")}
-            aria-label={t("إنشاء مهمة", "Create task")}
-            className="group relative grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-linear-to-r from-indigo-500 to-violet-500 text-white shadow-[0_4px_16px_rgba(99,102,241,0.3)] transition-all duration-300 hover:scale-[1.02] hover:shadow-[0_4px_24px_rgba(99,102,241,0.45)] hover:brightness-110 active:scale-95 disabled:pointer-events-none disabled:opacity-45 sm:w-auto sm:px-3 sm:text-[12.5px] sm:font-semibold"
+            title={t("مهمة جديدة", "New Task")}
+            aria-label={t("مهمة جديدة", "New Task")}
+            className="group relative flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-xl bg-linear-to-r from-[#6366f1] to-[#8b5cf6] px-3.5 text-[12.5px] font-bold text-white shadow-md shadow-indigo-500/25 transition-all duration-200 hover:shadow-lg hover:shadow-indigo-500/35 hover:brightness-105 active:scale-95 disabled:pointer-events-none disabled:opacity-40"
           >
-            <div className="absolute inset-0 rounded-xl bg-white/20 opacity-0 transition-opacity group-hover:opacity-100 mix-blend-overlay" />
-            <IconPlus size={15} className="relative z-10" />
-            <span className="relative z-10 hidden sm:ms-1.5 sm:inline">{t("مهمة", "Task")}</span>
+            <IconPlus size={15} className="transition-transform duration-200 group-hover:rotate-90" />
+            <span className="hidden sm:inline">{t("مهمة جديدة", "New Task")}</span>
           </button>
 
           <div className="relative" ref={notifRef}>
@@ -902,12 +1035,15 @@ export function CalmBoardApp() {
                 setShowNotif(!showNotif);
               }}
               aria-label={t("فتح الإشعارات", "Open notifications")}
+              title={t("الإشعارات", "Notifications")}
               className={cn(
-                "relative grid h-9 w-9 shrink-0 place-items-center rounded-xl border text-ink-soft transition-all duration-300 hover:text-ink active:scale-95",
-                showNotif ? "border-line bg-raised shadow-sm" : "border-transparent bg-transparent hover:bg-raised/70",
+                "group relative flex h-9.5 w-9.5 shrink-0 items-center justify-center rounded-xl border-2 transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 active:scale-95",
+                showNotif
+                  ? "border-accent ring-3 ring-accent/25 shadow-md bg-raised text-accent"
+                  : "border-line/90 bg-surface text-ink-soft shadow-2xs hover:border-accent/60 hover:text-ink hover:shadow-xs",
               )}
             >
-              <IconBell size={15} className={cn("transition-transform", showNotif && "scale-110 text-ink")} />
+              <IconBell size={16} className={cn("transition-transform duration-200", showNotif && "scale-110")} />
               {unread > 0 && (
                 <>
                   <span className="absolute -end-1 -top-1 grid min-h-5 min-w-5 place-items-center rounded-full bg-linear-to-r from-indigo-500 to-rose-500 px-1 text-[9.5px] font-bold text-white tabular shadow-sm z-10">
@@ -917,63 +1053,173 @@ export function CalmBoardApp() {
                 </>
               )}
             </button>
+
             {showNotif && (
               <div
                 ref={notifPanelRef}
                 tabIndex={-1}
-                className="animate-pop fixed inset-x-2 top-18 z-50 flex max-h-[calc(100dvh-5rem)] flex-col overflow-hidden rounded-2xl border border-line bg-surface shadow-xl backdrop-blur-xl sm:absolute sm:inset-x-auto sm:end-0 sm:top-12 sm:w-[min(360px,calc(100vw-24px))] sm:max-h-[380px] dark:shadow-[0_24px_60px_rgba(0,0,0,0.6)]"
+                className="animate-pop fixed inset-x-2 top-18 z-50 flex max-h-[calc(100dvh-5rem)] flex-col overflow-hidden rounded-2xl border border-line bg-surface/98 shadow-2xl backdrop-blur-2xl ring-1 ring-line/50 sm:absolute sm:inset-x-auto sm:end-0 sm:top-12 sm:w-[min(380px,calc(100vw-24px))] sm:max-h-[460px] dark:shadow-[0_24px_60px_rgba(0,0,0,0.6)]"
               >
-                <div className="flex shrink-0 items-center justify-between border-b border-line px-4 py-3">
-                  <span className="text-[13.5px] font-semibold text-ink">{t("الإشعارات", "Notifications")}</span>
-                  <button onClick={markAllRead} className="text-[11.5px] text-accent transition hover:opacity-80">
-                    {t("قراءة الكل", "Mark all read")}
+                {/* Header */}
+                <div className="flex shrink-0 items-center justify-between border-b border-line bg-linear-to-b from-raised/60 to-raised/20 px-4 py-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[14px] font-bold text-ink">{t("الإشعارات", "Notifications")}</span>
+                    {unread > 0 && (
+                      <span className="rounded-full bg-indigo-500/15 px-2 py-0.5 text-[10.5px] font-bold text-indigo-500 dark:text-indigo-400">
+                        {unread} {t("جديد", "new")}
+                      </span>
+                    )}
+                  </div>
+                  {unread > 0 && (
+                    <button
+                      type="button"
+                      onClick={markAllRead}
+                      className="flex items-center gap-1 rounded-lg px-2 py-1 text-[11.5px] font-semibold text-accent transition-colors hover:bg-accent/10 active:scale-95"
+                    >
+                      <IconCheck size={12} />
+                      <span>{t("قراءة الكل", "Mark all read")}</span>
+                    </button>
+                  )}
+                </div>
+
+                {/* Filter Tabs */}
+                <div className="flex border-b border-line bg-surface p-1.5 gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setNotifFilter("all")}
+                    className={cn(
+                      "flex-1 rounded-lg py-1 text-center text-[11.5px] font-semibold transition-all duration-150 active:scale-[0.98]",
+                      notifFilter === "all"
+                        ? "border border-line bg-raised text-ink font-bold shadow-2xs"
+                        : "text-ink-soft hover:text-ink hover:bg-raised/50",
+                    )}
+                  >
+                    {t("الكل", "All")} ({notifications.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setNotifFilter("unread")}
+                    className={cn(
+                      "flex-1 rounded-lg py-1 text-center text-[11.5px] font-semibold transition-all duration-150 active:scale-[0.98]",
+                      notifFilter === "unread"
+                        ? "border border-line bg-raised text-accent font-bold shadow-2xs"
+                        : "text-ink-soft hover:text-ink hover:bg-raised/50",
+                    )}
+                  >
+                    {t("غير المقروءة", "Unread")} ({unread})
                   </button>
                 </div>
+
+                {/* List of Notifications */}
                 <div className="dropdown-options min-h-0 flex-1 divide-y divide-line overflow-y-auto">
-                  {notifications.map((n) => (
-                    <button
-                      key={n.id}
-                      type="button"
-                      onClick={() => {
-                        openNotification(n);
-                        setShowNotif(false);
-                      }}
-                      className={cn(
-                        "w-full text-start flex gap-3 px-4 py-3.5 transition-colors hover:bg-raised/50",
-                        !n.isRead && "bg-accent/5",
-                      )}
-                    >
-                      <span
+                  {(notifFilter === "unread" ? notifications.filter((n) => !n.isRead) : notifications).map((n) => {
+                    const isTask = n.entityType === "task";
+                    const isProject = n.entityType === "project";
+                    const isDoc = n.entityType === "doc" || n.entityType === "document";
+
+                    return (
+                      <button
+                        key={n.id}
+                        type="button"
+                        onClick={() => {
+                          openNotification(n);
+                          setShowNotif(false);
+                        }}
                         className={cn(
-                          "grid h-8 w-8 shrink-0 place-items-center rounded-lg border",
-                          !n.isRead
-                            ? "border-indigo-200 bg-indigo-50 text-indigo-700 dark:border-indigo-500/30 dark:bg-indigo-500/10 dark:text-indigo-300"
-                            : "border-slate-200 bg-slate-50 text-slate-500 dark:border-white/10 dark:bg-white/4 dark:text-zinc-500",
+                          "group flex w-full cursor-pointer items-start gap-3 p-3.5 text-start transition-colors hover:bg-raised/60 active:scale-[0.99]",
+                          !n.isRead ? "bg-accent/4 border-s-3 border-accent" : "border-s-3 border-transparent",
                         )}
                       >
-                        <IconBell size={13} />
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <div className="text-[12.5px] font-medium text-slate-900 dark:text-zinc-200">{n.title}</div>
-                        {n.body && (
-                          <div className="mt-0.5 line-clamp-2 text-[11.5px] text-slate-500 dark:text-zinc-500">
-                            {n.body}
+                        <span
+                          className={cn(
+                            "grid h-8 w-8 shrink-0 place-items-center rounded-xl border shadow-2xs transition-colors",
+                            !n.isRead
+                              ? isTask
+                                ? "border-indigo-500/30 bg-indigo-500/10 text-indigo-500"
+                                : isProject
+                                  ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-500"
+                                  : "border-accent/30 bg-accent/10 text-accent"
+                              : "border-line bg-raised/70 text-ink-soft",
+                          )}
+                        >
+                          {isTask ? (
+                            <IconBoard size={14} />
+                          ) : isProject ? (
+                            <IconFolder size={14} />
+                          ) : isDoc ? (
+                            <IconDoc size={14} />
+                          ) : (
+                            <IconBell size={14} />
+                          )}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center justify-between gap-2">
+                            <span
+                              className={cn(
+                                "truncate text-[12.5px]",
+                                !n.isRead ? "font-bold text-ink" : "font-medium text-ink-soft",
+                              )}
+                            >
+                              {notificationTitle(n, t)}
+                            </span>
+                            <span className="shrink-0 text-[10px] text-ink-faint">
+                              {new Date(n.createdAt).toLocaleDateString(locale === "ar" ? "ar-u-nu-latn" : "en-US", {
+                                month: "short",
+                                day: "numeric",
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              })}
+                            </span>
                           </div>
-                        )}
-                        <div className="mt-1 text-[10px] text-slate-400 dark:text-zinc-600">
-                          {new Date(n.createdAt).toLocaleString(locale === "ar" ? "ar-EG" : "en-US")}
+                          {n.body && (
+                            <div className="mt-0.5 line-clamp-2 text-[11.5px] text-ink-faint group-hover:text-ink-soft transition-colors">
+                              {notificationBody(n, t)}
+                            </div>
+                          )}
                         </div>
+                        {!n.isRead && (
+                          <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-accent ring-2 ring-surface shadow-2xs" />
+                        )}
+                      </button>
+                    );
+                  })}
+
+                  {(notifFilter === "unread" ? notifications.filter((n) => !n.isRead) : notifications).length === 0 && (
+                    <div className="flex flex-col items-center justify-center p-8 text-center">
+                      <span className="grid h-10 w-10 place-items-center rounded-2xl border border-line bg-raised/60 text-ink-soft mb-2.5 shadow-2xs">
+                        <IconBell size={18} />
+                      </span>
+                      <div className="text-[13px] font-bold text-ink">
+                        {notifFilter === "unread"
+                          ? t("أنت مطلع على كل شيء!", "All caught up!")
+                          : t("لا توجد إشعارات", "No notifications")}
                       </div>
-                      {!n.isRead && (
-                        <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-indigo-500 dark:bg-cyan-400" />
-                      )}
-                    </button>
-                  ))}
-                  {notifications.length === 0 && (
-                    <div className="px-4 py-10 text-center text-[12.5px] text-slate-500 dark:text-zinc-600">
-                      {t("لا إشعارات", "No notifications")}
+                      <div className="mt-1 text-[11px] text-ink-faint max-w-[220px]">
+                        {notifFilter === "unread"
+                          ? t("لا توجد أي إشعارات غير مقروءة حالياً.", "No unread notifications right now.")
+                          : t("ستظهر هنا الإشعارات والتنبيهات فور وصولها.", "New notifications will appear here.")}
+                      </div>
                     </div>
                   )}
+                </div>
+
+                {/* Footer */}
+                <div className="flex items-center justify-between border-t border-line bg-surface/90 px-3.5 py-2.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveView("inbox");
+                      setShowNotif(false);
+                    }}
+                    className="flex items-center gap-1.5 text-[11.5px] font-bold text-accent hover:underline transition-colors active:scale-95"
+                  >
+                    <IconInbox size={13} />
+                    <span>{t("فتح صندوق الوارد الكامل", "Open full Inbox")}</span>
+                  </button>
+                  <span className="flex items-center gap-1 text-[10px] text-ink-faint">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                    <span>{t("مُحدّث فورياً", "Live sync")}</span>
+                  </span>
                 </div>
               </div>
             )}
@@ -989,6 +1235,16 @@ export function CalmBoardApp() {
             <IconSparkle size={14} className="relative z-10 transition-transform group-hover:scale-110" />
             <span className="relative z-10 hidden sm:inline">{t("مساعد", "AI")}</span>
           </button>
+
+          <UserProfileDropdown
+            currentUser={currentUser}
+            collapsed={false}
+            setActiveView={setActiveView}
+            setShowGuide={setShowGuide}
+            setShowTelemetry={setShowTelemetry}
+            telemetryUiEnabled={telemetryUiEnabled}
+            t={t}
+          />
         </header>
 
         {/* content */}
@@ -1064,7 +1320,8 @@ export function CalmBoardApp() {
                 </div>
 
                 {/* toolbar: tabs + filters */}
-                <ScreenToolbar className="mt-5 justify-between">
+                {/* toolbar: tabs + filters */}
+                <ScreenToolbar className="mt-4 justify-between gap-3">
                   <SegmentedTabs
                     value={activeView}
                     label={t("طريقة عرض مهام المشروع", "Project task view")}
@@ -1081,21 +1338,21 @@ export function CalmBoardApp() {
                       }),
                     )}
                   />
-                  <div className="flex flex-1 flex-wrap items-center justify-end gap-2">
+                  <div className="flex items-center gap-2 shrink-0">
                     <input
                       name="auto-field-ugbqrm2"
                       aria-label={t("البحث في مهام المشروع", "Search project tasks")}
                       value={taskFilter.search || ""}
                       onChange={(e) => setTaskFilter({ ...taskFilter, search: e.target.value })}
                       placeholder={t("تصفية…", "Filter…")}
-                      className={`${inputCls} h-8 w-[150px] text-[12px]`}
+                      className={`${inputCls} h-8 !w-28 sm:!w-32 text-[12px] shrink-0`}
                     />
                     <select
                       name="auto-field-c0spigt"
                       aria-label={t("تصفية حسب الحالة", "Filter by status")}
                       value={taskFilter.status || ""}
                       onChange={(e) => setTaskFilter({ ...taskFilter, status: e.target.value || undefined })}
-                      className={`${selectCls} h-8 text-[11.5px]`}
+                      className={`${selectCls} h-8 !w-auto !min-w-[95px] text-[11.5px] shrink-0`}
                     >
                       <option value="">{t("كل الحالات", "All status")}</option>
                       {Object.entries(STATUS_CONFIG).map(([k, v]) => (
@@ -1109,7 +1366,7 @@ export function CalmBoardApp() {
                       aria-label={t("تصفية حسب الأولوية", "Filter by priority")}
                       value={taskFilter.priority || ""}
                       onChange={(e) => setTaskFilter({ ...taskFilter, priority: e.target.value || undefined })}
-                      className={`${selectCls} h-8 text-[11.5px]`}
+                      className={`${selectCls} h-8 !w-auto !min-w-[105px] text-[11.5px] shrink-0`}
                     >
                       <option value="">{t("كل الأولويات", "All priority")}</option>
                       {Object.entries(PRIORITY_CONFIG).map(([k, v]) => (
@@ -1118,12 +1375,21 @@ export function CalmBoardApp() {
                         </option>
                       ))}
                     </select>
+                    {(taskFilter.status || taskFilter.priority || taskFilter.search || taskFilter.assignee) && (
+                      <button
+                        onClick={() => setTaskFilter({})}
+                        className="flex h-8 shrink-0 items-center gap-1 rounded-lg px-2 text-[11px] text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 dark:text-zinc-500 dark:hover:bg-white/4 dark:hover:text-zinc-200"
+                      >
+                        <IconX size={11} />
+                        {t("مسح", "Clear")}
+                      </button>
+                    )}
                     {visibleSavedViews.map((view) => {
                       const owned = view.createdBy === currentUser?.id;
                       return (
                         <div
                           key={view.id}
-                          className="flex h-8 items-center rounded-lg border border-violet-200 bg-violet-50 text-[11px] font-medium text-violet-700 dark:border-violet-500/25 dark:bg-violet-500/8 dark:text-violet-300"
+                          className="flex h-8 shrink-0 items-center rounded-lg border border-violet-200 bg-violet-50 text-[11px] font-medium text-violet-700 dark:border-violet-500/25 dark:bg-violet-500/8 dark:text-violet-300"
                         >
                           <button onClick={() => applySavedView(view)} className="flex h-full items-center gap-1 px-2">
                             {view.isDefault ? <span title={t("افتراضي", "Default")}>★</span> : null}
@@ -1187,22 +1453,11 @@ export function CalmBoardApp() {
                     <button
                       disabled={!can("saved_views.manage") || !activeProject}
                       onClick={() => ctx.setShowSaveView(true)}
-                      className="flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-[11px] font-medium text-slate-700 transition hover:bg-slate-100 disabled:opacity-40 dark:border-transparent dark:bg-white/[0.07] dark:text-white dark:hover:bg-white/12"
+                      className="flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-line bg-surface px-2.5 text-[11px] font-semibold text-ink transition-all duration-150 hover:bg-raised hover:border-accent/40 shadow-xs active:scale-95 disabled:opacity-40"
                     >
-                      <IconSave size={12} />
+                      <IconSave size={12} className="text-ink-soft" />
                       {t("حفظ العرض", "Save view")}
                     </button>
-                    {(taskFilter.status || taskFilter.priority || taskFilter.search || taskFilter.assignee) && (
-                      <>
-                        <button
-                          onClick={() => setTaskFilter({})}
-                          className="flex h-8 items-center gap-1 rounded-lg px-2 text-[11px] text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 dark:text-zinc-500 dark:hover:bg-white/4 dark:hover:text-zinc-200"
-                        >
-                          <IconX size={11} />
-                          {t("مسح", "Clear")}
-                        </button>
-                      </>
-                    )}
                   </div>
                 </ScreenToolbar>
               </div>

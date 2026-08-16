@@ -8,7 +8,7 @@ import { IconCheck, IconDoc, IconShield } from "@/components/icons";
 import { useBillingCheckout } from "@/features/billing/use-billing-checkout";
 
 export function formatBillingAmount(amount: number, locale: string = "ar", currency: string = "USD") {
-  return new Intl.NumberFormat(locale === "ar" ? "ar-EG" : "en-US", {
+  return new Intl.NumberFormat(locale === "ar" ? "ar-u-nu-latn" : "en-US", {
     style: "currency",
     currency,
   }).format(amount);
@@ -224,7 +224,7 @@ export function BillingView({ ctx }: { ctx: ViewCtx }) {
                   {inv.status === "paid" ? ctx.t("مدفوعة", "Paid") : inv.status}
                 </Badge>
                 <time dateTime={inv.createdAt} className="mono text-[10.5px] text-ink-faint">
-                  {new Date(inv.createdAt).toLocaleDateString(ctx.locale === "ar" ? "ar-EG" : "en-US")}
+                  {new Date(inv.createdAt).toLocaleDateString(ctx.locale === "ar" ? "ar-u-nu-latn" : "en-US")}
                 </time>
               </div>
             ))}

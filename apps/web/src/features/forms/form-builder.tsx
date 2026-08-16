@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import type { Form, FormConditionOperator, FormField, FormFieldType, FormInput, Project } from "@/lib/types";
-import { Btn, Modal, Toggle, selectCls } from "@/components/ui";
+import { Btn, Modal, Toggle, selectCls, selectSmCls } from "@/components/ui";
 import { IconPlus, IconX } from "@/components/icons";
 
 type Translator = (arabic: string, english: string) => string;
@@ -219,7 +219,7 @@ export function FormBuilder({
                   name="auto-field-i4c4627"
                   value={draft.projectId ?? ""}
                   onChange={(event) => setDraft({ ...draft, projectId: event.target.value || null })}
-                  className="mt-1.5 h-10 w-full rounded-xl border border-line bg-surface px-3 text-[13px] text-ink outline-none focus:border-indigo-500"
+                  className={`${selectCls} mt-1.5`}
                 >
                   <option value="">{t("بدون إنشاء مهمة", "No target project")}</option>
                   {projects.map((project) => (
@@ -385,7 +385,7 @@ export function FormBuilder({
                         onChange={(event) =>
                           updateField(index, { condition: { ...field.condition!, fieldId: event.target.value } })
                         }
-                        className="h-9 rounded-lg border border-line bg-surface px-2 text-[11.5px] text-ink outline-none focus:border-indigo-500"
+                        className={`${selectSmCls} w-full`}
                       >
                         {priorFields.map((candidate) => (
                           <option key={candidate.id} value={candidate.id}>
@@ -407,7 +407,7 @@ export function FormBuilder({
                             },
                           })
                         }
-                        className="h-9 rounded-lg border border-line bg-surface px-2 text-[11.5px] text-ink outline-none focus:border-indigo-500"
+                        className={`${selectSmCls} w-full`}
                       >
                         {operators.map((operator) => (
                           <option key={operator.value} value={operator.value}>
@@ -568,7 +568,7 @@ function BuilderSelect({
         name="auto-field-15gmudt"
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="mt-1.5 h-9 w-full rounded-lg border border-line bg-surface px-2 text-[11.5px] text-ink outline-none focus:border-indigo-500"
+        className={`${selectSmCls} mt-1.5 w-full`}
       >
         {options.map((option) => (
           <option key={option.value} value={option.value}>

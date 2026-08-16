@@ -57,7 +57,7 @@ export function TelemetryModal({
 
   const checkedAt = readiness?.timestamp
     ? new Date(readiness.timestamp).toLocaleString(
-        typeof document !== "undefined" && document.documentElement.lang === "ar" ? "ar-SA" : "en-US",
+        typeof document !== "undefined" && document.documentElement.lang === "ar" ? "ar-u-nu-latn" : "en-US",
       )
     : "";
 

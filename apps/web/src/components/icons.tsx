@@ -318,7 +318,14 @@ export const IconSubtask = make(
   "IconSubtask",
 );
 export const IconComment = make(<path d="M12 3a9 9 0 0 0-7.8 13.5L3 21l4.7-1.2A9 9 0 1 0 12 3Z" />, "IconComment");
-export const IconCollapse = make(<path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" />, "IconCollapse");
+export const IconCollapse = make(
+  <>
+    <rect width="18" height="18" x="3" y="3" rx="3" />
+    <path d="M9 3v18" />
+    <path d="m14 9-3 3 3 3" />
+  </>,
+  "IconCollapse",
+);
 export const IconMail = make(
   <>
     <rect x="3" y="5" width="18" height="14" rx="2.5" />
@@ -394,3 +401,5 @@ export const IconLock = make(
   </>,
   "IconLock",
 );
+
+export const IconChevronDown = make(<path d="m6 9 6 6 6-6" />, "IconChevronDown");

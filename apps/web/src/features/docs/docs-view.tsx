@@ -12,7 +12,7 @@ import { documentTaskTitle } from "@/features/docs/document-content";
 import { flattenDocumentTree } from "@/features/docs/document-tree";
 import { useDocumentPermissions, type DocumentPermissionLevel } from "@/features/docs/use-document-permissions";
 
-const dateLocale = (locale: string) => (locale === "ar" ? "ar-EG" : "en-US");
+const dateLocale = (locale: string) => (locale === "ar" ? "ar-u-nu-latn" : "en-US");
 
 export function DocsView({ ctx }: { ctx: ViewCtx }) {
   const [showTemplates, setShowTemplates] = useState(false);

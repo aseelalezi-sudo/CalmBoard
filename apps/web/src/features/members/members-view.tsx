@@ -7,7 +7,7 @@ import { Avatar, Badge, Bar, Btn, Card, ScreenHeader, ScreenState, SectionTitle 
 import { IconMail, IconPlus, IconShield, IconUsers } from "@/components/icons";
 import { confirmAction } from "@/components/feedback";
 
-const dateLocale = (locale: string) => (locale === "ar" ? "ar-EG" : "en-US");
+const dateLocale = (locale: string) => (locale === "ar" ? "ar-u-nu-latn" : "en-US");
 
 function roleLabel(role: string, t: ViewCtx["t"]) {
   switch (role) {
@@ -157,7 +157,7 @@ export function MembersView({ ctx }: { ctx: ViewCtx }) {
                         onChange={(e) =>
                           runMemberMutation(`${m.id}:role`, () => ctx.updateMemberRole(m.id, e.target.value))
                         }
-                        className="h-9 rounded-xl border border-line bg-surface px-3 text-[12px] font-semibold text-ink outline-none focus:border-indigo-500 disabled:opacity-50"
+                        className="h-8 rounded-xl border border-line bg-surface px-2.5 text-[12px] font-semibold text-ink shadow-xs outline-none transition focus:border-accent disabled:opacity-50"
                       >
                         {["admin", "manager", "member", "guest", "viewer"].map((r) => (
                           <option key={r} value={r}>
@@ -223,7 +223,7 @@ export function MembersView({ ctx }: { ctx: ViewCtx }) {
                             );
                           }
                         }}
-                        className="h-7 rounded-lg border border-line bg-surface px-2 text-[11px] font-semibold text-ink outline-none focus:border-indigo-500"
+                        className="h-7.5 rounded-lg border border-line bg-surface px-2 text-[11.5px] font-semibold text-ink shadow-xs outline-none transition focus:border-accent"
                       >
                         <option value="">+ {ctx.t("إضافة مهارة جديدة...", "Add skill...")}</option>
                         {allSkills

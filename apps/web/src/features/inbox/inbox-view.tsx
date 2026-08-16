@@ -6,7 +6,7 @@ import { fmtNumber } from "@/lib/types";
 import { Btn, Card, ScreenHeader, ScreenState, SegmentedTabs } from "@/components/ui";
 import { IconCheck, IconMail } from "@/components/icons";
 
-const dateLocale = (locale: string) => (locale === "ar" ? "ar-EG" : "en-US");
+const dateLocale = (locale: string) => (locale === "ar" ? "ar-u-nu-latn" : "en-US");
 
 export function InboxView({ ctx }: { ctx: ViewCtx }) {
   const [filter, setFilter] = useState<"all" | "unread">("all");

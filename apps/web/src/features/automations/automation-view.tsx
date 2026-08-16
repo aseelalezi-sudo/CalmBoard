@@ -6,7 +6,7 @@ import { fmtNumber } from "@/lib/types";
 import { Badge, Btn, Card, ScreenHeader, ScreenState, SectionTitle, Toggle } from "@/components/ui";
 import { IconBolt, IconClock, IconPlus } from "@/components/icons";
 
-const dateLocale = (locale: string) => (locale === "ar" ? "ar-EG" : "en-US");
+const dateLocale = (locale: string) => (locale === "ar" ? "ar-u-nu-latn" : "en-US");
 
 function runStatus(status: string, t: ViewCtx["t"]) {
   switch (status) {

@@ -8,26 +8,30 @@ import { IconX } from "./icons";
 
 /* ---------- Button ---------- */
 type BtnProps = ButtonHTMLAttributes<HTMLButtonElement> & {
-  variant?: "primary" | "ghost" | "outline" | "danger" | "glow";
+  variant?: "primary" | "ghost" | "outline" | "danger" | "glow" | "success" | "warning";
   size?: "sm" | "md" | "lg";
 };
 export function Btn({ variant = "outline", size = "md", className, children, ...rest }: BtnProps) {
   return (
     <button
       className={cn(
-        "inline-flex items-center justify-center gap-2 rounded-xl font-medium transition-all duration-200 focus-ring disabled:opacity-40 disabled:pointer-events-none active:scale-[0.98]",
+        "inline-flex items-center justify-center gap-2 rounded-xl font-semibold transition-all duration-150 focus-ring disabled:opacity-40 disabled:pointer-events-none active:scale-[0.98]",
         size === "sm" && "h-10 px-3 text-[12px] sm:h-8",
         size === "md" && "h-9 px-4 text-[13px]",
         size === "lg" && "h-11 px-5 text-[14px]",
         variant === "primary" &&
-          "bg-linear-to-r from-indigo-600 to-violet-600 text-white shadow-[0_4px_18px_rgba(99,102,241,0.25)] hover:brightness-110 dark:from-indigo-500 dark:to-violet-500 dark:shadow-[0_0_22px_rgba(139,92,246,0.22)]",
+          "bg-linear-to-r from-[#6366f1] via-indigo-600 to-[#8b5cf6] text-white shadow-md shadow-indigo-500/25 hover:shadow-lg hover:shadow-indigo-500/35 hover:brightness-105 active:scale-[0.98]",
         variant === "glow" &&
-          "bg-linear-to-r from-indigo-500 to-violet-500 text-white shadow-[0_4px_20px_rgba(99,102,241,0.32)] hover:shadow-[0_4px_28px_rgba(139,92,246,0.38)] hover:brightness-105",
-        variant === "ghost" && "bg-transparent text-ink-soft hover:bg-raised hover:text-ink",
+          "bg-linear-to-r from-indigo-500 via-violet-500 to-purple-600 text-white shadow-[0_4px_18px_rgba(99,102,241,0.3)] hover:shadow-[0_6px_26px_rgba(139,92,246,0.45)] hover:brightness-110 active:scale-[0.98]",
         variant === "outline" &&
-          "border border-line bg-surface/80 text-ink-soft hover:border-accent/30 hover:bg-raised hover:text-ink",
+          "border border-line bg-surface/80 text-ink-soft hover:border-accent/40 hover:bg-raised hover:text-ink shadow-xs active:scale-[0.98]",
+        variant === "ghost" && "bg-transparent text-ink-soft hover:bg-raised hover:text-ink active:scale-[0.98]",
         variant === "danger" &&
-          "bg-red-500/10 border border-red-500/30 text-red-600 dark:text-red-400 hover:bg-red-500/20",
+          "border border-rose-500/30 bg-rose-500/10 text-rose-600 dark:text-rose-400 hover:bg-rose-500 hover:text-white hover:border-rose-600 hover:shadow-md hover:shadow-rose-500/25 active:scale-[0.98]",
+        variant === "success" &&
+          "border border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500 hover:text-white hover:border-emerald-600 hover:shadow-md hover:shadow-emerald-500/25 active:scale-[0.98]",
+        variant === "warning" &&
+          "border border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300 hover:bg-amber-500 hover:text-white hover:border-amber-600 hover:shadow-md hover:shadow-amber-500/25 active:scale-[0.98]",
         className,
       )}
       {...rest}
@@ -49,17 +53,17 @@ export function Badge({
 }) {
   const tones: Record<string, string> = {
     neutral: "border-line bg-raised text-ink-soft",
-    indigo: "bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border-indigo-500/25",
-    cyan: "bg-cyan-500/10 text-cyan-700 dark:text-cyan-300 border-cyan-500/25",
-    amber: "bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/25",
-    emerald: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/25",
-    rose: "bg-rose-500/10 text-rose-700 dark:text-rose-300 border-rose-500/25",
-    violet: "bg-violet-500/10 text-violet-700 dark:text-violet-300 border-violet-500/25",
+    indigo: "bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border-indigo-500/30",
+    cyan: "bg-cyan-500/10 text-cyan-700 dark:text-cyan-300 border-cyan-500/30",
+    amber: "bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/30",
+    emerald: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/30",
+    rose: "bg-rose-500/10 text-rose-700 dark:text-rose-300 border-rose-500/30",
+    violet: "bg-violet-500/10 text-violet-700 dark:text-violet-300 border-violet-500/30",
   };
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium leading-4",
+        "inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold leading-4 shadow-xs transition-colors",
         tones[tone],
         className,
       )}
@@ -237,7 +241,7 @@ export function SegmentedTabs({
       role="tablist"
       aria-label={label}
       className={cn(
-        "flex max-w-full overflow-x-auto rounded-xl border border-line bg-raised p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+        "flex max-w-full overflow-x-auto rounded-xl border border-line bg-raised/80 p-1 shadow-xs backdrop-blur-sm [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
         stretch && "w-full",
         className,
       )}
@@ -256,9 +260,11 @@ export function SegmentedTabs({
             onClick={() => onChange(itemVal)}
             onKeyDown={(event) => moveFocus(event, index)}
             className={cn(
-              "flex h-10 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-lg px-3 text-[12.5px] font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 disabled:opacity-40",
+              "flex h-8.5 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-2.5 text-[12px] font-semibold transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 disabled:opacity-40 active:scale-[0.98]",
               stretch && "flex-1",
-              value === item.value ? "bg-surface text-accent shadow-sm" : "text-ink-soft hover:text-ink",
+              value === item.value
+                ? "bg-surface text-accent font-bold shadow-xs ring-1 ring-black/5 dark:ring-white/10"
+                : "text-ink-soft hover:bg-surface/50 hover:text-ink",
             )}
           >
             {item.icon}
@@ -572,19 +578,22 @@ export const inputCls =
 export const areaCls =
   "min-h-[90px] w-full resize-none rounded-xl border border-line bg-surface p-3.5 text-[13.5px] leading-relaxed text-ink outline-none transition placeholder:text-ink-faint focus:border-accent focus:shadow-[0_0_0_3px_color-mix(in_srgb,var(--color-accent)_14%,transparent)] aria-invalid:border-rose-500 aria-invalid:shadow-[0_0_0_3px_color-mix(in_srgb,#f43f5e_14%,transparent)] disabled:cursor-not-allowed disabled:bg-raised disabled:text-ink-faint";
 export const selectCls =
-  "h-10 w-full cursor-pointer rounded-xl border border-line bg-surface px-3 text-[13px] text-ink shadow-sm outline-none transition hover:border-accent/45 focus:border-accent focus:shadow-[0_0_0_3px_color-mix(in_srgb,var(--color-accent)_14%,transparent)] aria-invalid:border-rose-500 aria-invalid:shadow-[0_0_0_3px_color-mix(in_srgb,#f43f5e_14%,transparent)] disabled:cursor-not-allowed disabled:bg-raised disabled:text-ink-faint [&>option]:bg-surface [&>option]:text-ink";
+  "h-9.5 w-full cursor-pointer rounded-xl border border-line bg-surface px-3 py-0 text-[13px] leading-9 text-ink shadow-xs outline-none transition hover:border-accent/45 focus:border-accent focus:shadow-[0_0_0_3px_color-mix(in_srgb,var(--color-accent)_14%,transparent)] aria-invalid:border-rose-500 aria-invalid:shadow-[0_0_0_3px_color-mix(in_srgb,#f43f5e_14%,transparent)] disabled:cursor-not-allowed disabled:bg-raised disabled:text-ink-faint [&>option]:bg-surface [&>option]:text-ink";
+
+export const selectSmCls =
+  "h-8 cursor-pointer rounded-lg border border-line bg-surface px-2.5 py-0 text-[12px] leading-8 font-medium text-ink shadow-xs outline-none transition hover:border-accent/45 focus:border-accent focus:shadow-[0_0_0_2px_color-mix(in_srgb,var(--color-accent)_14%,transparent)] disabled:cursor-not-allowed disabled:bg-raised disabled:text-ink-faint [&>option]:bg-surface [&>option]:text-ink";
 
 export const dropdownSurfaceCls =
-  "dropdown-surface max-w-[calc(100vw-1rem)] overflow-hidden overscroll-contain rounded-2xl border border-accent/15 bg-surface opacity-100 shadow-[0_18px_52px_rgba(15,23,42,0.18)] ring-1 ring-line dark:shadow-[0_22px_60px_rgba(0,0,0,0.62)]";
+  "dropdown-surface max-h-[min(380px,calc(100dvh-5rem))] w-[min(300px,calc(100vw-1.5rem))] overflow-y-auto overscroll-contain rounded-2xl border border-line bg-surface shadow-[0_18px_52px_rgba(15,23,42,0.18)] ring-1 ring-line dark:shadow-[0_22px_60px_rgba(0,0,0,0.62)]";
 
 export const dropdownItemCls =
-  "dropdown-option flex min-h-9 w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-start text-[12.5px] font-medium text-ink-soft hover:bg-indigo-50 hover:text-indigo-950 focus-visible:outline-none focus-visible:bg-indigo-50 focus-visible:text-indigo-950 focus-visible:ring-2 focus-visible:ring-indigo-500/40 dark:hover:bg-indigo-400/10 dark:hover:text-white dark:focus-visible:bg-indigo-400/10 dark:focus-visible:text-white";
+  "dropdown-option flex min-h-9 w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-start text-[12.5px] font-medium text-ink-soft hover:bg-accent/10 hover:text-accent focus-visible:outline-none focus-visible:bg-accent/10 focus-visible:text-accent focus-visible:ring-2 focus-visible:ring-accent/40 transition-all duration-150 active:scale-[0.99]";
 
 export const dropdownDangerItemCls =
-  "dropdown-option flex min-h-9 w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-start text-[12.5px] font-medium text-rose-600 hover:bg-rose-50 focus-visible:outline-none focus-visible:bg-rose-50 focus-visible:ring-2 focus-visible:ring-rose-400/40 dark:text-rose-400 dark:hover:bg-rose-500/10 dark:focus-visible:bg-rose-500/10";
+  "dropdown-option flex min-h-9 w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-start text-[12.5px] font-medium text-rose-600 hover:bg-rose-500/10 hover:text-rose-700 focus-visible:outline-none focus-visible:bg-rose-500/10 focus-visible:text-rose-700 focus-visible:ring-2 focus-visible:ring-rose-400/40 transition-all duration-150 active:scale-[0.99]";
 
 export const dropdownSectionLabelCls =
-  "px-2 text-[10px] font-semibold uppercase tracking-[0.1em] text-indigo-400/90 dark:text-indigo-300/45";
+  "px-2 text-[10px] font-semibold uppercase tracking-[0.1em] text-indigo-500 dark:text-indigo-400";
 
 export function handleDropdownMenuKeyDown(event: KeyboardEvent<HTMLElement>) {
   if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
@@ -635,17 +644,17 @@ export function Toggle({
       aria-label={ariaLabel}
       disabled={disabled}
       onClick={() => onChange(!checked)}
-      className="grid h-10 w-11 shrink-0 place-items-center rounded-xl transition hover:bg-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 disabled:cursor-not-allowed disabled:opacity-50"
+      className="grid h-10 w-11 shrink-0 place-items-center rounded-xl transition-all duration-200 hover:bg-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
     >
       <span
         className={cn(
-          "relative h-[22px] w-10 rounded-full transition-colors duration-300",
-          checked ? "bg-linear-to-r from-indigo-500 to-violet-500 shadow-[0_0_12px_rgba(99,102,241,0.35)]" : "bg-line",
+          "relative h-[22px] w-10 rounded-full transition-all duration-300 shadow-inner",
+          checked ? "bg-linear-to-r from-[#6366f1] to-[#8b5cf6] shadow-[0_0_12px_rgba(99,102,241,0.35)]" : "bg-line",
         )}
       >
         <span
           className={cn(
-            "absolute top-[3px] h-4 w-4 rounded-full bg-white shadow transition-all duration-300",
+            "absolute top-[3px] h-4 w-4 rounded-full bg-white shadow-md transition-all duration-300",
             checked ? "start-[21px]" : "start-[3px]",
           )}
         />

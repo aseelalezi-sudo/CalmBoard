@@ -39,7 +39,7 @@ test("account security uses shared navigation and permission-aware branch manage
 
 test("security metrics, sessions, and surfaces follow the localized semantic contract", () => {
   assert.match(view, /fmtNumber\(mfa\.recoveryCodesRemaining, ctx\.locale\)/);
-  assert.match(view, /toLocaleTimeString\(ctx\.locale === "ar" \? "ar-SA" : "en-US"/);
+  assert.match(view, /toLocaleTimeString\(ctx\.locale === "ar" \? "ar-u-nu-latn" : "en-US"/);
   assert.match(view, /border-line bg-raised/);
   assert.doesNotMatch(view, /🚫|📱|💻|📍|🏢/);
 });

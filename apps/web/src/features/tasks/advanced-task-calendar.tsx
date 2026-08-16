@@ -174,7 +174,7 @@ function TaskCalendarCard({
 }
 
 function formatCalendarTitle(anchor: Date, mode: TaskCalendarMode, locale: ViewCtx["locale"]) {
-  const dateLocale = locale === "ar" ? "ar-SA" : "en-US";
+  const dateLocale = locale === "ar" ? "ar-u-nu-latn" : "en-US";
   if (mode === "day") {
     return anchor.toLocaleDateString(dateLocale, { weekday: "long", year: "numeric", month: "long", day: "numeric" });
   }
@@ -224,8 +224,8 @@ export function AdvancedTaskCalendar({ ctx }: { ctx: ViewCtx }) {
     const title = await promptAction({
       title: ctx.t("مهمة جديدة", "New task"),
       label: ctx.t(
-        `أدخل عنوان المهمة لتاريخ ${day.toLocaleDateString(ctx.locale === "ar" ? "ar-SA" : "en-US")}:`,
-        `Enter task title for ${day.toLocaleDateString(ctx.locale === "ar" ? "ar-SA" : "en-US")}:`,
+        `أدخل عنوان المهمة لتاريخ ${day.toLocaleDateString(ctx.locale === "ar" ? "ar-u-nu-latn" : "en-US")}:`,
+        `Enter task title for ${day.toLocaleDateString(ctx.locale === "ar" ? "ar-u-nu-latn" : "en-US")}:`,
       ),
       defaultValue: ctx.t("مهمة مجدولة", "Scheduled task"),
     });
@@ -336,7 +336,7 @@ export function AdvancedTaskCalendar({ ctx }: { ctx: ViewCtx }) {
                   <div className="flex items-center justify-between border-b border-line px-4 py-3">
                     <div>
                       <div className="text-[13px] font-bold text-ink">
-                        {days[0]!.toLocaleDateString(ctx.locale === "ar" ? "ar-SA" : "en-US", {
+                        {days[0]!.toLocaleDateString(ctx.locale === "ar" ? "ar-u-nu-latn" : "en-US", {
                           weekday: "long",
                           month: "long",
                           day: "numeric",
@@ -405,7 +405,7 @@ export function AdvancedTaskCalendar({ ctx }: { ctx: ViewCtx }) {
                           {fmtNumber(day.getDate(), ctx.locale)}
                         </span>
                         <span className="text-[12px] font-semibold text-ink">
-                          {day.toLocaleDateString(ctx.locale === "ar" ? "ar-SA" : "en-US", { weekday: "long" })}
+                          {day.toLocaleDateString(ctx.locale === "ar" ? "ar-u-nu-latn" : "en-US", { weekday: "long" })}
                         </span>
                       </div>
                       <button
@@ -446,7 +446,9 @@ export function AdvancedTaskCalendar({ ctx }: { ctx: ViewCtx }) {
                       <div className="mb-3 flex items-center justify-between">
                         <div>
                           <div className="text-[10px] font-bold uppercase text-ink-faint">
-                            {day.toLocaleDateString(ctx.locale === "ar" ? "ar-SA" : "en-US", { weekday: "short" })}
+                            {day.toLocaleDateString(ctx.locale === "ar" ? "ar-u-nu-latn" : "en-US", {
+                              weekday: "short",
+                            })}
                           </div>
                           <div
                             className={cn(
@@ -521,7 +523,7 @@ export function AdvancedTaskCalendar({ ctx }: { ctx: ViewCtx }) {
                       key={calendarDayKey(day)}
                       className="border-e border-line px-3 py-2.5 text-center text-[10.5px] font-semibold uppercase tracking-wider text-ink-faint last:border-e-0"
                     >
-                      {day.toLocaleDateString(ctx.locale === "ar" ? "ar-SA" : "en-US", { weekday: "short" })}
+                      {day.toLocaleDateString(ctx.locale === "ar" ? "ar-u-nu-latn" : "en-US", { weekday: "short" })}
                     </div>
                   ))}
                 </div>

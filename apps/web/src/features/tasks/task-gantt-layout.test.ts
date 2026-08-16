@@ -28,16 +28,16 @@ describe("Gantt layout contract", () => {
   it("mirrors the complete timeline for Arabic instead of only aligning its text", () => {
     assert.match(source, /const isRtl = ctx\.locale === "ar"/);
     assert.match(source, /isRtl \? "sticky right-0" : "sticky left-0"/);
-    assert.match(source, /isRtl && "flex-row-reverse"/);
+    assert.match(source, /dir=\{isRtl \? "rtl" : "ltr"\}/);
     assert.match(source, /scale\(-1 1\)/);
     assert.match(source, /right: visibleBaselineStart \* dayWidth/);
-    assert.match(source, /marginLeft: isRtl \? "auto" : undefined/);
+    assert.match(source, /right: isRtl/);
   });
 
   it("keeps the baseline selector compact and the toolbar grouped", () => {
     assert.doesNotMatch(source, /selectCls/);
     assert.match(source, /className="h-8 w-40 cursor-pointer/);
-    assert.match(source, /sm:mr-auto/);
+    assert.match(source, /sm:ms-auto/);
   });
 
   it("fills short timelines without leaving an empty side gutter", () => {

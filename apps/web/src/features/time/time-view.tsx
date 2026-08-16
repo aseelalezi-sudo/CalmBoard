@@ -109,7 +109,7 @@ export function TimeView({ ctx }: { ctx: ViewCtx }) {
               value={ctx.timerTask || ""}
               disabled={ctx.timerRunning || savingTimer}
               onChange={(event) => ctx.setTimerTask(event.target.value || null)}
-              className="mx-auto mt-5 block w-full max-w-[360px] rounded-xl border border-line bg-surface px-3.5 py-2.5 text-[13px] text-ink outline-none focus:border-indigo-500 disabled:cursor-not-allowed disabled:opacity-60"
+              className="mx-auto mt-5 block h-10 w-full max-w-[360px] cursor-pointer rounded-xl border border-line bg-surface px-3 text-[13px] text-ink shadow-xs outline-none transition focus:border-accent disabled:cursor-not-allowed disabled:opacity-60"
             >
               <option value="">{ctx.t("اختر مهمة لتتبع الوقت", "Select a task to track")}</option>
               {ctx.tasks.map((task) => (

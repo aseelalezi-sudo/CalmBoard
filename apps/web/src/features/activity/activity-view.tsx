@@ -119,7 +119,7 @@ export function ActivityView({ ctx }: { ctx: ViewCtx }) {
                   <span className="inline-flex items-center gap-1">
                     <IconClock size={12} />
                     <time dateTime={a.createdAt}>
-                      {new Date(a.createdAt).toLocaleString(ctx.locale === "ar" ? "ar-EG" : "en-US")}
+                      {new Date(a.createdAt).toLocaleString(ctx.locale === "ar" ? "ar-u-nu-latn" : "en-US")}
                     </time>
                   </span>
                   {a.ip && (

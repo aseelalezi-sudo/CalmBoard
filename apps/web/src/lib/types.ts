@@ -633,15 +633,15 @@ export type ViewCtx = {
 
 export const fmtDate = (d: string | Date | null | undefined, locale: string) => {
   if (!d) return "";
-  return new Intl.DateTimeFormat(locale === "ar" ? "ar-SA" : "en-US", {
+  return new Intl.DateTimeFormat(locale === "ar" ? "ar-u-nu-latn" : "en-US", {
     month: "short",
     day: "numeric",
     year: "numeric",
   }).format(new Date(d));
 };
 
-export const fmtNumber = (value: number, locale: string, options?: Intl.NumberFormatOptions) =>
-  new Intl.NumberFormat(locale === "ar" ? "ar-SA" : "en-US", options).format(value);
+export const fmtNumber = (value: number, _locale?: string, options?: Intl.NumberFormatOptions) =>
+  new Intl.NumberFormat("en-US", options).format(value);
 
 export type Sprint = {
   id: string;

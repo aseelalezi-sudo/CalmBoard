@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Badge, Btn, Field, Modal, ScreenHeader, ScreenState, inputCls, selectCls } from "@/components/ui";
+import { Badge, Btn, Field, Modal, ScreenHeader, ScreenState, inputCls, selectCls, selectSmCls } from "@/components/ui";
 import { IconBoard, IconFolder, IconList, IconMore, IconPlus, IconSearch } from "@/components/icons";
 import type { Project, ViewCtx } from "@/lib/types";
 import { fmtNumber } from "@/lib/types";
@@ -65,7 +65,7 @@ function ProjectIconTile({ project, size = 18 }: { project: Project; size?: numb
 
 function displayDate(value: string | null | undefined, locale: ViewCtx["locale"], fallback: string) {
   if (!value) return fallback;
-  return new Intl.DateTimeFormat(locale === "ar" ? "ar-SA" : "en-US", {
+  return new Intl.DateTimeFormat(locale === "ar" ? "ar-u-nu-latn" : "en-US", {
     day: "numeric",
     month: "short",
     year: "numeric",
@@ -303,7 +303,7 @@ export function ProjectsView({ ctx }: { ctx: ViewCtx }) {
         <select
           value={sort}
           onChange={(event) => setSort(event.target.value as SortOption)}
-          className={`${selectCls} lg:w-44`}
+          className={`${selectSmCls} w-auto min-w-[130px]`}
           aria-label={ctx.t("ترتيب المشاريع", "Sort projects")}
         >
           <option value="name">{ctx.t("الاسم", "Name")}</option>

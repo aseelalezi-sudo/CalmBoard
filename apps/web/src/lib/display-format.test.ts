@@ -6,13 +6,13 @@ import { fmtMinutes, fmtNumber } from "./types";
 describe("localized display formatting", () => {
   it("formats durations with locale-appropriate digits and units", () => {
     assert.equal(fmtMinutes(125, "en"), "2h 5m");
-    assert.equal(fmtMinutes(125, "ar"), "٢ س ٥ د");
+    assert.equal(fmtMinutes(125, "ar"), "2 س 5 د");
   });
 
   it("formats interface numbers using the selected locale", () => {
     assert.equal(fmtNumber(1234, "en"), "1,234");
-    assert.equal(fmtNumber(1234, "ar"), "١٬٢٣٤");
-    assert.equal(fmtNumber(4, "ar", { minimumIntegerDigits: 2, useGrouping: false }), "٠٤");
+    assert.equal(fmtNumber(1234, "ar"), "1,234");
+    assert.equal(fmtNumber(4, "ar", { minimumIntegerDigits: 2, useGrouping: false }), "04");
   });
 
   it("uses localized counts on active management screens", () => {

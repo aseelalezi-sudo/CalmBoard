@@ -162,7 +162,7 @@ export function IntegrationsView({ ctx }: { ctx: ViewCtx }) {
                   <span className="mono">
                     {credential?.lastUsedAt
                       ? `${ctx.t("آخر استخدام", "Last used")}: ${new Intl.DateTimeFormat(
-                          ctx.locale === "ar" ? "ar-SA" : "en",
+                          ctx.locale === "ar" ? "ar-u-nu-latn" : "en-US",
                           {
                             dateStyle: "medium",
                             timeStyle: "short",

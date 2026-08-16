@@ -42,7 +42,7 @@ const dependencyLabels: Record<TaskGanttLink["type"], string> = {
 };
 
 function formatDate(date: Date, locale: ViewCtx["locale"], options?: Intl.DateTimeFormatOptions) {
-  return date.toLocaleDateString(locale === "ar" ? "ar-SA" : "en-US", options);
+  return date.toLocaleDateString(locale === "ar" ? "ar-u-nu-latn" : "en-US", options);
 }
 
 function segmentLabel(
@@ -78,7 +78,7 @@ function dependencyPath(
 }
 
 function formatMinutes(minutes: number, locale: ViewCtx["locale"]) {
-  const formatter = new Intl.NumberFormat(locale === "ar" ? "ar-SA" : "en-US", {
+  const formatter = new Intl.NumberFormat(locale === "ar" ? "ar-u-nu-latn" : "en-US", {
     maximumFractionDigits: 1,
   });
   const days = minutes / (24 * 60);
@@ -299,12 +299,26 @@ export function AdvancedTaskGantt({ ctx }: { ctx: ViewCtx }) {
           )}
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 sm:mr-auto">
+        <div className="flex flex-wrap items-center gap-2 sm:ms-auto">
           {model.rangeStart && model.rangeEnd && (
             <span className="hidden text-[10.5px] font-semibold text-ink-faint md:inline">
               {formatDate(model.rangeStart, ctx.locale)} – {formatDate(model.rangeEnd, ctx.locale)}
             </span>
           )}
+          <div className="flex rounded-xl border border-line bg-raised p-1">
+            {(Object.keys(zoomLabels) as TaskGanttZoom[]).map((key) => (
+              <button
+                key={key}
+                onClick={() => setZoom(key)}
+                className={cn(
+                  "rounded-lg px-2.5 py-1 text-[11px] font-bold transition",
+                  zoom === key ? "bg-surface text-accent shadow-xs" : "text-ink-faint hover:text-ink",
+                )}
+              >
+                {ctx.t(zoomLabels[key].ar, zoomLabels[key].en)}
+              </button>
+            ))}
+          </div>
           <button
             onClick={scrollToToday}
             className="h-8 rounded-xl border border-line bg-surface px-2.5 text-[11px] font-bold text-ink hover:bg-raised"
@@ -357,20 +371,6 @@ export function AdvancedTaskGantt({ ctx }: { ctx: ViewCtx }) {
           >
             {ctx.t("حفظ خط أساس", "Save baseline")}
           </button>
-          <div className="flex rounded-xl border border-line bg-raised p-1">
-            {(Object.keys(zoomLabels) as TaskGanttZoom[]).map((key) => (
-              <button
-                key={key}
-                onClick={() => setZoom(key)}
-                className={cn(
-                  "rounded-lg px-2.5 py-1 text-[11px] font-bold transition",
-                  zoom === key ? "bg-surface text-accent shadow-xs" : "text-ink-faint hover:text-ink",
-                )}
-              >
-                {ctx.t(zoomLabels[key].ar, zoomLabels[key].en)}
-              </button>
-            ))}
-          </div>
         </div>
       </div>
 
@@ -390,7 +390,7 @@ export function AdvancedTaskGantt({ ctx }: { ctx: ViewCtx }) {
           tabIndex={0}
           aria-label={ctx.t("مخطط جانت", "Gantt chart timeline")}
           className="max-h-[min(680px,70dvh)] overflow-auto overscroll-contain"
-          dir="ltr"
+          dir={isRtl ? "rtl" : "ltr"}
         >
           <div style={{ width: LABEL_WIDTH + chartWidth }}>
             <div className="sticky top-0 z-40 flex h-12 border-b border-line bg-surface">
@@ -400,11 +400,10 @@ export function AdvancedTaskGantt({ ctx }: { ctx: ViewCtx }) {
                   isRtl ? "sticky right-0" : "sticky left-0",
                 )}
                 style={{ width: LABEL_WIDTH }}
-                dir={isRtl ? "rtl" : "ltr"}
               >
                 {ctx.t("المهمة والمسؤول", "Task & assignee")}
               </div>
-              <div className={cn("relative flex shrink-0", isRtl && "flex-row-reverse")} style={{ width: chartWidth }}>
+              <div className="relative flex shrink-0" style={{ width: chartWidth }}>
                 {segments.map((segment) => (
                   <div
                     key={segment.key}
@@ -427,6 +426,7 @@ export function AdvancedTaskGantt({ ctx }: { ctx: ViewCtx }) {
                   right: isRtl ? LABEL_WIDTH : undefined,
                   top: 0,
                   transform: isRtl ? "scale(-1 1)" : undefined,
+                  transformOrigin: isRtl ? "right top" : "left top",
                 }}
                 width={chartWidth}
                 height={model.bars.length * ROW_HEIGHT}
@@ -477,7 +477,12 @@ export function AdvancedTaskGantt({ ctx }: { ctx: ViewCtx }) {
                     right: isRtl ? LABEL_WIDTH + (todayOffset + 0.5) * dayWidth : undefined,
                   }}
                 >
-                  <span className="absolute left-1 top-1 rounded bg-rose-500 px-1 py-0.5 text-[8px] font-bold text-white">
+                  <span
+                    className={cn(
+                      "absolute top-1 rounded bg-rose-500 px-1 py-0.5 text-[8px] font-bold text-white",
+                      isRtl ? "right-1" : "left-1",
+                    )}
+                  >
                     {ctx.t("اليوم", "Today")}
                   </span>
                 </div>
@@ -508,8 +513,7 @@ export function AdvancedTaskGantt({ ctx }: { ctx: ViewCtx }) {
                         isRtl ? "sticky right-0" : "sticky left-0",
                         isCritical && "bg-rose-500/10",
                       )}
-                      style={{ width: LABEL_WIDTH, marginLeft: isRtl ? "auto" : undefined }}
-                      dir={isRtl ? "rtl" : "ltr"}
+                      style={{ width: LABEL_WIDTH }}
                     >
                       <span className={cn("h-2 w-2 shrink-0 rounded-full", priority?.bar ?? "bg-accent")} />
                       <span className="min-w-0 flex-1">
@@ -590,7 +594,7 @@ export function AdvancedTaskGantt({ ctx }: { ctx: ViewCtx }) {
                       >
                         <span
                           aria-hidden="true"
-                          className="absolute inset-y-0 left-0 bg-white/20"
+                          className={cn("absolute inset-y-0 bg-white/20", isRtl ? "right-0" : "left-0")}
                           style={{ width: `${Math.max(0, Math.min(100, task.progress))}%` }}
                         />
                         {!task.isMilestone && (

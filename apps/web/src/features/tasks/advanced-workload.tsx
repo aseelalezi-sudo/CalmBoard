@@ -224,8 +224,11 @@ export function AdvancedWorkload({ ctx }: { ctx: ViewCtx }) {
           {ctx.t("عبء العمل الأسبوعي", "Weekly Workload")}
         </SectionTitle>
         <div className="mb-5 text-[12px] text-ink-faint">
-          {new Date(`${workload.weekStart}T00:00:00Z`).toLocaleDateString(ctx.locale === "ar" ? "ar-SA" : "en-US")} –{" "}
-          {new Date(`${workload.weekEnd}T00:00:00Z`).toLocaleDateString(ctx.locale === "ar" ? "ar-SA" : "en-US")}
+          {new Date(`${workload.weekStart}T00:00:00Z`).toLocaleDateString(
+            ctx.locale === "ar" ? "ar-u-nu-latn" : "en-US",
+          )}{" "}
+          –{" "}
+          {new Date(`${workload.weekEnd}T00:00:00Z`).toLocaleDateString(ctx.locale === "ar" ? "ar-u-nu-latn" : "en-US")}
           {loading && <span className="ms-2">{ctx.t("جارٍ التحديث…", "Refreshing…")}</span>}
         </div>
 

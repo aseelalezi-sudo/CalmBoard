@@ -37,7 +37,7 @@ function Status({ ctx, state }: { ctx: ViewCtx; state: DeletionRequestState }) {
         </Badge>
         {state.scheduledFor && (
           <time className="text-xs text-ink-faint" dateTime={state.scheduledFor}>
-            {new Date(state.scheduledFor).toLocaleString(ctx.locale === "ar" ? "ar-SA" : "en-US")}
+            {new Date(state.scheduledFor).toLocaleString(ctx.locale === "ar" ? "ar-u-nu-latn" : "en-US")}
           </time>
         )}
       </div>

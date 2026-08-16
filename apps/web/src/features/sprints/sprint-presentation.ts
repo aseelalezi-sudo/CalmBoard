@@ -1,5 +1,5 @@
-export function sprintNumberLocale(locale: string) {
-  return locale === "ar" ? "ar-SA" : "en-US";
+export function sprintNumberLocale(_locale?: string) {
+  return "en-US";
 }
 
 export function formatSprintMetric(value: number, locale: string, signed = false) {

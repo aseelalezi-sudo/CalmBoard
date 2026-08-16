@@ -286,7 +286,7 @@ export function ProfileSecurityView({ ctx }: { ctx: ViewCtx }) {
                       </bdi>{" "}
                       · {s.location || ctx.t("موقع غير معروف", "Unknown location")} · {ctx.t("آخر نشاط", "Last active")}
                       :{" "}
-                      {new Date(s.lastActive).toLocaleTimeString(ctx.locale === "ar" ? "ar-SA" : "en-US", {
+                      {new Date(s.lastActive).toLocaleTimeString(ctx.locale === "ar" ? "ar-u-nu-latn" : "en-US", {
                         hour: "2-digit",
                         minute: "2-digit",
                       })}

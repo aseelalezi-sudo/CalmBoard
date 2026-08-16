@@ -54,7 +54,7 @@ export function SecurityTestRunner() {
               </span>
             </span>
             <time dateTime={report.summary.timestamp}>
-              {new Date(report.summary.timestamp).toLocaleTimeString("ar-SA", {
+              {new Date(report.summary.timestamp).toLocaleTimeString("ar-u-nu-latn", {
                 hour: "2-digit",
                 minute: "2-digit",
                 second: "2-digit",

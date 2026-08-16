@@ -46,7 +46,7 @@ export { AdvancedTaskTable as TableView } from "./advanced-task-table";
 export { AdvancedTaskCalendar as CalendarView } from "./advanced-task-calendar";
 export { AdvancedTaskGantt as TimelineView } from "./advanced-task-gantt";
 
-const dateLocale = (l: string) => (l === "ar" ? "ar-EG" : "en-US");
+const dateLocale = (l: string) => (l === "ar" ? "ar-u-nu-latn" : "en-US");
 
 /* ================= Task Card (Board) ================= */
 function TaskCard({
@@ -494,62 +494,99 @@ export function ListView({ ctx }: { ctx: ViewCtx }) {
                       </div>
                     </td>
                     <td className="px-4 py-3.5" onClick={(e) => e.stopPropagation()}>
-                      <select
-                        disabled={!ctx.can("tasks.update")}
-                        name={`status-${task.id}`}
-                        value={task.status}
-                        onChange={(e) =>
-                          ctx.updateTask(task.id, {
-                            status: e.target.value,
-                            progress: e.target.value === "done" ? 100 : undefined,
-                          })
-                        }
-                        className="h-7 rounded-lg border border-line bg-surface px-2 text-[11px] font-bold text-ink outline-none transition disabled:opacity-50"
-                      >
-                        {Object.entries(STATUS_CONFIG).map(([k, v]) => (
-                          <option key={k} value={k}>
-                            {ctx.t(v.ar, v.en)}
-                          </option>
-                        ))}
-                      </select>
+                      {(() => {
+                        const st = STATUS_CONFIG[task.status] || STATUS_CONFIG.todo;
+                        return (
+                          <div className="relative inline-flex items-center">
+                            <Badge
+                              tone={st.tone}
+                              className="cursor-pointer font-medium hover:opacity-85 transition-opacity"
+                            >
+                              <span className={`h-1.5 w-1.5 rounded-full ${st.dot}`} />
+                              <span>{ctx.t(st.ar, st.en)}</span>
+                            </Badge>
+                            <select
+                              disabled={!ctx.can("tasks.update")}
+                              name={`status-${task.id}`}
+                              value={task.status}
+                              onChange={(e) =>
+                                ctx.updateTask(task.id, {
+                                  status: e.target.value,
+                                  progress: e.target.value === "done" ? 100 : undefined,
+                                })
+                              }
+                              className="absolute inset-0 cursor-pointer opacity-0"
+                              aria-label={ctx.t("تغيير الحالة", "Change status")}
+                            >
+                              {Object.entries(STATUS_CONFIG).map(([k, v]) => (
+                                <option key={k} value={k}>
+                                  {ctx.t(v.ar, v.en)}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        );
+                      })()}
                     </td>
                     <td className="px-4 py-3.5" onClick={(e) => e.stopPropagation()}>
-                      <select
-                        disabled={!ctx.can("tasks.update")}
-                        name={`priority-${task.id}`}
-                        value={task.priority}
-                        onChange={(e) => ctx.updateTask(task.id, { priority: e.target.value })}
-                        className="h-7 rounded-lg border border-line bg-surface px-2 text-[11px] font-bold text-ink outline-none transition disabled:opacity-50"
-                      >
-                        {Object.entries(PRIORITY_CONFIG).map(([k, v]) => (
-                          <option key={k} value={k}>
-                            {ctx.t(v.ar, v.en)}
-                          </option>
-                        ))}
-                      </select>
+                      {(() => {
+                        const pr = PRIORITY_CONFIG[task.priority] || PRIORITY_CONFIG.medium;
+                        return (
+                          <div className="relative inline-flex items-center">
+                            <Badge
+                              tone={pr.tone}
+                              className="cursor-pointer font-medium hover:opacity-85 transition-opacity"
+                            >
+                              <span>{ctx.t(pr.ar, pr.en)}</span>
+                            </Badge>
+                            <select
+                              disabled={!ctx.can("tasks.update")}
+                              name={`priority-${task.id}`}
+                              value={task.priority}
+                              onChange={(e) => ctx.updateTask(task.id, { priority: e.target.value })}
+                              className="absolute inset-0 cursor-pointer opacity-0"
+                              aria-label={ctx.t("تغيير الأولوية", "Change priority")}
+                            >
+                              {Object.entries(PRIORITY_CONFIG).map(([k, v]) => (
+                                <option key={k} value={k}>
+                                  {ctx.t(v.ar, v.en)}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        );
+                      })()}
                     </td>
                     <td className="px-4 py-3.5" onClick={(e) => e.stopPropagation()}>
-                      <div className="flex items-center gap-2">
-                        <Avatar
-                          src={task.assignee?.avatarUrl || ctx.users.find((u) => u.id === task.assigneeId)?.avatarUrl}
-                          name={task.assignee?.name}
-                          size={22}
-                        />
-                        <select
-                          disabled={!ctx.can("tasks.update")}
-                          name={`assignee-${task.id}`}
-                          value={task.assigneeId || ""}
-                          onChange={(e) => ctx.updateTask(task.id, { assigneeId: e.target.value || undefined })}
-                          className="h-7 w-[110px] truncate rounded-lg border border-transparent bg-transparent px-1 text-[12px] font-semibold text-ink-soft hover:border-line disabled:opacity-50 outline-none"
-                        >
-                          <option value="">{ctx.t("غير محدد", "Unassigned")}</option>
-                          {ctx.users.map((u) => (
-                            <option key={u.id} value={u.id}>
-                              {u.name.split(" ")[0]}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
+                      {(() => {
+                        const assigneeName =
+                          task.assignee?.name || ctx.users.find((u) => u.id === task.assigneeId)?.name;
+                        const avatarUrl =
+                          task.assignee?.avatarUrl || ctx.users.find((u) => u.id === task.assigneeId)?.avatarUrl;
+                        return (
+                          <div className="group relative inline-flex items-center gap-1.5 rounded-lg px-1.5 py-0.5 transition-colors hover:bg-raised cursor-pointer max-w-full">
+                            <Avatar src={avatarUrl} name={assigneeName} size={22} />
+                            <span className="truncate text-[11.5px] font-medium text-ink-soft group-hover:text-ink">
+                              {assigneeName ? assigneeName.split(" ")[0] : ctx.t("غير محدد", "Unassigned")}
+                            </span>
+                            <select
+                              disabled={!ctx.can("tasks.update")}
+                              name={`assignee-${task.id}`}
+                              value={task.assigneeId || ""}
+                              onChange={(e) => ctx.updateTask(task.id, { assigneeId: e.target.value || undefined })}
+                              className="absolute inset-0 cursor-pointer opacity-0"
+                              aria-label={ctx.t("تعيين مسؤول", "Assign task")}
+                            >
+                              <option value="">{ctx.t("غير محدد", "Unassigned")}</option>
+                              {ctx.users.map((u) => (
+                                <option key={u.id} value={u.id}>
+                                  {u.name}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        );
+                      })()}
                     </td>
                     <td className="px-4 py-3.5 text-[12px] text-ink-faint font-medium">
                       {task.dueDate ? fmtDate(task.dueDate, ctx.locale) : "—"}
@@ -826,23 +863,39 @@ export function LegacyTableView({ ctx }: { ctx: ViewCtx }) {
                 </div>
                 {!hiddenCols.includes("status") && (
                   <div className="w-[130px] py-3 shrink-0" onClick={(e) => e.stopPropagation()}>
-                    <select
-                      name="auto-field-zd2l8bx"
-                      value={task.status}
-                      onChange={(e) =>
-                        ctx.updateTask(task.id, {
-                          status: e.target.value,
-                          progress: e.target.value === "done" ? 100 : undefined,
-                        })
-                      }
-                      className="h-7 rounded-lg border border-slate-200 bg-white px-2 text-[11px] font-medium text-slate-700 outline-none transition hover:border-slate-300 dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:border-white/20"
-                    >
-                      {Object.entries(STATUS_CONFIG).map(([k, v]) => (
-                        <option key={k} value={k}>
-                          {ctx.t(v.ar, v.en)}
-                        </option>
-                      ))}
-                    </select>
+                    {(() => {
+                      const st = STATUS_CONFIG[task.status] || STATUS_CONFIG.todo;
+                      return (
+                        <div className="relative inline-flex items-center">
+                          <Badge
+                            tone={st.tone}
+                            className="cursor-pointer font-medium hover:opacity-85 transition-opacity"
+                          >
+                            <span className={`h-1.5 w-1.5 rounded-full ${st.dot}`} />
+                            <span>{ctx.t(st.ar, st.en)}</span>
+                          </Badge>
+                          <select
+                            name="auto-field-zd2l8bx"
+                            value={task.status}
+                            disabled={!ctx.can("tasks.update")}
+                            onChange={(e) =>
+                              ctx.updateTask(task.id, {
+                                status: e.target.value,
+                                progress: e.target.value === "done" ? 100 : undefined,
+                              })
+                            }
+                            className="absolute inset-0 cursor-pointer opacity-0"
+                            aria-label={ctx.t("تغيير الحالة", "Change status")}
+                          >
+                            {Object.entries(STATUS_CONFIG).map(([k, v]) => (
+                              <option key={k} value={k}>
+                                {ctx.t(v.ar, v.en)}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      );
+                    })()}
                   </div>
                 )}
                 {!hiddenCols.includes("priority") && (
@@ -852,26 +905,34 @@ export function LegacyTableView({ ctx }: { ctx: ViewCtx }) {
                 )}
                 {!hiddenCols.includes("assignee") && (
                   <div className="w-[150px] py-3 shrink-0" onClick={(e) => e.stopPropagation()}>
-                    <div className="flex items-center gap-1.5">
-                      <Avatar
-                        src={task.assignee?.avatarUrl || ctx.users.find((u) => u.id === task.assigneeId)?.avatarUrl}
-                        name={task.assignee?.name}
-                        size={20}
-                      />
-                      <select
-                        name="auto-field-clqbiye"
-                        value={task.assigneeId || ""}
-                        onChange={(e) => ctx.updateTask(task.id, { assigneeId: e.target.value || undefined })}
-                        className="h-7 w-[100px] truncate rounded-lg border border-transparent bg-transparent px-1 text-[11.5px] text-slate-700 outline-none hover:border-slate-200 dark:text-zinc-300 dark:hover:border-white/10 [&>option]:bg-white dark:[&>option]:bg-zinc-900"
-                      >
-                        <option value="">{ctx.t("غير محدد", "Unassigned")}</option>
-                        {ctx.users.map((u) => (
-                          <option key={u.id} value={u.id}>
-                            {u.name.split(" ")[0]}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
+                    {(() => {
+                      const assigneeName = task.assignee?.name || ctx.users.find((u) => u.id === task.assigneeId)?.name;
+                      const avatarUrl =
+                        task.assignee?.avatarUrl || ctx.users.find((u) => u.id === task.assigneeId)?.avatarUrl;
+                      return (
+                        <div className="group relative inline-flex items-center gap-1.5 rounded-lg px-1.5 py-0.5 transition-colors hover:bg-raised cursor-pointer max-w-full">
+                          <Avatar src={avatarUrl} name={assigneeName} size={20} />
+                          <span className="truncate text-[11.5px] font-medium text-ink-soft group-hover:text-ink">
+                            {assigneeName ? assigneeName.split(" ")[0] : ctx.t("غير محدد", "Unassigned")}
+                          </span>
+                          <select
+                            name="auto-field-clqbiye"
+                            value={task.assigneeId || ""}
+                            disabled={!ctx.can("tasks.update")}
+                            onChange={(e) => ctx.updateTask(task.id, { assigneeId: e.target.value || undefined })}
+                            className="absolute inset-0 cursor-pointer opacity-0"
+                            aria-label={ctx.t("تعيين مسؤول", "Assign task")}
+                          >
+                            <option value="">{ctx.t("غير محدد", "Unassigned")}</option>
+                            {ctx.users.map((u) => (
+                              <option key={u.id} value={u.id}>
+                                {u.name.split(" ")[0]}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      );
+                    })()}
                   </div>
                 )}
                 {!hiddenCols.includes("points") && (

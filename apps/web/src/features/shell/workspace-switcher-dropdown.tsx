@@ -109,22 +109,25 @@ export function WorkspaceSwitcherDropdown({
 
   return (
     <div className="relative" ref={containerRef}>
-      <div className="flex h-16 items-center gap-3 border-b border-slate-200/80 dark:border-white/6 px-4">
+      <div className={cn("flex h-16 items-center border-b border-line px-4", collapsed ? "justify-center" : "gap-3")}>
         <LogoMark size={30} />
         {!collapsed && (
           <button
             ref={triggerRef}
             onClick={() => setOpen(!open)}
-            className="min-w-0 flex-1 rounded-xl p-1.5 text-start hover:bg-slate-100 dark:hover:bg-white/5 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/50"
+            className="min-w-0 flex-1 rounded-xl p-1.5 text-start hover:bg-raised transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
             aria-haspopup="listbox"
             aria-expanded={open}
           >
             <div className="flex items-center gap-1.5">
-              <span className="font-display text-[15px] font-bold tracking-tight text-slate-900 dark:text-white truncate">
+              <span className="font-display text-[15px] font-bold tracking-tight text-ink truncate">
                 {activeWorkspace ? activeWorkspace.name : "CalmBoard"}
               </span>
-              <span className="grid place-items-center h-4 w-4 rounded-md transition-colors text-slate-400 dark:text-zinc-500 shrink-0">
-                <IconChevron size={12} className={cn("transition-transform", open ? "-rotate-90" : "rotate-90")} />
+              <span className="grid place-items-center h-4 w-4 rounded-md transition-colors text-ink-soft shrink-0">
+                <IconChevron
+                  size={12}
+                  className={cn("transition-transform duration-200", open ? "-rotate-90" : "rotate-90")}
+                />
               </span>
               {!activeWorkspace && (
                 <Badge tone="cyan" className="px-1.5! text-[9px]!">
@@ -132,39 +135,35 @@ export function WorkspaceSwitcherDropdown({
                 </Badge>
               )}
             </div>
-            <div className="mt-0.5 flex items-center gap-1.5 text-[10.5px] text-slate-500 dark:text-zinc-500">
-              <span className="live-dot h-1.5 w-1.5 rounded-full bg-emerald-500 dark:bg-emerald-400 shrink-0" />
+            <div className="mt-0.5 flex items-center gap-1.5 text-[10.5px] text-ink-faint">
+              <span className="live-dot h-1.5 w-1.5 rounded-full bg-emerald-500 shrink-0" />
               <span className="truncate">{activeOrg?.name || t("الرئيسية", "Home")}</span>
             </div>
           </button>
         )}
-        <button
-          onClick={() => setCollapsed?.(!collapsed)}
-          className="grid h-7 w-7 shrink-0 place-items-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-800 dark:text-zinc-500 dark:hover:bg-white/6 dark:hover:text-white"
-        >
-          <IconCollapse size={14} />
-        </button>
       </div>
 
       {open && !collapsed && (
-        <div className="absolute top-14 left-4 right-4 z-50 max-h-[calc(100dvh-1rem)] flex flex-col overflow-hidden rounded-xl border border-slate-200/80 bg-white shadow-[0_8px_30px_rgba(0,0,0,0.12)] dark:border-white/10 dark:bg-[#1a1a24] dark:shadow-[0_8px_40px_rgba(0,0,0,0.4)] animate-pop">
-          <div className="p-2 border-b border-slate-100 dark:border-white/5 flex items-center gap-2 px-3">
-            <IconSearch size={14} className="text-slate-400 dark:text-zinc-500 shrink-0" />
-            <input
-              ref={searchInputRef}
-              value={search}
-              onChange={(e) => {
-                setSearch(e.target.value);
-                setFocusedIndex(0);
-              }}
-              placeholder={t("ابحث عن مساحة عمل...", "Search workspaces...")}
-              className="w-full bg-transparent text-[13px] outline-none text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-zinc-500 h-8"
-            />
+        <div className="absolute top-15 start-2 end-2 z-50 flex max-h-[calc(100dvh-1rem)] flex-col overflow-hidden rounded-2xl border border-line bg-surface shadow-2xl backdrop-blur-2xl ring-1 ring-line animate-pop">
+          <div className="border-b border-line p-2.5">
+            <div className="flex items-center gap-2 rounded-xl border border-line bg-raised/60 px-2.5 py-1 text-ink focus-within:border-accent/50 focus-within:ring-2 focus-within:ring-accent/20">
+              <IconSearch size={14} className="shrink-0 text-ink-faint" />
+              <input
+                ref={searchInputRef}
+                value={search}
+                onChange={(e) => {
+                  setSearch(e.target.value);
+                  setFocusedIndex(0);
+                }}
+                placeholder={t("ابحث عن مساحة عمل...", "Search workspaces...")}
+                className="h-7 w-full bg-transparent text-[12.5px] text-ink outline-none placeholder:text-ink-faint"
+              />
+            </div>
           </div>
 
           <div ref={listRef} className="max-h-60 overflow-y-auto p-1.5 scrollbar-thin">
             {filteredWorkspaces.length === 0 ? (
-              <div className="px-3 py-6 text-center text-[12.5px] text-slate-500 dark:text-zinc-500">
+              <div className="px-3 py-6 text-center text-[12.5px] text-ink-faint">
                 {t("لا توجد نتائج", "No workspaces found")}
               </div>
             ) : (
@@ -176,34 +175,34 @@ export function WorkspaceSwitcherDropdown({
                   }}
                   onMouseEnter={() => setFocusedIndex(i)}
                   className={cn(
-                    "w-full flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] transition-colors text-start",
-                    focusedIndex === i
-                      ? "bg-slate-100 text-slate-900 dark:bg-white/5 dark:text-white"
-                      : "text-slate-700 dark:text-zinc-300",
-                    activeWorkspace?.id === w.id &&
-                      "bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300 font-medium",
+                    "w-full flex items-center gap-2.5 rounded-xl px-2.5 py-2 text-[13px] transition-colors text-start",
+                    focusedIndex === i ? "bg-raised text-ink" : "text-ink-soft",
+                    activeWorkspace?.id === w.id && "bg-accent/15 text-accent font-semibold",
                   )}
                   role="option"
                   aria-selected={activeWorkspace?.id === w.id}
                 >
-                  <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: w.color }} />
-                  <span className="truncate flex-1">{w.name}</span>
-                  {activeWorkspace?.id === w.id && (
-                    <IconCheck size={14} className="text-indigo-600 dark:text-indigo-400 shrink-0" />
-                  )}
+                  <span
+                    className="grid h-5 w-5 shrink-0 place-items-center rounded-md text-[10.5px] font-bold text-white shadow-xs"
+                    style={{ background: w.color || "#6366f1" }}
+                  >
+                    {w.name.charAt(0)}
+                  </span>
+                  <span className="truncate flex-1 font-medium">{w.name}</span>
+                  {activeWorkspace?.id === w.id && <IconCheck size={14} className="text-accent shrink-0" />}
                 </button>
               ))
             )}
           </div>
 
           {canManageWorkspace && (
-            <div className="border-t border-slate-100 dark:border-white/5 p-1.5 bg-slate-50 dark:bg-black/20">
+            <div className="border-t border-line p-1.5 bg-raised/40">
               <button
                 onClick={() => {
                   onAddWorkspace();
                   setOpen(false);
                 }}
-                className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-[12.5px] font-medium text-slate-600 hover:bg-slate-200 hover:text-slate-900 dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-white transition-colors text-start"
+                className="flex w-full items-center gap-2 rounded-xl px-2.5 py-2 text-[12.5px] font-semibold text-accent hover:bg-accent/10 transition-colors text-start"
               >
                 <IconPlus size={14} className="shrink-0" />
                 {t("إضافة مساحة عمل", "Add Workspace")}

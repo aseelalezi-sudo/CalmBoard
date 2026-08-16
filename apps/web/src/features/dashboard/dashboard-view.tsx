@@ -26,6 +26,7 @@ import {
   ScreenToolbar,
   SectionTitle,
   SegmentedTabs,
+  selectSmCls,
 } from "@/components/ui";
 import { IconCheck, IconFlag, IconPlay, IconRotateCw, IconSearch } from "@/components/icons";
 import { confirmAction } from "@/components/feedback";
@@ -479,7 +480,7 @@ function CustomChartWidget({
               key={key}
               value={settings[key]}
               onChange={(event) => onChange({ settings: { ...settings, [key]: event.target.value } })}
-              className="h-8 rounded-lg border border-slate-200 bg-white px-2 text-[11px] dark:border-white/10 dark:bg-zinc-900 dark:text-white"
+              className={`${selectSmCls} h-7.5 text-[11px]`}
             >
               {(key === "groupBy"
                 ? ["priority", "status", "assignee", "tag"]
@@ -667,7 +668,7 @@ function ActivityWidget({ ctx }: { ctx: ViewCtx }) {
             <span className="font-semibold dark:text-white">{activity.actor?.name || ctx.t("مستخدم", "User")}</span>
             <span className="truncate text-slate-500">{activity.action}</span>
             <span className="ms-auto text-[10px] text-slate-400">
-              {new Date(activity.createdAt).toLocaleString(ctx.locale === "ar" ? "ar-SA" : "en-US")}
+              {new Date(activity.createdAt).toLocaleString(ctx.locale === "ar" ? "ar-u-nu-latn" : "en-US")}
             </span>
           </div>
         ))}
