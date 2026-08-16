@@ -1450,14 +1450,16 @@ export function CalmBoardApp() {
                         </div>
                       );
                     })}
-                    <button
-                      disabled={!can("saved_views.manage") || !activeProject}
-                      onClick={() => ctx.setShowSaveView(true)}
-                      className="flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-line bg-surface px-2.5 text-[11px] font-semibold text-ink transition-all duration-150 hover:bg-raised hover:border-accent/40 shadow-xs active:scale-95 disabled:opacity-40"
-                    >
-                      <IconSave size={12} className="text-ink-soft" />
-                      {t("حفظ العرض", "Save view")}
-                    </button>
+                    {can("saved_views.manage") && activeProject && (
+                      <button
+                        onClick={() => setShowSaveView(true)}
+                        title={t("حفظ العرض كجدول/تبويب جديد", "Save as new view tab")}
+                        className="flex h-8 shrink-0 items-center gap-1 rounded-lg border border-dashed border-line bg-surface/60 px-2.5 text-[11px] font-medium text-ink-soft hover:border-accent hover:text-accent hover:bg-surface transition"
+                      >
+                        <IconPlus size={11} />
+                        <span>{t("عرض/جدول جديد", "New View")}</span>
+                      </button>
+                    )}
                   </div>
                 </ScreenToolbar>
               </div>

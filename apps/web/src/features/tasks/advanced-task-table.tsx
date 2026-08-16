@@ -17,7 +17,7 @@ import {
 } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Avatar, Badge, Btn, Card, Empty, selectCls } from "@/components/ui";
-import { IconPlus, IconSearch, IconTrend } from "@/components/icons";
+import { IconChevronDown, IconPlus, IconSearch, IconTrend } from "@/components/icons";
 import { confirmAction } from "@/components/feedback";
 import type { Task, ViewCtx } from "@/lib/types";
 import { fmtDate, fmtMinutes, fmtNumber, PRIORITY_CONFIG, STATUS_CONFIG } from "@/lib/types";
@@ -99,6 +99,10 @@ export function AdvancedTaskTable({ ctx }: { ctx: ViewCtx }) {
   const [selectionAnchorId, setSelectionAnchorId] = useState<string | null>(null);
   const [newRowTitle, setNewRowTitle] = useState("");
   const [newRowSubmitting, setNewRowSubmitting] = useState(false);
+  const [groupBy, setGroupBy] = useState<"none" | "status" | "priority">("none");
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
+  const [groupQuickAdd, setGroupQuickAdd] = useState<Record<string, string>>({});
+  const [groupQuickAddSubmitting, setGroupQuickAddSubmitting] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     if (!showColumns) return;
@@ -383,6 +387,58 @@ export function AdvancedTaskTable({ ctx }: { ctx: ViewCtx }) {
     const loggedHours = visibleTasks.reduce((acc, t) => acc + (t.loggedHours || 0), 0);
     return { count, points, estimatedHours, loggedHours };
   }, [rows]);
+
+  const groupedSections = useMemo(() => {
+    if (groupBy === "none") return [];
+    if (groupBy === "status") {
+      return Object.entries(STATUS_CONFIG).map(([key, config]) => {
+        const groupRows = rows.filter((r) => r.original.status === key);
+        const groupTasks = groupRows.map((r) => r.original);
+        const points = groupTasks.reduce((acc, t) => acc + (t.storyPoints || 0), 0);
+        return {
+          id: key,
+          label: ctx.t(config.ar, config.en),
+          dotColor: config.dot,
+          borderColor:
+            config.tone === "emerald"
+              ? "border-emerald-500/30 bg-emerald-500/5"
+              : config.tone === "amber"
+                ? "border-amber-500/30 bg-amber-500/5"
+                : config.tone === "rose"
+                  ? "border-rose-500/30 bg-rose-500/5"
+                  : "border-indigo-500/30 bg-indigo-500/5",
+          accentBar: config.dot,
+          rows: groupRows,
+          points,
+          defaultStatus: key,
+          defaultPriority: undefined,
+        };
+      });
+    }
+    return Object.entries(PRIORITY_CONFIG).map(([key, config]) => {
+      const groupRows = rows.filter((r) => r.original.priority === key);
+      const groupTasks = groupRows.map((r) => r.original);
+      const points = groupTasks.reduce((acc, t) => acc + (t.storyPoints || 0), 0);
+      return {
+        id: key,
+        label: ctx.t(config.ar, config.en),
+        dotColor: config.bar,
+        borderColor:
+          config.tone === "rose"
+            ? "border-rose-500/30 bg-rose-500/5"
+            : config.tone === "amber"
+              ? "border-amber-500/30 bg-amber-500/5"
+              : config.tone === "indigo"
+                ? "border-indigo-500/30 bg-indigo-500/5"
+                : "border-slate-500/30 bg-white/5",
+        accentBar: config.bar,
+        rows: groupRows,
+        points,
+        defaultStatus: undefined,
+        defaultPriority: key as Task["priority"],
+      };
+    });
+  }, [ctx, groupBy, rows]);
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => scrollRef.current,
@@ -535,6 +591,19 @@ export function AdvancedTaskTable({ ctx }: { ctx: ViewCtx }) {
             </div>
           </div>
           <div className="relative flex items-center gap-2">
+            <div className="flex items-center gap-1.5 rounded-xl border border-line bg-surface px-2.5 py-1 text-[11.5px]">
+              <span className="text-ink-faint font-medium">{ctx.t("تجميع:", "Group:")}</span>
+              <select
+                value={groupBy}
+                onChange={(e) => setGroupBy(e.target.value as "none" | "status" | "priority")}
+                className="bg-transparent font-semibold text-accent focus:outline-none cursor-pointer"
+                aria-label={ctx.t("تجميع الجدول", "Group table")}
+              >
+                <option value="none">{ctx.t("بدون تجميع (مسطح)", "None (Flat)")}</option>
+                <option value="status">{ctx.t("حسب الحالة (Status)", "By Status")}</option>
+                <option value="priority">{ctx.t("حسب الأولوية (Priority)", "By Priority")}</option>
+              </select>
+            </div>
             <button
               ref={columnsTriggerRef}
               onClick={() => setShowColumns((value) => !value)}
@@ -656,59 +725,186 @@ export function AdvancedTaskTable({ ctx }: { ctx: ViewCtx }) {
               ))}
             </div>
 
-            <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
-              {virtualRows.map((virtualRow) => {
-                const row = rows[virtualRow.index]!;
-                return (
-                  <div
-                    key={row.id}
-                    data-index={virtualRow.index}
-                    ref={virtualizer.measureElement}
-                    tabIndex={focusedRowId === row.id ? 0 : -1}
-                    onFocus={() => setFocusedRowId(row.id)}
-                    onClick={(event) => {
-                      setFocusedRowId(row.id);
-                      if (event.shiftKey) {
-                        event.preventDefault();
-                        const anchorIndex = rows.findIndex((candidate) => candidate.id === selectionAnchorId);
-                        const currentIndex = rows.findIndex((candidate) => candidate.id === row.id);
-                        const start = anchorIndex < 0 ? currentIndex : Math.min(anchorIndex, currentIndex);
-                        const end = anchorIndex < 0 ? currentIndex : Math.max(anchorIndex, currentIndex);
-                        setRowSelection((current) => {
-                          const next = { ...current };
-                          for (let index = start; index <= end; index += 1) next[rows[index]!.id] = true;
-                          return next;
-                        });
-                        setSelectionAnchorId(selectionAnchorId ?? row.id);
-                        return;
-                      }
-                      setSelectionAnchorId(row.id);
-                      ctx.openTask(row.original);
-                    }}
-                    style={{ transform: `translateY(${virtualRow.start}px)`, position: "absolute", width: "100%" }}
-                    className={cn(
-                      "flex cursor-pointer border-b border-line text-[12.5px] transition hover:bg-raised/40",
-                      row.getIsSelected() && "bg-accent/10",
-                    )}
-                  >
-                    {row.getVisibleCells().map((cell) => (
-                      <div
-                        key={cell.id}
-                        style={pinnedColumnStyle(cell.column)}
-                        className={cn(
-                          "flex h-12 shrink-0 items-center overflow-hidden border-e border-line px-3 text-ink-soft",
-                          cell.column.getIsPinned() && (row.getIsSelected() ? "bg-accent/10" : "bg-surface"),
-                        )}
-                      >
-                        <div className="min-w-0 flex-1">
-                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
+            {groupBy === "none" ? (
+              <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
+                {virtualRows.map((virtualRow) => {
+                  const row = rows[virtualRow.index]!;
+                  return (
+                    <div
+                      key={row.id}
+                      data-index={virtualRow.index}
+                      ref={virtualizer.measureElement}
+                      tabIndex={focusedRowId === row.id ? 0 : -1}
+                      onFocus={() => setFocusedRowId(row.id)}
+                      onClick={(event) => {
+                        setFocusedRowId(row.id);
+                        if (event.shiftKey) {
+                          event.preventDefault();
+                          const anchorIndex = rows.findIndex((candidate) => candidate.id === selectionAnchorId);
+                          const currentIndex = rows.findIndex((candidate) => candidate.id === row.id);
+                          const start = anchorIndex < 0 ? currentIndex : Math.min(anchorIndex, currentIndex);
+                          const end = anchorIndex < 0 ? currentIndex : Math.max(anchorIndex, currentIndex);
+                          setRowSelection((current) => {
+                            const next = { ...current };
+                            for (let index = start; index <= end; index += 1) next[rows[index]!.id] = true;
+                            return next;
+                          });
+                          setSelectionAnchorId(selectionAnchorId ?? row.id);
+                          return;
+                        }
+                        setSelectionAnchorId(row.id);
+                        ctx.openTask(row.original);
+                      }}
+                      style={{ transform: `translateY(${virtualRow.start}px)`, position: "absolute", width: "100%" }}
+                      className={cn(
+                        "flex cursor-pointer border-b border-line text-[12.5px] transition hover:bg-raised/40",
+                        row.getIsSelected() && "bg-accent/10",
+                      )}
+                    >
+                      {row.getVisibleCells().map((cell) => (
+                        <div
+                          key={cell.id}
+                          style={pinnedColumnStyle(cell.column)}
+                          className={cn(
+                            "flex h-12 shrink-0 items-center overflow-hidden border-e border-line px-3 text-ink-soft",
+                            cell.column.getIsPinned() && (row.getIsSelected() ? "bg-accent/10" : "bg-surface"),
+                          )}
+                        >
+                          <div className="min-w-0 flex-1">
+                            {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                          </div>
                         </div>
+                      ))}
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="space-y-3 p-3">
+                {groupedSections.map((group) => {
+                  const isCollapsed = collapsedGroups[group.id];
+                  const quickTitle = groupQuickAdd[group.id] || "";
+                  const isSubmitting = groupQuickAddSubmitting[group.id] || false;
+
+                  return (
+                    <div
+                      key={group.id}
+                      className={cn(
+                        "rounded-2xl border transition-all duration-200 overflow-hidden",
+                        group.borderColor,
+                      )}
+                    >
+                      {/* Group Header Bar */}
+                      <div
+                        onClick={() => setCollapsedGroups((prev) => ({ ...prev, [group.id]: !prev[group.id] }))}
+                        className="flex cursor-pointer items-center justify-between gap-3 px-4 py-2.5 bg-surface/90 hover:bg-raised/70 transition select-none"
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <IconChevronDown
+                            size={14}
+                            className={cn(
+                              "text-ink-faint transition-transform duration-200",
+                              isCollapsed ? "-rotate-90 rtl:rotate-90" : "rotate-0",
+                            )}
+                          />
+                          <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${group.dotColor}`} />
+                          <span className="text-[13px] font-bold text-ink truncate">{group.label}</span>
+                          <span className="mono rounded-md border border-line bg-raised px-1.5 py-0.5 text-[10.5px] font-bold text-ink-soft tabular">
+                            {fmtNumber(group.rows.length, ctx.locale)}
+                          </span>
+                        </div>
+                        {group.points > 0 && (
+                          <div className="flex items-center gap-1.5 text-[11px] font-semibold text-ink-faint">
+                            <span>{ctx.t("النقاط", "Points")}:</span>
+                            <span className="mono font-bold text-amber-600 dark:text-amber-400">
+                              {fmtNumber(group.points, ctx.locale)}
+                            </span>
+                          </div>
+                        )}
                       </div>
-                    ))}
-                  </div>
-                );
-              })}
-            </div>
+
+                      {/* Group Rows Table */}
+                      {!isCollapsed && (
+                        <div>
+                          {group.rows.map((row) => (
+                            <div
+                              key={row.id}
+                              tabIndex={focusedRowId === row.id ? 0 : -1}
+                              onFocus={() => setFocusedRowId(row.id)}
+                              onClick={() => {
+                                setFocusedRowId(row.id);
+                                ctx.openTask(row.original);
+                              }}
+                              className={cn(
+                                "flex cursor-pointer border-t border-line text-[12.5px] bg-surface transition hover:bg-raised/40",
+                                row.getIsSelected() && "bg-accent/10",
+                              )}
+                            >
+                              {row.getVisibleCells().map((cell) => (
+                                <div
+                                  key={cell.id}
+                                  style={pinnedColumnStyle(cell.column)}
+                                  className={cn(
+                                    "flex h-11 shrink-0 items-center overflow-hidden border-e border-line px-3 text-ink-soft",
+                                    cell.column.getIsPinned() && (row.getIsSelected() ? "bg-accent/10" : "bg-surface"),
+                                  )}
+                                >
+                                  <div className="min-w-0 flex-1">
+                                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          ))}
+
+                          {group.rows.length === 0 && (
+                            <div className="py-4 text-center text-[11.5px] text-ink-faint">
+                              {ctx.t("لا توجد مهام في هذه المجموعة", "No tasks in this group")}
+                            </div>
+                          )}
+
+                          {/* Quick Add Row inside this group */}
+                          {ctx.can("tasks.create") && (
+                            <div
+                              className="flex items-center gap-2 border-t border-line bg-surface/50 px-4 py-2"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <IconPlus size={13} className="shrink-0 text-accent" />
+                              <input
+                                type="text"
+                                value={quickTitle}
+                                disabled={isSubmitting}
+                                onChange={(e) => setGroupQuickAdd((prev) => ({ ...prev, [group.id]: e.target.value }))}
+                                onKeyDown={async (e) => {
+                                  if (e.key === "Enter" && !e.shiftKey && quickTitle.trim()) {
+                                    e.preventDefault();
+                                    setGroupQuickAddSubmitting((prev) => ({ ...prev, [group.id]: true }));
+                                    const success = await ctx.createTask({
+                                      title: quickTitle.trim(),
+                                      status: group.defaultStatus,
+                                      priority: group.defaultPriority,
+                                    });
+                                    setGroupQuickAddSubmitting((prev) => ({ ...prev, [group.id]: false }));
+                                    if (success) {
+                                      setGroupQuickAdd((prev) => ({ ...prev, [group.id]: "" }));
+                                    }
+                                  }
+                                }}
+                                placeholder={ctx.t(
+                                  `+ إضافة مهمة إلى (${group.label})… (اضغط Enter للحفظ)`,
+                                  `+ Add task to (${group.label})… (Press Enter)`,
+                                )}
+                                className="flex-1 bg-transparent text-[12px] text-ink placeholder:text-ink-faint focus:outline-none"
+                              />
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
 
