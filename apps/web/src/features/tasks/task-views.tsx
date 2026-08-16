@@ -1,5 +1,5 @@
 "use client";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 import {
   closestCorners,
   DndContext,
@@ -40,6 +40,8 @@ import {
   IconSubtask,
   IconTrend,
   IconFlag,
+  IconCollapse,
+  IconX,
 } from "@/components/icons";
 
 export { AdvancedTaskTable as TableView } from "./advanced-task-table";
@@ -47,6 +49,80 @@ export { AdvancedTaskCalendar as CalendarView } from "./advanced-task-calendar";
 export { AdvancedTaskGantt as TimelineView } from "./advanced-task-gantt";
 
 const dateLocale = (l: string) => (l === "ar" ? "ar-u-nu-latn" : "en-US");
+
+/* ================= Quick Inline Task Input ================= */
+function QuickInlineTaskInput({ ctx, status, onClose }: { ctx: ViewCtx; status: string; onClose: () => void }) {
+  const [title, setTitle] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
+
+  const submit = async () => {
+    if (!title.trim() || submitting) return;
+    setSubmitting(true);
+    const success = await ctx.createTask({
+      title: title.trim(),
+      status,
+    });
+    setSubmitting(false);
+    if (success) {
+      setTitle("");
+      inputRef.current?.focus();
+    }
+  };
+
+  const handleKeyDown = async (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Escape") {
+      onClose();
+    } else if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      await submit();
+    }
+  };
+
+  return (
+    <div className="rounded-xl border-2 border-indigo-500/40 bg-white p-2.5 shadow-md dark:border-indigo-400/40 dark:bg-[#151522] animate-fade">
+      <input
+        ref={inputRef}
+        type="text"
+        value={title}
+        disabled={submitting}
+        onChange={(e) => setTitle(e.target.value)}
+        onKeyDown={handleKeyDown}
+        placeholder={ctx.t(
+          "ما الذي تريد إنجازه؟ (Enter للحفظ، Esc للإلغاء)",
+          "What needs to be done? (Enter to save, Esc)",
+        )}
+        className="w-full bg-transparent text-[13px] font-medium text-slate-900 placeholder:text-slate-400 focus:outline-none dark:text-zinc-100 dark:placeholder:text-zinc-500"
+      />
+      <div className="mt-2 flex items-center justify-between gap-2 border-t border-slate-100 pt-2 dark:border-white/5">
+        <span className="text-[10px] text-slate-400 dark:text-zinc-500">
+          {ctx.t("اضغط Enter للإضافة السريعة", "Press Enter to add")}
+        </span>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded px-2 py-1 text-[11px] font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:text-zinc-400 dark:hover:bg-white/5"
+          >
+            {ctx.t("إلغاء", "Cancel")}
+          </button>
+          <button
+            type="button"
+            disabled={!title.trim() || submitting}
+            onClick={() => void submit()}
+            className="rounded-lg bg-indigo-600 px-2.5 py-1 text-[11px] font-bold text-white shadow-xs transition hover:bg-indigo-500 disabled:opacity-50"
+          >
+            {submitting ? ctx.t("جارٍ الإضافة…", "Adding…") : ctx.t("إضافة", "Add")}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 /* ================= Task Card (Board) ================= */
 function TaskCard({
@@ -61,24 +137,31 @@ function TaskCard({
   overlay?: boolean;
 }) {
   const pr = PRIORITY_CONFIG[task.priority];
-  const overdue = task.dueDate && new Date(task.dueDate) < new Date() && task.status !== "done";
+  const isDone = task.status === "done";
+  const overdue = task.dueDate && new Date(task.dueDate) < new Date() && !isDone;
   return (
     <div
       onClick={() => {
         if (!overlay) ctx.openTask(task);
       }}
       className={cn(
-        "task-card group relative cursor-pointer overflow-hidden rounded-xl border border-slate-200/80 bg-white p-3.5 shadow-sm transition hover:shadow-md dark:border-white/[0.07] dark:bg-[#12121c] dark:shadow-none",
-        overlay && "cursor-grabbing shadow-xl ring-2 ring-indigo-500/30 dark:shadow-2xl",
+        "task-card group relative cursor-pointer overflow-hidden rounded-xl border bg-white p-3.5 shadow-sm transition-all duration-150 hover:shadow-md dark:bg-[#12121c]",
+        isDone
+          ? "border-emerald-200/80 bg-emerald-50/15 opacity-90 dark:border-emerald-500/20 dark:bg-emerald-500/5 hover:opacity-100"
+          : "border-slate-200/80 hover:border-slate-300 dark:border-white/[0.07] dark:hover:border-white/15 dark:shadow-none",
+        overlay && "cursor-grabbing shadow-xl ring-2 ring-indigo-500/30 dark:shadow-2xl scale-[1.02]",
       )}
     >
-      <span className={`absolute inset-y-0 start-0 w-[3px] ${pr?.bar}`} />
+      <span className={`absolute inset-y-0 start-0 w-[3px] ${isDone ? "bg-emerald-500" : pr?.bar}`} />
       <div className="flex items-center justify-between gap-2">
-        <span className="mono rounded-md border border-slate-200 bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600 dark:border-white/6 dark:bg-white/5 dark:text-zinc-400">
+        <span className="mono flex items-center gap-1 rounded-md border border-slate-200 bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600 dark:border-white/6 dark:bg-white/5 dark:text-zinc-400">
+          {isDone && <IconCheck size={10} className="text-emerald-600 dark:text-emerald-400" />}
           {task.serial}
         </span>
         <div className="flex items-center gap-1.5">
-          <Badge tone={pr?.tone}>{pr?.[ctx.locale === "ar" ? "ar" : "en"]}</Badge>
+          <Badge tone={isDone ? "emerald" : pr?.tone}>
+            {isDone ? ctx.t("منجز", "Done") : pr?.[ctx.locale === "ar" ? "ar" : "en"]}
+          </Badge>
           {dragHandle && (
             <button
               {...dragHandle.attributes}
@@ -99,7 +182,12 @@ function TaskCard({
             event.stopPropagation();
             if (!overlay) ctx.openTask(task);
           }}
-          className="text-start font-semibold text-slate-900 transition-colors hover:text-accent hover:underline focus-ring dark:text-zinc-100 text-[13.5px] leading-snug"
+          className={cn(
+            "text-start font-semibold transition-colors hover:text-accent hover:underline focus-ring text-[13.5px] leading-snug",
+            isDone
+              ? "text-slate-600 line-through decoration-slate-400 dark:text-zinc-400"
+              : "text-slate-900 dark:text-zinc-100",
+          )}
         >
           {task.title}
         </button>
@@ -131,7 +219,14 @@ function TaskCard({
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
           {task.subtaskStats && task.subtaskStats.total > 0 && (
-            <span className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600 dark:border-white/[0.07] dark:bg-white/3 dark:text-zinc-400">
+            <span
+              className={cn(
+                "inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] font-medium",
+                task.subtaskStats.done === task.subtaskStats.total
+                  ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-300"
+                  : "border-slate-200 bg-slate-100 text-slate-600 dark:border-white/[0.07] dark:bg-white/3 dark:text-zinc-400",
+              )}
+            >
               <IconSubtask size={10} />
               {task.subtaskStats.done}/{task.subtaskStats.total}
             </span>
@@ -143,7 +238,7 @@ function TaskCard({
           )}
         </div>
       </div>
-      <Bar value={task.progress} className="mt-3 h-[3px]" />
+      <Bar value={task.progress} className={cn("mt-3 h-[3px]", isDone && "bg-emerald-100 dark:bg-emerald-950")} />
     </div>
   );
 }
@@ -172,6 +267,8 @@ function BoardColumn({
   hasMore,
   limit,
   reorderDisabled,
+  isCollapsed = false,
+  onToggleCollapse,
 }: {
   ctx: ViewCtx;
   status: string;
@@ -180,7 +277,10 @@ function BoardColumn({
   hasMore: boolean;
   limit?: number;
   reorderDisabled: boolean;
+  isCollapsed?: boolean;
+  onToggleCollapse?: () => void;
 }) {
+  const [quickAdd, setQuickAdd] = useState(false);
   const { setNodeRef, isOver } = useDroppable({
     id: `column:${status}`,
     data: { type: "column", status },
@@ -188,6 +288,38 @@ function BoardColumn({
   });
   const cfg = STATUS_CONFIG[status];
   const isOverWip = Boolean(limit && total > limit);
+
+  if (isCollapsed) {
+    return (
+      <div
+        ref={setNodeRef}
+        onClick={onToggleCollapse}
+        title={ctx.t(
+          `توسيع عمود (${cfg[ctx.locale === "ar" ? "ar" : "en"]})`,
+          `Expand column (${cfg[ctx.locale === "ar" ? "ar" : "en"]})`,
+        )}
+        className={cn(
+          "column-drop group flex w-[48px] shrink-0 cursor-pointer flex-col items-center rounded-2xl border py-4 transition-all duration-200 select-none",
+          isOverWip
+            ? "border-rose-400/80 bg-rose-50/40 dark:border-rose-500/50 dark:bg-rose-500/4"
+            : "border-slate-200/80 bg-slate-100/60 hover:bg-slate-200/60 dark:border-white/6 dark:bg-white/2 dark:hover:bg-white/4",
+          isOver && "over ring-2 ring-indigo-500/30 scale-[1.02]",
+        )}
+      >
+        <span className={`h-2.5 w-2.5 rounded-full ${cfg.dot} shadow-[0_0_8px_currentColor]`} />
+        <span className="mono mt-3 rounded-md border border-slate-200 bg-white px-1 py-0.5 text-[10px] font-semibold text-slate-700 dark:border-transparent dark:bg-white/10 dark:text-zinc-300 tabular">
+          {fmtNumber(total, ctx.locale)}
+        </span>
+        <div className="mt-6 flex-1 [writing-mode:vertical-rl] rotate-180 text-[12.5px] font-semibold text-slate-700 dark:text-zinc-300 tracking-wide">
+          {cfg[ctx.locale === "ar" ? "ar" : "en"]}
+        </div>
+        <span className="mt-4 grid h-6 w-6 place-items-center rounded-lg text-slate-400 opacity-60 group-hover:opacity-100 group-hover:text-accent transition-opacity">
+          <IconCollapse size={13} className="rotate-90" />
+        </span>
+      </div>
+    );
+  }
+
   return (
     <div
       ref={setNodeRef}
@@ -249,11 +381,22 @@ function BoardColumn({
             )}
             <button
               disabled={!ctx.can("tasks.create")}
-              onClick={() => ctx.setShowAddTask(true)}
+              onClick={() => setQuickAdd(true)}
+              title={ctx.t("إضافة مهمة سريعة في هذا العمود", "Quick add task in this column")}
               className="grid h-6 w-6 place-items-center rounded-lg text-slate-400 transition hover:bg-slate-200/60 hover:text-slate-800 disabled:hidden dark:text-zinc-500 dark:hover:bg-white/6 dark:hover:text-white"
             >
               <IconPlus size={13} />
             </button>
+            {onToggleCollapse && (
+              <button
+                type="button"
+                onClick={onToggleCollapse}
+                title={ctx.t("طي العمود", "Collapse column")}
+                className="grid h-6 w-6 place-items-center rounded-lg text-slate-400 transition hover:bg-slate-200/60 hover:text-slate-800 dark:text-zinc-500 dark:hover:bg-white/6 dark:hover:text-white"
+              >
+                <IconCollapse size={13} className="-rotate-90" />
+              </button>
+            )}
           </div>
         </div>
         {isOverWip && (
@@ -268,28 +411,28 @@ function BoardColumn({
           {tasks.map((task) => (
             <SortableTaskCard key={task.id} ctx={ctx} task={task} reorderDisabled={reorderDisabled} />
           ))}
+          {quickAdd && <QuickInlineTaskInput ctx={ctx} status={status} onClose={() => setQuickAdd(false)} />}
           {tasks.length === 0 && !ctx.can("tasks.create") && (
             <div className="rounded-xl border border-dashed border-slate-300 bg-white/40 py-8 text-center text-[12px] text-slate-500 dark:border-white/10 dark:text-zinc-500">
               {ctx.t("لا توجد مهام في هذا العمود", "No tasks in this column")}
             </div>
           )}
-          {tasks.length === 0 && ctx.can("tasks.create") && (
+          {tasks.length === 0 && !quickAdd && ctx.can("tasks.create") && (
             <button
               type="button"
-              onClick={() => ctx.setShowAddTask(true)}
+              onClick={() => setQuickAdd(true)}
               className="rounded-xl border border-dashed border-slate-300 bg-white/40 py-8 text-[12px] text-slate-500 transition hover:border-indigo-500 hover:text-indigo-600 dark:border-white/10 dark:bg-transparent dark:text-zinc-600 dark:hover:border-indigo-400/40 dark:hover:text-indigo-300"
             >
               {ctx.t("اسحب المهام هنا أو أضف مهمة", "Drop tasks here or add one")}
             </button>
           )}
-          {tasks.length > 0 && (
+          {tasks.length > 0 && !quickAdd && ctx.can("tasks.create") && (
             <button
-              disabled={!ctx.can("tasks.create")}
-              onClick={() => ctx.setShowAddTask(true)}
+              onClick={() => setQuickAdd(true)}
               className="flex items-center justify-center gap-1.5 rounded-xl border border-dashed border-slate-300 bg-white/40 py-2.5 text-[12px] font-medium text-slate-600 transition hover:border-indigo-500 hover:text-indigo-600 dark:border-white/10 dark:bg-transparent dark:text-zinc-500 dark:hover:border-indigo-400/40 dark:hover:text-indigo-300"
             >
               <IconPlus size={13} />
-              {ctx.t("إضافة مهمة", "Add task")}
+              {ctx.t("إضافة مهمة سريعة", "Quick add task")}
             </button>
           )}
           {hasMore && (
@@ -310,6 +453,7 @@ function BoardColumn({
 /* ================= Board View ================= */
 export function BoardView({ ctx }: { ctx: ViewCtx }) {
   const [activeTask, setActiveTask] = useState<Task | null>(null);
+  const [collapsedColumns, setCollapsedColumns] = useState<Record<string, boolean>>({});
   const hasActiveFilters = Object.values(ctx.taskFilter).some(Boolean);
   const reorderDisabled = !ctx.can("tasks.update") || hasActiveFilters;
   const sensors = useSensors(
@@ -353,6 +497,14 @@ export function BoardView({ ctx }: { ctx: ViewCtx }) {
       afterTaskId: targetWithoutMoving[boundedTargetIndex]?.id ?? null,
     });
   };
+
+  const toggleColumnCollapse = (status: string) => {
+    setCollapsedColumns((prev) => ({
+      ...prev,
+      [status]: !prev[status],
+    }));
+  };
+
   return (
     <DndContext
       sensors={sensors}
@@ -388,6 +540,8 @@ export function BoardView({ ctx }: { ctx: ViewCtx }) {
             hasMore={ctx.taskPagination.statusHasMore[status] ?? false}
             limit={ctx.activeProject?.wipLimits?.[status]}
             reorderDisabled={reorderDisabled}
+            isCollapsed={collapsedColumns[status]}
+            onToggleCollapse={() => toggleColumnCollapse(status)}
           />
         ))}
       </div>
