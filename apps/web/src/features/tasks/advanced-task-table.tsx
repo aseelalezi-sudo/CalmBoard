@@ -17,7 +17,7 @@ import {
 } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Avatar, Badge, Btn, Card, Empty, selectCls } from "@/components/ui";
-import { IconSearch, IconTrend } from "@/components/icons";
+import { IconPlus, IconSearch, IconTrend } from "@/components/icons";
 import { confirmAction } from "@/components/feedback";
 import type { Task, ViewCtx } from "@/lib/types";
 import { fmtDate, fmtMinutes, fmtNumber, PRIORITY_CONFIG, STATUS_CONFIG } from "@/lib/types";
@@ -97,6 +97,8 @@ export function AdvancedTaskTable({ ctx }: { ctx: ViewCtx }) {
   const [showColumns, setShowColumns] = useState(false);
   const [focusedRowId, setFocusedRowId] = useState<string | null>(null);
   const [selectionAnchorId, setSelectionAnchorId] = useState<string | null>(null);
+  const [newRowTitle, setNewRowTitle] = useState("");
+  const [newRowSubmitting, setNewRowSubmitting] = useState(false);
 
   useEffect(() => {
     if (!showColumns) return;
@@ -223,7 +225,31 @@ export function AdvancedTaskTable({ ctx }: { ctx: ViewCtx }) {
         header: ctx.t("الأولوية", "Priority"),
         cell: ({ row }) => {
           const priority = PRIORITY_CONFIG[row.original.priority];
-          return <Badge tone={priority?.tone}>{priority?.[ctx.locale === "ar" ? "ar" : "en"]}</Badge>;
+          return (
+            <div className="relative inline-flex items-center" onClick={(event) => event.stopPropagation()}>
+              <Badge tone={priority?.tone} className="cursor-pointer font-medium hover:opacity-85 transition-opacity">
+                {priority?.[ctx.locale === "ar" ? "ar" : "en"]}
+              </Badge>
+              <select
+                name={`task-priority-${row.original.id}`}
+                value={row.original.priority}
+                disabled={!ctx.can("tasks.update")}
+                onChange={(event) =>
+                  ctx.updateTask(row.original.id, {
+                    priority: event.target.value as Task["priority"],
+                  })
+                }
+                className="absolute inset-0 cursor-pointer opacity-0"
+                aria-label={ctx.t("تغيير الأولوية", "Change priority")}
+              >
+                {Object.entries(PRIORITY_CONFIG).map(([key, value]) => (
+                  <option key={key} value={key}>
+                    {ctx.t(value.ar, value.en)}
+                  </option>
+                ))}
+              </select>
+            </div>
+          );
         },
       },
       {
@@ -348,6 +374,15 @@ export function AdvancedTaskTable({ ctx }: { ctx: ViewCtx }) {
   });
 
   const rows = table.getRowModel().rows;
+
+  const totals = useMemo(() => {
+    const visibleTasks = rows.map((r) => r.original);
+    const count = visibleTasks.length;
+    const points = visibleTasks.reduce((acc, t) => acc + (t.storyPoints || 0), 0);
+    const estimatedHours = visibleTasks.reduce((acc, t) => acc + (t.estimatedHours || 0), 0);
+    const loggedHours = visibleTasks.reduce((acc, t) => acc + (t.loggedHours || 0), 0);
+    return { count, points, estimatedHours, loggedHours };
+  }, [rows]);
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => scrollRef.current,
@@ -678,6 +713,79 @@ export function AdvancedTaskTable({ ctx }: { ctx: ViewCtx }) {
         </div>
 
         {ctx.tasks.length === 0 && <Empty icon={<IconSearch size={22} />} title={ctx.t("لا توجد بيانات", "No data")} />}
+
+        {/* Quick Add Row */}
+        {ctx.can("tasks.create") && (
+          <div className="flex items-center gap-2 border-t border-line bg-surface/50 px-4 py-2.5">
+            <IconPlus size={14} className="shrink-0 text-accent" />
+            <input
+              type="text"
+              value={newRowTitle}
+              disabled={newRowSubmitting}
+              onChange={(e) => setNewRowTitle(e.target.value)}
+              onKeyDown={async (e) => {
+                if (e.key === "Enter" && !e.shiftKey && newRowTitle.trim()) {
+                  e.preventDefault();
+                  setNewRowSubmitting(true);
+                  const success = await ctx.createTask({ title: newRowTitle.trim() });
+                  setNewRowSubmitting(false);
+                  if (success) setNewRowTitle("");
+                }
+              }}
+              placeholder={ctx.t("إضافة مهمة جديدة في الجدول… (اضغط Enter للحفظ)", "Add a new task row… (Press Enter)")}
+              className="flex-1 bg-transparent text-[12.5px] text-ink placeholder:text-ink-faint focus:outline-none"
+            />
+            {newRowTitle.trim() && (
+              <Btn
+                size="sm"
+                disabled={newRowSubmitting}
+                onClick={async () => {
+                  if (!newRowTitle.trim()) return;
+                  setNewRowSubmitting(true);
+                  const success = await ctx.createTask({ title: newRowTitle.trim() });
+                  setNewRowSubmitting(false);
+                  if (success) setNewRowTitle("");
+                }}
+              >
+                {newRowSubmitting ? ctx.t("جارٍ الإضافة…", "Adding…") : ctx.t("إضافة", "Add")}
+              </Btn>
+            )}
+          </div>
+        )}
+
+        {/* Summary Footer */}
+        {rows.length > 0 && (
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line bg-raised/70 px-4 py-2.5 text-[11.5px] font-medium text-ink-soft">
+            <div className="flex items-center gap-4">
+              <span className="font-semibold text-ink">
+                {ctx.t("إجمالي المهام", "Total Tasks")}:{" "}
+                <span className="mono font-bold text-accent">{fmtNumber(totals.count, ctx.locale)}</span>
+              </span>
+              {totals.points > 0 && (
+                <span>
+                  {ctx.t("مجموع النقاط", "Total Points")}:{" "}
+                  <span className="mono font-bold text-amber-600 dark:text-amber-400">
+                    {fmtNumber(totals.points, ctx.locale)}
+                  </span>
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-4">
+              {totals.estimatedHours > 0 && (
+                <span>
+                  {ctx.t("إجمالي التقدير", "Total Estimate")}:{" "}
+                  <span className="mono font-bold">{fmtMinutes(totals.estimatedHours * 60, ctx.locale)}</span>
+                </span>
+              )}
+              {totals.loggedHours > 0 && (
+                <span>
+                  {ctx.t("إجمالي المسجل", "Total Logged")}:{" "}
+                  <span className="mono font-bold text-accent">{fmtMinutes(totals.loggedHours * 60, ctx.locale)}</span>
+                </span>
+              )}
+            </div>
+          </div>
+        )}
 
         {ctx.taskPagination.mode === "page" && ctx.taskPagination.total > 0 && (
           <div className="flex items-center justify-between gap-3 border-t border-line px-4 py-3 text-[11px] text-ink-faint">
