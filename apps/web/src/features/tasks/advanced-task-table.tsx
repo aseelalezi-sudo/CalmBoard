@@ -17,7 +17,16 @@ import {
 } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Avatar, Badge, Btn, Card, Empty, selectCls } from "@/components/ui";
-import { IconChevronDown, IconPlus, IconSearch, IconTrend } from "@/components/icons";
+import {
+  IconChevronDown,
+  IconFolder,
+  IconPlus,
+  IconSearch,
+  IconSubtask,
+  IconTrash,
+  IconTrend,
+  IconX,
+} from "@/components/icons";
 import { confirmAction } from "@/components/feedback";
 import type { Task, ViewCtx } from "@/lib/types";
 import { fmtDate, fmtMinutes, fmtNumber, PRIORITY_CONFIG, STATUS_CONFIG } from "@/lib/types";
@@ -99,10 +108,48 @@ export function AdvancedTaskTable({ ctx }: { ctx: ViewCtx }) {
   const [selectionAnchorId, setSelectionAnchorId] = useState<string | null>(null);
   const [newRowTitle, setNewRowTitle] = useState("");
   const [newRowSubmitting, setNewRowSubmitting] = useState(false);
-  const [groupBy, setGroupBy] = useState<"none" | "status" | "priority">("none");
+  const [groupBy, setGroupBy] = useState<"none" | "status" | "priority" | "custom">("none");
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
   const [groupQuickAdd, setGroupQuickAdd] = useState<Record<string, string>>({});
   const [groupQuickAddSubmitting, setGroupQuickAddSubmitting] = useState<Record<string, boolean>>({});
+
+  // Custom Groups (Sub-tables)
+  const [customGroups, setCustomGroups] = useState<
+    Array<{ id: string; name: string; color: string; taskIds: string[] }>
+  >([
+    {
+      id: "grp-1",
+      name: ctx.locale === "ar" ? "المرحلة الأولى (Phase 1)" : "Phase 1",
+      color: "indigo",
+      taskIds: [],
+    },
+    {
+      id: "grp-2",
+      name: ctx.locale === "ar" ? "قائمة المؤجلات (Backlog)" : "Backlog",
+      color: "emerald",
+      taskIds: [],
+    },
+  ]);
+  const [showNewGroupModal, setShowNewGroupModal] = useState(false);
+  const [newGroupName, setNewGroupName] = useState("");
+  const [newGroupColor, setNewGroupColor] = useState("indigo");
+
+  // Inline Subtasks in Table
+  const [expandedSubtaskTaskIds, setExpandedSubtaskTaskIds] = useState<Record<string, boolean>>({});
+  const [inlineSubtaskInput, setInlineSubtaskInput] = useState<Record<string, string>>({});
+  const [inlineSubtaskSubmitting, setInlineSubtaskSubmitting] = useState<Record<string, boolean>>({});
+
+  const subtasksByParentId = useMemo(() => {
+    const map = new Map<string, Task[]>();
+    for (const task of ctx.tasks) {
+      if (task.parentId) {
+        const list = map.get(task.parentId) || [];
+        list.push(task);
+        map.set(task.parentId, list);
+      }
+    }
+    return map;
+  }, [ctx.tasks]);
 
   useEffect(() => {
     if (!showColumns) return;
@@ -173,13 +220,55 @@ export function AdvancedTaskTable({ ctx }: { ctx: ViewCtx }) {
         header: ctx.t("المهمة", "Task"),
         cell: ({ row }) => {
           const priority = PRIORITY_CONFIG[row.original.priority];
+          const taskSubtasks = subtasksByParentId.get(row.original.id) || [];
+          const hasSubtasks = taskSubtasks.length > 0;
+          const isExpanded = expandedSubtaskTaskIds[row.original.id];
+          const doneSubtasks = taskSubtasks.filter((s) => s.status === "done").length;
+
           return (
-            <div className="flex min-w-0 items-center gap-2.5">
+            <div className="flex min-w-0 items-center gap-2">
+              <button
+                type="button"
+                title={ctx.t("عرض/إضافة المهام الفرعية", "Toggle subtasks")}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setExpandedSubtaskTaskIds((prev) => ({
+                    ...prev,
+                    [row.original.id]: !prev[row.original.id],
+                  }));
+                }}
+                className={cn(
+                  "flex h-5 w-5 shrink-0 items-center justify-center rounded transition hover:bg-raised text-ink-faint hover:text-ink",
+                  isExpanded && "text-accent",
+                )}
+              >
+                <IconChevronDown
+                  size={12}
+                  className={cn(
+                    "transition-transform duration-150",
+                    isExpanded ? "rotate-0" : "-rotate-90 rtl:rotate-90",
+                  )}
+                />
+              </button>
               <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${priority?.bar}`} />
               <span className="mono shrink-0 rounded bg-raised px-1 py-0.5 text-[10px] text-ink-faint">
                 {row.original.serial}
               </span>
               <span className="truncate font-semibold text-ink">{row.original.title}</span>
+              {hasSubtasks && (
+                <span
+                  title={ctx.t("المهام الفرعية المنجزة", "Completed subtasks")}
+                  className={cn(
+                    "mono ms-auto shrink-0 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[9.5px] font-bold",
+                    doneSubtasks === taskSubtasks.length
+                      ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+                      : "bg-raised text-ink-faint",
+                  )}
+                >
+                  <IconSubtask size={9} />
+                  {doneSubtasks}/{taskSubtasks.length}
+                </span>
+              )}
             </div>
           );
         },
@@ -412,33 +501,81 @@ export function AdvancedTaskTable({ ctx }: { ctx: ViewCtx }) {
           points,
           defaultStatus: key,
           defaultPriority: undefined,
+          isCustom: false,
         };
       });
     }
-    return Object.entries(PRIORITY_CONFIG).map(([key, config]) => {
-      const groupRows = rows.filter((r) => r.original.priority === key);
+    if (groupBy === "priority") {
+      return Object.entries(PRIORITY_CONFIG).map(([key, config]) => {
+        const groupRows = rows.filter((r) => r.original.priority === key);
+        const groupTasks = groupRows.map((r) => r.original);
+        const points = groupTasks.reduce((acc, t) => acc + (t.storyPoints || 0), 0);
+        return {
+          id: key,
+          label: ctx.t(config.ar, config.en),
+          dotColor: config.bar,
+          borderColor:
+            config.tone === "rose"
+              ? "border-rose-500/30 bg-rose-500/5"
+              : config.tone === "amber"
+                ? "border-amber-500/30 bg-amber-500/5"
+                : config.tone === "indigo"
+                  ? "border-indigo-500/30 bg-indigo-500/5"
+                  : "border-slate-500/30 bg-white/5",
+          accentBar: config.bar,
+          rows: groupRows,
+          points,
+          defaultStatus: undefined,
+          defaultPriority: key as Task["priority"],
+          isCustom: false,
+        };
+      });
+    }
+    // Custom Groups mode
+    return customGroups.map((cg) => {
+      const groupRows = rows.filter((r) => cg.taskIds.includes(r.original.id));
       const groupTasks = groupRows.map((r) => r.original);
       const points = groupTasks.reduce((acc, t) => acc + (t.storyPoints || 0), 0);
+      const colorBg =
+        cg.color === "emerald"
+          ? "border-emerald-500/30 bg-emerald-500/5 text-emerald-600"
+          : cg.color === "amber"
+            ? "border-amber-500/30 bg-amber-500/5 text-amber-600"
+            : cg.color === "rose"
+              ? "border-rose-500/30 bg-rose-500/5 text-rose-600"
+              : cg.color === "violet"
+                ? "border-violet-500/30 bg-violet-500/5 text-violet-600"
+                : cg.color === "cyan"
+                  ? "border-cyan-500/30 bg-cyan-500/5 text-cyan-600"
+                  : "border-indigo-500/30 bg-indigo-500/5 text-indigo-600";
+
+      const colorDot =
+        cg.color === "emerald"
+          ? "bg-emerald-500"
+          : cg.color === "amber"
+            ? "bg-amber-500"
+            : cg.color === "rose"
+              ? "bg-rose-500"
+              : cg.color === "violet"
+                ? "bg-violet-500"
+                : cg.color === "cyan"
+                  ? "bg-cyan-500"
+                  : "bg-indigo-500";
+
       return {
-        id: key,
-        label: ctx.t(config.ar, config.en),
-        dotColor: config.bar,
-        borderColor:
-          config.tone === "rose"
-            ? "border-rose-500/30 bg-rose-500/5"
-            : config.tone === "amber"
-              ? "border-amber-500/30 bg-amber-500/5"
-              : config.tone === "indigo"
-                ? "border-indigo-500/30 bg-indigo-500/5"
-                : "border-slate-500/30 bg-white/5",
-        accentBar: config.bar,
+        id: cg.id,
+        label: cg.name,
+        dotColor: colorDot,
+        borderColor: colorBg,
+        accentBar: colorDot,
         rows: groupRows,
         points,
         defaultStatus: undefined,
-        defaultPriority: key as Task["priority"],
+        defaultPriority: undefined,
+        isCustom: true,
       };
     });
-  }, [ctx, groupBy, rows]);
+  }, [ctx, customGroups, groupBy, rows]);
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => scrollRef.current,
@@ -591,17 +728,25 @@ export function AdvancedTaskTable({ ctx }: { ctx: ViewCtx }) {
             </div>
           </div>
           <div className="relative flex items-center gap-2">
+            <button
+              onClick={() => setShowNewGroupModal(true)}
+              className="flex items-center gap-1 rounded-xl border border-dashed border-accent/40 bg-accent/10 px-2.5 py-1.5 text-[11.5px] font-semibold text-accent hover:bg-accent/20 transition shadow-xs"
+            >
+              <IconPlus size={12} />
+              <span>{ctx.t("إضافة مجموعة جديدة", "Add Group")}</span>
+            </button>
             <div className="flex items-center gap-1.5 rounded-xl border border-line bg-surface px-2.5 py-1 text-[11.5px]">
               <span className="text-ink-faint font-medium">{ctx.t("تجميع:", "Group:")}</span>
               <select
                 value={groupBy}
-                onChange={(e) => setGroupBy(e.target.value as "none" | "status" | "priority")}
+                onChange={(e) => setGroupBy(e.target.value as "none" | "status" | "priority" | "custom")}
                 className="bg-transparent font-semibold text-accent focus:outline-none cursor-pointer"
                 aria-label={ctx.t("تجميع الجدول", "Group table")}
               >
                 <option value="none">{ctx.t("بدون تجميع (مسطح)", "None (Flat)")}</option>
                 <option value="status">{ctx.t("حسب الحالة (Status)", "By Status")}</option>
                 <option value="priority">{ctx.t("حسب الأولوية (Priority)", "By Priority")}</option>
+                <option value="custom">{ctx.t("مجموعات مخصصة (Custom Groups)", "Custom Groups")}</option>
               </select>
             </div>
             <button
@@ -729,6 +874,9 @@ export function AdvancedTaskTable({ ctx }: { ctx: ViewCtx }) {
               <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
                 {virtualRows.map((virtualRow) => {
                   const row = rows[virtualRow.index]!;
+                  const isExpanded = expandedSubtaskTaskIds[row.id];
+                  const taskSubtasks = subtasksByParentId.get(row.id) || [];
+
                   return (
                     <div
                       key={row.id}
@@ -736,45 +884,127 @@ export function AdvancedTaskTable({ ctx }: { ctx: ViewCtx }) {
                       ref={virtualizer.measureElement}
                       tabIndex={focusedRowId === row.id ? 0 : -1}
                       onFocus={() => setFocusedRowId(row.id)}
-                      onClick={(event) => {
-                        setFocusedRowId(row.id);
-                        if (event.shiftKey) {
-                          event.preventDefault();
-                          const anchorIndex = rows.findIndex((candidate) => candidate.id === selectionAnchorId);
-                          const currentIndex = rows.findIndex((candidate) => candidate.id === row.id);
-                          const start = anchorIndex < 0 ? currentIndex : Math.min(anchorIndex, currentIndex);
-                          const end = anchorIndex < 0 ? currentIndex : Math.max(anchorIndex, currentIndex);
-                          setRowSelection((current) => {
-                            const next = { ...current };
-                            for (let index = start; index <= end; index += 1) next[rows[index]!.id] = true;
-                            return next;
-                          });
-                          setSelectionAnchorId(selectionAnchorId ?? row.id);
-                          return;
-                        }
-                        setSelectionAnchorId(row.id);
-                        ctx.openTask(row.original);
-                      }}
                       style={{ transform: `translateY(${virtualRow.start}px)`, position: "absolute", width: "100%" }}
-                      className={cn(
-                        "flex cursor-pointer border-b border-line text-[12.5px] transition hover:bg-raised/40",
-                        row.getIsSelected() && "bg-accent/10",
-                      )}
+                      className="border-b border-line"
                     >
-                      {row.getVisibleCells().map((cell) => (
-                        <div
-                          key={cell.id}
-                          style={pinnedColumnStyle(cell.column)}
-                          className={cn(
-                            "flex h-12 shrink-0 items-center overflow-hidden border-e border-line px-3 text-ink-soft",
-                            cell.column.getIsPinned() && (row.getIsSelected() ? "bg-accent/10" : "bg-surface"),
-                          )}
-                        >
-                          <div className="min-w-0 flex-1">
-                            {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      <div
+                        onClick={(event) => {
+                          setFocusedRowId(row.id);
+                          if (event.shiftKey) {
+                            event.preventDefault();
+                            const anchorIndex = rows.findIndex((candidate) => candidate.id === selectionAnchorId);
+                            const currentIndex = rows.findIndex((candidate) => candidate.id === row.id);
+                            const start = anchorIndex < 0 ? currentIndex : Math.min(anchorIndex, currentIndex);
+                            const end = anchorIndex < 0 ? currentIndex : Math.max(anchorIndex, currentIndex);
+                            setRowSelection((current) => {
+                              const next = { ...current };
+                              for (let index = start; index <= end; index += 1) next[rows[index]!.id] = true;
+                              return next;
+                            });
+                            setSelectionAnchorId(selectionAnchorId ?? row.id);
+                            return;
+                          }
+                          setSelectionAnchorId(row.id);
+                          ctx.openTask(row.original);
+                        }}
+                        className={cn(
+                          "flex cursor-pointer text-[12.5px] transition hover:bg-raised/40",
+                          row.getIsSelected() && "bg-accent/10",
+                        )}
+                      >
+                        {row.getVisibleCells().map((cell) => (
+                          <div
+                            key={cell.id}
+                            style={pinnedColumnStyle(cell.column)}
+                            className={cn(
+                              "flex h-12 shrink-0 items-center overflow-hidden border-e border-line px-3 text-ink-soft",
+                              cell.column.getIsPinned() && (row.getIsSelected() ? "bg-accent/10" : "bg-surface"),
+                            )}
+                          >
+                            <div className="min-w-0 flex-1">
+                              {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                            </div>
                           </div>
+                        ))}
+                      </div>
+
+                      {/* Inline Subtasks List */}
+                      {isExpanded && (
+                        <div
+                          className="border-t border-dashed border-line bg-surface/70 ps-10 pe-4 py-2 space-y-1.5"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {taskSubtasks.map((subtask) => (
+                            <div
+                              key={subtask.id}
+                              onClick={() => ctx.openTask(subtask)}
+                              className="flex items-center justify-between gap-2.5 rounded-lg px-2.5 py-1 text-[12px] hover:bg-raised/60 transition group cursor-pointer"
+                            >
+                              <div className="flex items-center gap-2 min-w-0">
+                                <input
+                                  type="checkbox"
+                                  checked={subtask.status === "done"}
+                                  onClick={(e) => e.stopPropagation()}
+                                  onChange={(e) => {
+                                    ctx.updateTask(subtask.id, {
+                                      status: e.target.checked ? "done" : "todo",
+                                      progress: e.target.checked ? 100 : 0,
+                                    });
+                                  }}
+                                  className="h-3.5 w-3.5 rounded accent-accent"
+                                />
+                                <span className="text-ink-faint text-[10px]">└─</span>
+                                <span
+                                  className={cn(
+                                    "truncate font-medium text-ink",
+                                    subtask.status === "done" && "line-through text-ink-faint",
+                                  )}
+                                >
+                                  {subtask.title}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-2 shrink-0">
+                                <Badge tone={STATUS_CONFIG[subtask.status]?.tone} className="text-[10px] py-0 px-1.5">
+                                  {ctx.t(STATUS_CONFIG[subtask.status]?.ar, STATUS_CONFIG[subtask.status]?.en)}
+                                </Badge>
+                              </div>
+                            </div>
+                          ))}
+
+                          {/* Quick add subtask input */}
+                          {ctx.can("tasks.create") && (
+                            <div className="flex items-center gap-2 pt-1 ps-6">
+                              <IconPlus size={11} className="text-accent shrink-0" />
+                              <input
+                                type="text"
+                                value={inlineSubtaskInput[row.id] || ""}
+                                disabled={inlineSubtaskSubmitting[row.id] || false}
+                                onChange={(e) =>
+                                  setInlineSubtaskInput((prev) => ({ ...prev, [row.id]: e.target.value }))
+                                }
+                                onKeyDown={async (e) => {
+                                  if (e.key === "Enter" && !e.shiftKey && (inlineSubtaskInput[row.id] || "").trim()) {
+                                    e.preventDefault();
+                                    const val = inlineSubtaskInput[row.id]!.trim();
+                                    setInlineSubtaskSubmitting((prev) => ({ ...prev, [row.id]: true }));
+                                    await ctx.createTask({
+                                      title: val,
+                                      parentId: row.id,
+                                    });
+                                    setInlineSubtaskSubmitting((prev) => ({ ...prev, [row.id]: false }));
+                                    setInlineSubtaskInput((prev) => ({ ...prev, [row.id]: "" }));
+                                  }
+                                }}
+                                placeholder={ctx.t(
+                                  "+ أضف مهمة فرعية جديدة… (اضغط Enter للحفظ)",
+                                  "+ Add new subtask… (Press Enter)",
+                                )}
+                                className="flex-1 bg-transparent text-[11.5px] text-ink placeholder:text-ink-faint focus:outline-none"
+                              />
+                            </div>
+                          )}
                         </div>
-                      ))}
+                      )}
                     </div>
                   );
                 })}
@@ -813,49 +1043,159 @@ export function AdvancedTaskTable({ ctx }: { ctx: ViewCtx }) {
                             {fmtNumber(group.rows.length, ctx.locale)}
                           </span>
                         </div>
-                        {group.points > 0 && (
-                          <div className="flex items-center gap-1.5 text-[11px] font-semibold text-ink-faint">
-                            <span>{ctx.t("النقاط", "Points")}:</span>
-                            <span className="mono font-bold text-amber-600 dark:text-amber-400">
-                              {fmtNumber(group.points, ctx.locale)}
-                            </span>
-                          </div>
-                        )}
+                        <div className="flex items-center gap-3">
+                          {group.points > 0 && (
+                            <div className="flex items-center gap-1.5 text-[11px] font-semibold text-ink-faint">
+                              <span>{ctx.t("النقاط", "Points")}:</span>
+                              <span className="mono font-bold text-amber-600 dark:text-amber-400">
+                                {fmtNumber(group.points, ctx.locale)}
+                              </span>
+                            </div>
+                          )}
+                          {group.isCustom && (
+                            <button
+                              type="button"
+                              title={ctx.t("حذف المجموعة", "Delete group")}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setCustomGroups((prev) => prev.filter((cg) => cg.id !== group.id));
+                              }}
+                              className="rounded p-1 text-ink-faint hover:text-rose-500 transition"
+                            >
+                              <IconTrash size={12} />
+                            </button>
+                          )}
+                        </div>
                       </div>
 
                       {/* Group Rows Table */}
                       {!isCollapsed && (
                         <div>
-                          {group.rows.map((row) => (
-                            <div
-                              key={row.id}
-                              tabIndex={focusedRowId === row.id ? 0 : -1}
-                              onFocus={() => setFocusedRowId(row.id)}
-                              onClick={() => {
-                                setFocusedRowId(row.id);
-                                ctx.openTask(row.original);
-                              }}
-                              className={cn(
-                                "flex cursor-pointer border-t border-line text-[12.5px] bg-surface transition hover:bg-raised/40",
-                                row.getIsSelected() && "bg-accent/10",
-                              )}
-                            >
-                              {row.getVisibleCells().map((cell) => (
+                          {group.rows.map((row) => {
+                            const isSubExpanded = expandedSubtaskTaskIds[row.id];
+                            const taskSubtasks = subtasksByParentId.get(row.id) || [];
+
+                            return (
+                              <div key={row.id} className="border-t border-line">
                                 <div
-                                  key={cell.id}
-                                  style={pinnedColumnStyle(cell.column)}
+                                  tabIndex={focusedRowId === row.id ? 0 : -1}
+                                  onFocus={() => setFocusedRowId(row.id)}
+                                  onClick={() => {
+                                    setFocusedRowId(row.id);
+                                    ctx.openTask(row.original);
+                                  }}
                                   className={cn(
-                                    "flex h-11 shrink-0 items-center overflow-hidden border-e border-line px-3 text-ink-soft",
-                                    cell.column.getIsPinned() && (row.getIsSelected() ? "bg-accent/10" : "bg-surface"),
+                                    "flex cursor-pointer text-[12.5px] bg-surface transition hover:bg-raised/40",
+                                    row.getIsSelected() && "bg-accent/10",
                                   )}
                                 >
-                                  <div className="min-w-0 flex-1">
-                                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                                  </div>
+                                  {row.getVisibleCells().map((cell) => (
+                                    <div
+                                      key={cell.id}
+                                      style={pinnedColumnStyle(cell.column)}
+                                      className={cn(
+                                        "flex h-11 shrink-0 items-center overflow-hidden border-e border-line px-3 text-ink-soft",
+                                        cell.column.getIsPinned() &&
+                                          (row.getIsSelected() ? "bg-accent/10" : "bg-surface"),
+                                      )}
+                                    >
+                                      <div className="min-w-0 flex-1">
+                                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                                      </div>
+                                    </div>
+                                  ))}
                                 </div>
-                              ))}
-                            </div>
-                          ))}
+
+                                {/* Inline Subtasks List in Group */}
+                                {isSubExpanded && (
+                                  <div
+                                    className="border-t border-dashed border-line bg-surface/70 ps-10 pe-4 py-2 space-y-1.5"
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    {taskSubtasks.map((subtask) => (
+                                      <div
+                                        key={subtask.id}
+                                        onClick={() => ctx.openTask(subtask)}
+                                        className="flex items-center justify-between gap-2.5 rounded-lg px-2.5 py-1 text-[12px] hover:bg-raised/60 transition group cursor-pointer"
+                                      >
+                                        <div className="flex items-center gap-2 min-w-0">
+                                          <input
+                                            type="checkbox"
+                                            checked={subtask.status === "done"}
+                                            onClick={(e) => e.stopPropagation()}
+                                            onChange={(e) => {
+                                              ctx.updateTask(subtask.id, {
+                                                status: e.target.checked ? "done" : "todo",
+                                                progress: e.target.checked ? 100 : 0,
+                                              });
+                                            }}
+                                            className="h-3.5 w-3.5 rounded accent-accent"
+                                          />
+                                          <span className="text-ink-faint text-[10px]">└─</span>
+                                          <span
+                                            className={cn(
+                                              "truncate font-medium text-ink",
+                                              subtask.status === "done" && "line-through text-ink-faint",
+                                            )}
+                                          >
+                                            {subtask.title}
+                                          </span>
+                                        </div>
+                                        <div className="flex items-center gap-2 shrink-0">
+                                          <Badge
+                                            tone={STATUS_CONFIG[subtask.status]?.tone}
+                                            className="text-[10px] py-0 px-1.5"
+                                          >
+                                            {ctx.t(
+                                              STATUS_CONFIG[subtask.status]?.ar,
+                                              STATUS_CONFIG[subtask.status]?.en,
+                                            )}
+                                          </Badge>
+                                        </div>
+                                      </div>
+                                    ))}
+
+                                    {/* Quick add subtask input */}
+                                    {ctx.can("tasks.create") && (
+                                      <div className="flex items-center gap-2 pt-1 ps-6">
+                                        <IconPlus size={11} className="text-accent shrink-0" />
+                                        <input
+                                          type="text"
+                                          value={inlineSubtaskInput[row.id] || ""}
+                                          disabled={inlineSubtaskSubmitting[row.id] || false}
+                                          onChange={(e) =>
+                                            setInlineSubtaskInput((prev) => ({ ...prev, [row.id]: e.target.value }))
+                                          }
+                                          onKeyDown={async (e) => {
+                                            if (
+                                              e.key === "Enter" &&
+                                              !e.shiftKey &&
+                                              (inlineSubtaskInput[row.id] || "").trim()
+                                            ) {
+                                              e.preventDefault();
+                                              const val = inlineSubtaskInput[row.id]!.trim();
+                                              setInlineSubtaskSubmitting((prev) => ({ ...prev, [row.id]: true }));
+                                              await ctx.createTask({
+                                                title: val,
+                                                parentId: row.id,
+                                              });
+                                              setInlineSubtaskSubmitting((prev) => ({ ...prev, [row.id]: false }));
+                                              setInlineSubtaskInput((prev) => ({ ...prev, [row.id]: "" }));
+                                            }
+                                          }}
+                                          placeholder={ctx.t(
+                                            "+ أضف مهمة فرعية جديدة… (اضغط Enter للحفظ)",
+                                            "+ Add new subtask… (Press Enter)",
+                                          )}
+                                          className="flex-1 bg-transparent text-[11.5px] text-ink placeholder:text-ink-faint focus:outline-none"
+                                        />
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
 
                           {group.rows.length === 0 && (
                             <div className="py-4 text-center text-[11.5px] text-ink-faint">
@@ -903,6 +1243,16 @@ export function AdvancedTaskTable({ ctx }: { ctx: ViewCtx }) {
                     </div>
                   );
                 })}
+
+                {/* Add Group CTA at bottom of groups */}
+                <button
+                  type="button"
+                  onClick={() => setShowNewGroupModal(true)}
+                  className="w-full flex items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-line py-3 text-[12px] font-semibold text-ink-soft hover:border-accent hover:text-accent hover:bg-raised/40 transition"
+                >
+                  <IconPlus size={14} />
+                  <span>{ctx.t("إضافة مجموعة / جدول فرعي جديد", "Add New Group / Sub-table")}</span>
+                </button>
               </div>
             )}
           </div>
@@ -1046,6 +1396,113 @@ export function AdvancedTaskTable({ ctx }: { ctx: ViewCtx }) {
           </div>
         )}
       </Card>
+
+      {showNewGroupModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-fade-in"
+          onClick={() => setShowNewGroupModal(false)}
+        >
+          <div
+            className="w-full max-w-md rounded-2xl border border-line bg-surface p-6 shadow-2xl animate-scale-in"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-line pb-3">
+              <div className="flex items-center gap-2">
+                <IconFolder size={18} className="text-accent" />
+                <h3 className="text-base font-bold text-ink">
+                  {ctx.t("إنشاء مجموعة / جدول فرعي جديد", "Create New Group / Sub-table")}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowNewGroupModal(false)}
+                className="rounded-lg p-1 text-ink-faint hover:bg-raised hover:text-ink transition"
+              >
+                <IconX size={16} />
+              </button>
+            </div>
+
+            <div className="mt-4 space-y-4">
+              <div>
+                <label className="block text-[12px] font-semibold text-ink-soft mb-1.5">
+                  {ctx.t("اسم المجموعة", "Group Name")}
+                </label>
+                <input
+                  type="text"
+                  autoFocus
+                  value={newGroupName}
+                  onChange={(e) => setNewGroupName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && newGroupName.trim()) {
+                      e.preventDefault();
+                      const newId = `grp-${Date.now()}`;
+                      setCustomGroups((prev) => [
+                        ...prev,
+                        { id: newId, name: newGroupName.trim(), color: newGroupColor, taskIds: [] },
+                      ]);
+                      setGroupBy("custom");
+                      setNewGroupName("");
+                      setShowNewGroupModal(false);
+                    }
+                  }}
+                  placeholder={ctx.t("مثال: المرحلة الأولى، مهام التصميم…", "e.g. Phase 1, Design Tasks…")}
+                  className="w-full rounded-xl border border-line bg-surface px-3 py-2 text-sm text-ink placeholder:text-ink-faint focus:border-accent focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[12px] font-semibold text-ink-soft mb-2">
+                  {ctx.t("لون المجموعة", "Group Color")}
+                </label>
+                <div className="flex items-center gap-3">
+                  {[
+                    { id: "indigo", bg: "bg-indigo-500", label: "Indigo" },
+                    { id: "emerald", bg: "bg-emerald-500", label: "Emerald" },
+                    { id: "amber", bg: "bg-amber-500", label: "Amber" },
+                    { id: "rose", bg: "bg-rose-500", label: "Rose" },
+                    { id: "violet", bg: "bg-violet-500", label: "Violet" },
+                    { id: "cyan", bg: "bg-cyan-500", label: "Cyan" },
+                  ].map((color) => (
+                    <button
+                      key={color.id}
+                      type="button"
+                      onClick={() => setNewGroupColor(color.id)}
+                      className={cn(
+                        "h-7 w-7 rounded-full transition transform hover:scale-110",
+                        color.bg,
+                        newGroupColor === color.id && "ring-2 ring-accent ring-offset-2 ring-offset-surface scale-110",
+                      )}
+                    />
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-6 flex items-center justify-end gap-2 border-t border-line pt-4">
+              <Btn size="sm" variant="ghost" onClick={() => setShowNewGroupModal(false)}>
+                {ctx.t("إلغاء", "Cancel")}
+              </Btn>
+              <Btn
+                size="sm"
+                disabled={!newGroupName.trim()}
+                onClick={() => {
+                  if (!newGroupName.trim()) return;
+                  const newId = `grp-${Date.now()}`;
+                  setCustomGroups((prev) => [
+                    ...prev,
+                    { id: newId, name: newGroupName.trim(), color: newGroupColor, taskIds: [] },
+                  ]);
+                  setGroupBy("custom");
+                  setNewGroupName("");
+                  setShowNewGroupModal(false);
+                }}
+              >
+                {ctx.t("إنشاء المجموعة", "Create Group")}
+              </Btn>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
