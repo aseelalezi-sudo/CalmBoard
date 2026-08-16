@@ -217,7 +217,7 @@ export function AuthScreen({ onAuthenticated }: { onAuthenticated: () => Promise
           {!mfaPending && mode === "login" && (
             <button
               type="button"
-              className="w-full text-xs text-accent hover:underline"
+              className="w-full text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline"
               onClick={() => {
                 setMode("forgot");
                 setError("");
@@ -231,14 +231,14 @@ export function AuthScreen({ onAuthenticated }: { onAuthenticated: () => Promise
           {!mfaPending && mode === "forgot" && (
             <button
               type="button"
-              className="w-full text-xs text-accent hover:underline"
+              className="w-full text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline"
               onClick={() => {
                 setMode("login");
                 setError("");
                 setNotice("");
               }}
             >
-              {t("العودة إلى تسجيل الدخول", "Return to sign in")}
+              {t("العودة لتسجيل الدخول", "Back to sign in")}
             </button>
           )}
 

@@ -124,7 +124,7 @@ export default function ApiReferencePage() {
             </Btn>
             <Link
               href="/"
-              className="inline-flex min-h-10 items-center rounded-xl bg-accent px-4 text-[12px] font-bold text-white transition hover:brightness-110 focus-ring"
+              className="inline-flex min-h-10 items-center rounded-xl bg-indigo-600 px-4 text-[12px] font-bold text-white transition hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600 focus-ring"
             >
               العودة إلى التطبيق
             </Link>
@@ -249,7 +249,7 @@ function OperationDetails({ choice }: { choice: OperationChoice }) {
           </div>
           <div className="mt-3 hidden overflow-x-auto rounded-xl border border-line md:block">
             <table className="w-full min-w-[560px] text-start text-[12px]">
-              <thead className="bg-raised text-[11px] text-ink-faint">
+              <thead className="bg-raised text-[11px] font-semibold text-ink-soft">
                 <tr>
                   <th className="p-3 text-start">الاسم</th>
                   <th className="p-3 text-start">النوع</th>

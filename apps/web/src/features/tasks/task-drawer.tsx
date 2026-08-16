@@ -242,6 +242,7 @@ export function TaskDrawer({
         </div>
 
         <nav
+          role="tablist"
           aria-label={ctx.t("أقسام المهمة", "Task sections")}
           className="flex border-b border-line px-4 bg-surface/60 backdrop-blur-sm gap-1"
         >
@@ -249,6 +250,8 @@ export function TaskDrawer({
             <button
               key={section.id}
               id={section.id}
+              role="tab"
+              aria-selected={activeSection === section.id}
               onClick={() => setActiveSection(section.id)}
               className={cn(
                 "relative px-3.5 py-3 text-[12.5px] font-semibold transition-all duration-150 active:scale-[0.99]",

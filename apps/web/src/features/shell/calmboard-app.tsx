@@ -1606,7 +1606,7 @@ export function CalmBoardApp() {
         t={t}
         onCreated={(p) => {
           setProjects((x) => [p, ...x]);
-          setActiveProject(p);
+          switchProject(p);
         }}
         orgId={activeOrg?.id}
         wsId={activeWorkspace?.id}

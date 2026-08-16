@@ -263,7 +263,7 @@ export function SegmentedTabs({
               "flex h-8.5 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-2.5 text-[12px] font-semibold transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 disabled:opacity-40 active:scale-[0.98]",
               stretch && "flex-1",
               value === item.value
-                ? "bg-surface text-accent font-bold shadow-xs ring-1 ring-black/5 dark:ring-white/10"
+                ? "bg-surface font-bold text-indigo-600 shadow-xs ring-1 ring-black/5 dark:text-indigo-400 dark:ring-white/10"
                 : "text-ink-soft hover:bg-surface/50 hover:text-ink",
             )}
           >

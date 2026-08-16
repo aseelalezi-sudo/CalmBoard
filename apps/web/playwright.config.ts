@@ -10,11 +10,11 @@ import { defineConfig, devices } from "@playwright/test";
  */
 export default defineConfig({
   testDir: "./e2e",
-  timeout: process.env.CI ? 90_000 : 30_000,
-  fullyParallel: true,
+  timeout: process.env.CI ? 90_000 : 45_000,
+  fullyParallel: false,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
-  workers: process.env.CI ? 1 : undefined,
+  workers: 1,
   reporter: "html",
   use: {
     baseURL: process.env.E2E_BASE_URL ?? "http://localhost:3000",

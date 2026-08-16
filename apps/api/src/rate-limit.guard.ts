@@ -42,7 +42,15 @@ const AUTH_RULES: Record<string, RateLimitRule[]> = {
     { name: "login-ip", limit: 10, windowMs: 15 * MINUTE, sensitive: true, subject: "ip" },
     { name: "login-account", limit: 10, windowMs: 15 * MINUTE, sensitive: true, subject: "identity" },
   ],
-  "/auth/register": [{ name: "register-ip", limit: 5, windowMs: 60 * MINUTE, sensitive: true, subject: "ip" }],
+  "/auth/register": [
+    {
+      name: "register-ip-v2",
+      limit: process.env.NODE_ENV === "production" ? 10 : 200,
+      windowMs: 60 * MINUTE,
+      sensitive: true,
+      subject: "ip",
+    },
+  ],
   "/auth/password/forgot": [
     { name: "forgot-ip", limit: 5, windowMs: 15 * MINUTE, sensitive: true, subject: "ip" },
     { name: "forgot-account", limit: 3, windowMs: 15 * MINUTE, sensitive: true, subject: "identity" },

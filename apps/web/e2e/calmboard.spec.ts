@@ -19,23 +19,31 @@ async function registerIsolatedOwner(page: Page) {
   };
 
   await page.goto("/");
-  await page.getByRole("button", { name: arabic.createAccount, exact: true }).click();
+  await page.getByRole("tab", { name: arabic.createAccount }).click();
   await page.locator('input[name="name"]').fill(identity.name);
   await page.locator('input[name="organizationName"]').fill(identity.organization);
   await page.locator('input[name="workspaceName"]').fill(identity.workspace);
   await page.locator('input[name="email"]').fill(identity.email);
   await page.locator('input[name="password"]').fill(password);
+  if (await page.locator('input[name="passwordConfirmation"]').isVisible()) {
+    await page.locator('input[name="passwordConfirmation"]').fill(password);
+  }
 
   const registration = page.waitForResponse(
     (response) => response.url().endsWith("/auth/register") && response.request().method() === "POST",
   );
-  await page.getByRole("button", { name: arabic.submitAccount, exact: true }).click();
+  await page.locator('button[type="submit"]').click();
   expect((await registration).ok()).toBe(true);
 
   await page.getByRole("button", { name: arabic.openAccountMenu }).click();
-  const languageToggle = page.getByRole("menuitem", { name: arabic.toggleLanguage });
-  await expect(languageToggle).toBeVisible();
-  await languageToggle.click();
+  const englishButton = page.getByRole("button", { name: /English/i });
+  if (await englishButton.isVisible()) {
+    await englishButton.click();
+  } else {
+    const languageToggle = page.getByRole("menuitem", { name: arabic.toggleLanguage });
+    await expect(languageToggle).toBeVisible();
+    await languageToggle.click();
+  }
   await expect(page.locator("html")).toHaveAttribute("dir", "ltr");
   await expect(page.getByText(identity.workspace, { exact: true }).first()).toBeVisible();
   return identity;
@@ -68,17 +76,26 @@ test.describe("CalmBoard core acceptance", () => {
     await expect(page.getByText("Advanced task grid", { exact: true })).toBeVisible();
     await expect(page.getByText(taskName, { exact: true })).toBeVisible({ timeout: 10_000 });
     await page.getByText(taskName, { exact: true }).click();
+
+    const workTab = page.getByRole("tab", { name: /Work & Subtasks/i });
+    if (await workTab.isVisible()) {
+      await workTab.click();
+    }
     await expect(page.getByText("Subtasks", { exact: true })).toBeVisible();
 
-    await page.getByPlaceholder("New subtask\u2026").fill(subtaskName);
+    await page.getByPlaceholder("New subtask…").fill(subtaskName);
     const subtaskRequest = page.waitForResponse(
       (response) => response.url().includes("/tasks") && response.request().method() === "POST",
     );
-    await page.getByPlaceholder("New subtask\u2026").press("Enter");
+    await page.getByPlaceholder("New subtask…").press("Enter");
     expect((await subtaskRequest).ok()).toBe(true);
     await expect(page.getByText(subtaskName, { exact: true })).toBeVisible();
 
-    await page.getByPlaceholder("Write a comment\u2026 (@ to mention)").fill(commentText);
+    const activityTab = page.getByRole("tab", { name: /Activity & Comments/i });
+    if (await activityTab.isVisible()) {
+      await activityTab.click();
+    }
+    await page.getByPlaceholder("Write a comment… (@ to mention)").fill(commentText);
     const commentRequest = page.waitForResponse(
       (response) => response.url().endsWith("/comments") && response.request().method() === "POST",
     );
@@ -92,7 +109,7 @@ test.describe("CalmBoard core acceptance", () => {
     await expect(page.getByRole("heading", { name: projectName, exact: true })).toBeVisible();
     await expect(page.getByText(taskName, { exact: true })).toBeVisible();
 
-    await page.getByRole("button", { name: "Board", exact: true }).click();
+    await page.getByRole("tab", { name: /Board/i }).click();
     for (const status of ["Backlog", "To Do", "In Progress", "Review", "Done"]) {
       await expect(page.locator(".column-drop").filter({ hasText: status })).toBeVisible();
     }
