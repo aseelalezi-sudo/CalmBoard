@@ -89,6 +89,136 @@ function isTextEditingTarget(target: EventTarget | null) {
   return Boolean(field && !(field instanceof HTMLInputElement && ["checkbox", "radio"].includes(field.type)));
 }
 
+function SubtaskInlineRow({ subtask, ctx }: { subtask: Task; ctx: ViewCtx }) {
+  const isDone = subtask.status === "done";
+  const st = STATUS_CONFIG[subtask.status] || STATUS_CONFIG.todo;
+  const pr = PRIORITY_CONFIG[subtask.priority] || PRIORITY_CONFIG.medium;
+  const assigneeName = subtask.assignee?.name || ctx.users.find((u) => u.id === subtask.assigneeId)?.name;
+  const avatarUrl = subtask.assignee?.avatarUrl || ctx.users.find((u) => u.id === subtask.assigneeId)?.avatarUrl;
+
+  return (
+    <div
+      onClick={() => ctx.openTask(subtask)}
+      className="flex items-center justify-between gap-3 rounded-xl border border-line/60 bg-surface/90 px-3 py-1.5 text-[12px] hover:border-accent/30 hover:bg-raised/60 transition group cursor-pointer shadow-2xs"
+    >
+      {/* Title & Checkbox & Serial */}
+      <div className="flex items-center gap-2.5 min-w-0 flex-1">
+        <input
+          type="checkbox"
+          checked={isDone}
+          onClick={(e) => e.stopPropagation()}
+          onChange={(e) => {
+            ctx.updateTask(subtask.id, {
+              status: e.target.checked ? "done" : "todo",
+              progress: e.target.checked ? 100 : 0,
+            });
+          }}
+          className="h-3.5 w-3.5 rounded accent-accent cursor-pointer"
+        />
+        <span className="text-ink-faint text-[10.5px] select-none">↳</span>
+        <span className="mono shrink-0 rounded bg-raised px-1 py-0.5 text-[9.5px] text-ink-faint">
+          {subtask.serial}
+        </span>
+        <span
+          className={cn(
+            "truncate font-semibold text-ink",
+            isDone && "line-through text-ink-faint decoration-ink-faint/50",
+          )}
+        >
+          {subtask.title}
+        </span>
+      </div>
+
+      {/* Subtask Properties: Status, Priority, Assignee, Due Date */}
+      <div className="flex items-center gap-2.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+        {/* Status selector */}
+        <div className="relative inline-flex items-center">
+          <Badge
+            tone={st.tone}
+            className="cursor-pointer text-[10.5px] py-0.5 px-2 hover:opacity-85 transition-opacity"
+          >
+            <span className={`h-1.5 w-1.5 rounded-full ${st.dot}`} />
+            <span>{ctx.t(st.ar, st.en)}</span>
+          </Badge>
+          <select
+            name={`subtask-status-${subtask.id}`}
+            value={subtask.status}
+            disabled={!ctx.can("tasks.update")}
+            onChange={(e) =>
+              ctx.updateTask(subtask.id, {
+                status: e.target.value,
+                progress: e.target.value === "done" ? 100 : undefined,
+              })
+            }
+            className="absolute inset-0 cursor-pointer opacity-0"
+            aria-label={ctx.t("تغيير الحالة", "Change status")}
+          >
+            {Object.entries(STATUS_CONFIG).map(([key, value]) => (
+              <option key={key} value={key}>
+                {ctx.t(value.ar, value.en)}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Priority selector */}
+        <div className="relative inline-flex items-center">
+          <Badge
+            tone={pr.tone}
+            className="cursor-pointer text-[10.5px] py-0.5 px-2 hover:opacity-85 transition-opacity"
+          >
+            <span>{ctx.t(pr.ar, pr.en)}</span>
+          </Badge>
+          <select
+            name={`subtask-priority-${subtask.id}`}
+            value={subtask.priority}
+            disabled={!ctx.can("tasks.update")}
+            onChange={(e) => ctx.updateTask(subtask.id, { priority: e.target.value })}
+            className="absolute inset-0 cursor-pointer opacity-0"
+            aria-label={ctx.t("تغيير الأولوية", "Change priority")}
+          >
+            {Object.entries(PRIORITY_CONFIG).map(([key, value]) => (
+              <option key={key} value={key}>
+                {ctx.t(value.ar, value.en)}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Assignee selector */}
+        <div className="relative inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 transition hover:bg-raised cursor-pointer">
+          <Avatar src={avatarUrl} name={assigneeName} size={18} />
+          <span className="hidden sm:inline truncate text-[10.5px] text-ink-soft max-w-[80px]">
+            {assigneeName || ctx.t("غير محدد", "Unassigned")}
+          </span>
+          <select
+            name={`subtask-assignee-${subtask.id}`}
+            value={subtask.assigneeId || ""}
+            disabled={!ctx.can("tasks.update")}
+            onChange={(e) => ctx.updateTask(subtask.id, { assigneeId: e.target.value || undefined })}
+            className="absolute inset-0 cursor-pointer opacity-0"
+            aria-label={ctx.t("تعيين مسؤول", "Assign task")}
+          >
+            <option value="">{ctx.t("غير محدد", "Unassigned")}</option>
+            {ctx.users.map((user) => (
+              <option key={user.id} value={user.id}>
+                {user.name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Due date indicator */}
+        {subtask.dueDate && (
+          <span className="hidden md:inline text-[10.5px] text-ink-faint mono">
+            {fmtDate(subtask.dueDate, ctx.locale)}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function AdvancedTaskTable({ ctx }: { ctx: ViewCtx }) {
   const { deleteTasks } = useBulkTaskActions(ctx.tasks, ctx.currentUser?.id);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -942,44 +1072,11 @@ export function AdvancedTaskTable({ ctx }: { ctx: ViewCtx }) {
                       {/* Inline Subtasks List */}
                       {isExpanded && (
                         <div
-                          className="border-t border-dashed border-line bg-surface/70 ps-10 pe-4 py-2 space-y-1.5"
+                          className="border-t border-dashed border-line bg-surface/70 ps-8 pe-4 py-2 space-y-1.5"
                           onClick={(e) => e.stopPropagation()}
                         >
                           {taskSubtasks.map((subtask) => (
-                            <div
-                              key={subtask.id}
-                              onClick={() => ctx.openTask(subtask)}
-                              className="flex items-center justify-between gap-2.5 rounded-lg px-2.5 py-1 text-[12px] hover:bg-raised/60 transition group cursor-pointer"
-                            >
-                              <div className="flex items-center gap-2 min-w-0">
-                                <input
-                                  type="checkbox"
-                                  checked={subtask.status === "done"}
-                                  onClick={(e) => e.stopPropagation()}
-                                  onChange={(e) => {
-                                    ctx.updateTask(subtask.id, {
-                                      status: e.target.checked ? "done" : "todo",
-                                      progress: e.target.checked ? 100 : 0,
-                                    });
-                                  }}
-                                  className="h-3.5 w-3.5 rounded accent-accent"
-                                />
-                                <span className="text-ink-faint text-[10px]">└─</span>
-                                <span
-                                  className={cn(
-                                    "truncate font-medium text-ink",
-                                    subtask.status === "done" && "line-through text-ink-faint",
-                                  )}
-                                >
-                                  {subtask.title}
-                                </span>
-                              </div>
-                              <div className="flex items-center gap-2 shrink-0">
-                                <Badge tone={STATUS_CONFIG[subtask.status]?.tone} className="text-[10px] py-0 px-1.5">
-                                  {ctx.t(STATUS_CONFIG[subtask.status]?.ar, STATUS_CONFIG[subtask.status]?.en)}
-                                </Badge>
-                              </div>
-                            </div>
+                            <SubtaskInlineRow key={subtask.id} subtask={subtask} ctx={ctx} />
                           ))}
 
                           {/* Quick add subtask input */}
@@ -1121,50 +1218,11 @@ export function AdvancedTaskTable({ ctx }: { ctx: ViewCtx }) {
                                 {/* Inline Subtasks List in Group */}
                                 {isSubExpanded && (
                                   <div
-                                    className="border-t border-dashed border-line bg-surface/70 ps-10 pe-4 py-2 space-y-1.5"
+                                    className="border-t border-dashed border-line bg-surface/70 ps-8 pe-4 py-2 space-y-1.5"
                                     onClick={(e) => e.stopPropagation()}
                                   >
                                     {taskSubtasks.map((subtask) => (
-                                      <div
-                                        key={subtask.id}
-                                        onClick={() => ctx.openTask(subtask)}
-                                        className="flex items-center justify-between gap-2.5 rounded-lg px-2.5 py-1 text-[12px] hover:bg-raised/60 transition group cursor-pointer"
-                                      >
-                                        <div className="flex items-center gap-2 min-w-0">
-                                          <input
-                                            type="checkbox"
-                                            checked={subtask.status === "done"}
-                                            onClick={(e) => e.stopPropagation()}
-                                            onChange={(e) => {
-                                              ctx.updateTask(subtask.id, {
-                                                status: e.target.checked ? "done" : "todo",
-                                                progress: e.target.checked ? 100 : 0,
-                                              });
-                                            }}
-                                            className="h-3.5 w-3.5 rounded accent-accent"
-                                          />
-                                          <span className="text-ink-faint text-[10px]">└─</span>
-                                          <span
-                                            className={cn(
-                                              "truncate font-medium text-ink",
-                                              subtask.status === "done" && "line-through text-ink-faint",
-                                            )}
-                                          >
-                                            {subtask.title}
-                                          </span>
-                                        </div>
-                                        <div className="flex items-center gap-2 shrink-0">
-                                          <Badge
-                                            tone={STATUS_CONFIG[subtask.status]?.tone}
-                                            className="text-[10px] py-0 px-1.5"
-                                          >
-                                            {ctx.t(
-                                              STATUS_CONFIG[subtask.status]?.ar,
-                                              STATUS_CONFIG[subtask.status]?.en,
-                                            )}
-                                          </Badge>
-                                        </div>
-                                      </div>
+                                      <SubtaskInlineRow key={subtask.id} subtask={subtask} ctx={ctx} />
                                     ))}
 
                                     {/* Quick add subtask input */}
