@@ -29,9 +29,22 @@ export function assertDatabaseCommandAllowed(command, env = process.env) {
   }
 }
 
-export function runDatabaseCommand(argv = process.argv.slice(2), env = process.env) {
+export async function runDatabaseCommand(argv = process.argv.slice(2), env = process.env) {
   const [command, ...forwardedArgs] = argv;
   assertDatabaseCommandAllowed(command, env);
+
+  if (command === "migrate" && env.DATABASE_URL) {
+    try {
+      const pg = await import("pg");
+      const Client = pg.default?.Client ?? pg.Client;
+      const client = new Client({ connectionString: env.DATABASE_URL });
+      await client.connect();
+      await client.query("CREATE SCHEMA IF NOT EXISTS drizzle;");
+      await client.end();
+    } catch {
+      // ignore
+    }
+  }
 
   const pnpmCli = env.npm_execpath;
   const executable = pnpmCli ? process.execPath : "pnpm";
@@ -50,7 +63,7 @@ export function runDatabaseCommand(argv = process.argv.slice(2), env = process.e
 const invokedPath = process.argv[1] ? resolve(process.argv[1]) : "";
 if (invokedPath === fileURLToPath(import.meta.url)) {
   try {
-    runDatabaseCommand();
+    await runDatabaseCommand();
   } catch (error) {
     console.error(error instanceof Error ? error.message : error);
     process.exitCode = 1;
