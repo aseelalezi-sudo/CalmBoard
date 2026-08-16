@@ -876,8 +876,9 @@ export function AdvancedTaskTable({ ctx }: { ctx: ViewCtx }) {
               <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
                 {virtualRows.map((virtualRow) => {
                   const row = rows[virtualRow.index]!;
-                  const isExpanded = expandedSubtaskTaskIds[row.id];
-                  const taskSubtasks = subtasksByParentId.get(row.id) || [];
+                  const taskId = row.original.id;
+                  const isExpanded = expandedSubtaskTaskIds[taskId];
+                  const taskSubtasks = subtasksByParentId.get(taskId) || [];
 
                   return (
                     <div
@@ -919,7 +920,7 @@ export function AdvancedTaskTable({ ctx }: { ctx: ViewCtx }) {
                             key={cell.id}
                             style={pinnedColumnStyle(cell.column)}
                             className={cn(
-                              "flex h-12 shrink-0 items-center overflow-hidden border-e border-line px-3 text-ink-soft",
+                              "flex h-11 shrink-0 items-center overflow-hidden border-e border-line px-3 text-ink-soft",
                               cell.column.getIsPinned() && (row.getIsSelected() ? "bg-accent/10" : "bg-surface"),
                             )}
                           >
@@ -979,22 +980,22 @@ export function AdvancedTaskTable({ ctx }: { ctx: ViewCtx }) {
                               <IconPlus size={11} className="text-accent shrink-0" />
                               <input
                                 type="text"
-                                value={inlineSubtaskInput[row.id] || ""}
-                                disabled={inlineSubtaskSubmitting[row.id] || false}
+                                value={inlineSubtaskInput[taskId] || ""}
+                                disabled={inlineSubtaskSubmitting[taskId] || false}
                                 onChange={(e) =>
-                                  setInlineSubtaskInput((prev) => ({ ...prev, [row.id]: e.target.value }))
+                                  setInlineSubtaskInput((prev) => ({ ...prev, [taskId]: e.target.value }))
                                 }
                                 onKeyDown={async (e) => {
-                                  if (e.key === "Enter" && !e.shiftKey && (inlineSubtaskInput[row.id] || "").trim()) {
+                                  if (e.key === "Enter" && !e.shiftKey && (inlineSubtaskInput[taskId] || "").trim()) {
                                     e.preventDefault();
-                                    const val = inlineSubtaskInput[row.id]!.trim();
-                                    setInlineSubtaskSubmitting((prev) => ({ ...prev, [row.id]: true }));
+                                    const val = inlineSubtaskInput[taskId]!.trim();
+                                    setInlineSubtaskSubmitting((prev) => ({ ...prev, [taskId]: true }));
                                     await ctx.createTask({
                                       title: val,
-                                      parentId: row.id,
+                                      parentId: taskId,
                                     });
-                                    setInlineSubtaskSubmitting((prev) => ({ ...prev, [row.id]: false }));
-                                    setInlineSubtaskInput((prev) => ({ ...prev, [row.id]: "" }));
+                                    setInlineSubtaskSubmitting((prev) => ({ ...prev, [taskId]: false }));
+                                    setInlineSubtaskInput((prev) => ({ ...prev, [taskId]: "" }));
                                   }
                                 }}
                                 placeholder={ctx.t(
@@ -1074,8 +1075,9 @@ export function AdvancedTaskTable({ ctx }: { ctx: ViewCtx }) {
                       {!isCollapsed && (
                         <div>
                           {group.rows.map((row) => {
-                            const isSubExpanded = expandedSubtaskTaskIds[row.id];
-                            const taskSubtasks = subtasksByParentId.get(row.id) || [];
+                            const taskId = row.original.id;
+                            const isSubExpanded = expandedSubtaskTaskIds[taskId];
+                            const taskSubtasks = subtasksByParentId.get(taskId) || [];
 
                             return (
                               <div key={row.id} className="border-t border-line">
@@ -1163,26 +1165,26 @@ export function AdvancedTaskTable({ ctx }: { ctx: ViewCtx }) {
                                         <IconPlus size={11} className="text-accent shrink-0" />
                                         <input
                                           type="text"
-                                          value={inlineSubtaskInput[row.id] || ""}
-                                          disabled={inlineSubtaskSubmitting[row.id] || false}
+                                          value={inlineSubtaskInput[taskId] || ""}
+                                          disabled={inlineSubtaskSubmitting[taskId] || false}
                                           onChange={(e) =>
-                                            setInlineSubtaskInput((prev) => ({ ...prev, [row.id]: e.target.value }))
+                                            setInlineSubtaskInput((prev) => ({ ...prev, [taskId]: e.target.value }))
                                           }
                                           onKeyDown={async (e) => {
                                             if (
                                               e.key === "Enter" &&
                                               !e.shiftKey &&
-                                              (inlineSubtaskInput[row.id] || "").trim()
+                                              (inlineSubtaskInput[taskId] || "").trim()
                                             ) {
                                               e.preventDefault();
-                                              const val = inlineSubtaskInput[row.id]!.trim();
-                                              setInlineSubtaskSubmitting((prev) => ({ ...prev, [row.id]: true }));
+                                              const val = inlineSubtaskInput[taskId]!.trim();
+                                              setInlineSubtaskSubmitting((prev) => ({ ...prev, [taskId]: true }));
                                               await ctx.createTask({
                                                 title: val,
-                                                parentId: row.id,
+                                                parentId: taskId,
                                               });
-                                              setInlineSubtaskSubmitting((prev) => ({ ...prev, [row.id]: false }));
-                                              setInlineSubtaskInput((prev) => ({ ...prev, [row.id]: "" }));
+                                              setInlineSubtaskSubmitting((prev) => ({ ...prev, [taskId]: false }));
+                                              setInlineSubtaskInput((prev) => ({ ...prev, [taskId]: "" }));
                                             }
                                           }}
                                           placeholder={ctx.t(
