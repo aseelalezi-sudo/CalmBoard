@@ -1,5 +1,7 @@
 "use client";
+
 import { useState, useMemo, useRef, useEffect } from "react";
+import { createPortal } from "react-dom";
 import {
   closestCorners,
   DndContext,
@@ -1212,90 +1214,90 @@ export function LegacyTableView({ ctx }: { ctx: ViewCtx }) {
       {ctx.tasks.length === 0 && <Empty icon={<IconSearch size={22} />} title={ctx.t("لا توجد بيانات", "No data")} />}
 
       {/* Floating Bulk Actions Island Toolbar */}
-      {selectedIds.length > 0 && (
-        <div
-          className="fixed bottom-6 inset-x-0 mx-auto w-fit z-50 flex items-center gap-2.5 rounded-2xl border border-line/80 bg-surface/95 dark:bg-zinc-900/95 px-4 py-2.5 shadow-2xl backdrop-blur-xl animate-slide-up text-ink ring-1 ring-black/10 dark:ring-white/10"
-          style={{ maxWidth: "calc(100vw - 2rem)" }}
-        >
-          <div className="flex items-center gap-1.5 rounded-xl bg-accent/15 px-3 py-1.5 text-[12px] font-bold text-accent shrink-0 select-none">
-            <IconCheck size={13} />
-            <span>
-              {fmtNumber(selectedIds.length, ctx.locale)} {ctx.t("مهمة محددة", "selected")}
-            </span>
-          </div>
+      {selectedIds.length > 0 &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div className="fixed bottom-7 inset-x-0 mx-auto w-fit max-w-[calc(100%-2rem)] z-[9999] flex items-center gap-2.5 rounded-2xl border border-line/90 bg-surface/95 dark:bg-zinc-900/95 px-4 py-2.5 shadow-[0_20px_50px_rgba(0,0,0,0.35)] backdrop-blur-xl animate-slide-up text-ink ring-1 ring-black/10 dark:ring-white/10 select-none">
+            <div className="flex items-center gap-1.5 rounded-xl bg-accent/15 px-3 py-1.5 text-[12px] font-bold text-accent shrink-0 select-none">
+              <IconCheck size={13} />
+              <span>
+                {fmtNumber(selectedIds.length, ctx.locale)} {ctx.t("مهمة محددة", "selected")}
+              </span>
+            </div>
 
-          <div className="h-4 w-px bg-line/60 shrink-0" />
+            <div className="h-4 w-px bg-line/60 shrink-0" />
 
-          <select
-            name="auto-field-iwa4v9b"
-            onChange={(e) => {
-              if (e.target.value) bulkStatusChange(e.target.value);
-            }}
-            className="h-8 rounded-xl border border-line bg-raised/80 px-2.5 text-[11.5px] font-semibold text-ink outline-none cursor-pointer hover:bg-surface transition shrink-0"
-            aria-label={ctx.t("تغيير الحالة لجميع المهام المحددة", "Bulk change status")}
-          >
-            <option value="">⚡ {ctx.t("تغيير الحالة…", "Change status…")}</option>
-            {Object.entries(STATUS_CONFIG).map(([k, v]) => (
-              <option key={k} value={k}>
-                {ctx.t(v.ar, v.en)}
-              </option>
-            ))}
-          </select>
+            <select
+              name="auto-field-iwa4v9b"
+              onChange={(e) => {
+                if (e.target.value) bulkStatusChange(e.target.value);
+              }}
+              className="h-8 rounded-xl border border-line bg-raised/80 px-2.5 text-[11.5px] font-semibold text-ink outline-none cursor-pointer hover:bg-surface transition shrink-0"
+              aria-label={ctx.t("تغيير الحالة لجميع المهام المحددة", "Bulk change status")}
+            >
+              <option value="">⚡ {ctx.t("تغيير الحالة…", "Change status…")}</option>
+              {Object.entries(STATUS_CONFIG).map(([k, v]) => (
+                <option key={k} value={k}>
+                  {ctx.t(v.ar, v.en)}
+                </option>
+              ))}
+            </select>
 
-          <select
-            name="auto-field-lmlotin"
-            onChange={(e) => {
-              if (e.target.value !== undefined) bulkAssignChange(e.target.value);
-            }}
-            className="h-8 rounded-xl border border-line bg-raised/80 px-2.5 text-[11.5px] font-semibold text-ink outline-none cursor-pointer hover:bg-surface transition shrink-0 max-w-[130px] truncate"
-            aria-label={ctx.t("تعيين مسؤول لجميع المهام المحددة", "Bulk assign user")}
-          >
-            <option value="">👤 {ctx.t("تعيين لـ…", "Assign to…")}</option>
-            <option value="">{ctx.t("غير محدد (إلغاء التعيين)", "Unassigned")}</option>
-            {ctx.users.map((u) => (
-              <option key={u.id} value={u.id}>
-                {u.name}
-              </option>
-            ))}
-          </select>
+            <select
+              name="auto-field-lmlotin"
+              onChange={(e) => {
+                if (e.target.value !== undefined) bulkAssignChange(e.target.value);
+              }}
+              className="h-8 rounded-xl border border-line bg-raised/80 px-2.5 text-[11.5px] font-semibold text-ink outline-none cursor-pointer hover:bg-surface transition shrink-0 max-w-[130px] truncate"
+              aria-label={ctx.t("تعيين مسؤول لجميع المهام المحددة", "Bulk assign user")}
+            >
+              <option value="">👤 {ctx.t("تعيين لـ…", "Assign to…")}</option>
+              <option value="">{ctx.t("غير محدد (إلغاء التعيين)", "Unassigned")}</option>
+              {ctx.users.map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.name}
+                </option>
+              ))}
+            </select>
 
-          <div className="h-4 w-px bg-line/60 shrink-0" />
+            <div className="h-4 w-px bg-line/60 shrink-0" />
 
-          {ctx.can("tasks.delete") && (
+            {ctx.can("tasks.delete") && (
+              <button
+                type="button"
+                onClick={async () => {
+                  const confirmed = await confirmAction({
+                    title: ctx.t("حذف المهام المحددة", "Delete selected tasks"),
+                    message: ctx.t(
+                      `هل أنت متأكد من حذف ${fmtNumber(selectedIds.length, ctx.locale)} مهمة؟ لا يمكن التراجع عن هذا الإجراء.`,
+                      `Are you sure you want to delete ${selectedIds.length} selected task(s)?`,
+                    ),
+                    confirmLabel: ctx.t("حذف", "Delete"),
+                    tone: "danger",
+                  });
+                  if (confirmed) {
+                    await deleteTasks(selectedIds);
+                    setSelectedIds([]);
+                  }
+                }}
+                className="flex items-center gap-1.5 h-8 rounded-xl bg-rose-500/15 border border-rose-500/30 px-3 text-[11.5px] font-bold text-rose-600 dark:text-rose-400 hover:bg-rose-500/25 transition active:scale-95 shrink-0"
+              >
+                <IconTrash size={13} />
+                <span>{ctx.t("حذف جماعي", "Delete")}</span>
+              </button>
+            )}
+
             <button
               type="button"
-              onClick={async () => {
-                const confirmed = await confirmAction({
-                  title: ctx.t("حذف المهام المحددة", "Delete selected tasks"),
-                  message: ctx.t(
-                    `هل أنت متأكد من حذف ${fmtNumber(selectedIds.length, ctx.locale)} مهمة؟ لا يمكن التراجع عن هذا الإجراء.`,
-                    `Are you sure you want to delete ${selectedIds.length} selected task(s)?`,
-                  ),
-                  confirmLabel: ctx.t("حذف", "Delete"),
-                  tone: "danger",
-                });
-                if (confirmed) {
-                  await deleteTasks(selectedIds);
-                  setSelectedIds([]);
-                }
-              }}
-              className="flex items-center gap-1.5 h-8 rounded-xl bg-rose-500/15 border border-rose-500/30 px-3 text-[11.5px] font-bold text-rose-600 dark:text-rose-400 hover:bg-rose-500/25 transition active:scale-95 shrink-0"
+              onClick={() => setSelectedIds([])}
+              className="h-8 w-8 grid place-items-center rounded-xl text-ink-faint hover:text-ink hover:bg-raised transition active:scale-95 shrink-0"
+              title={ctx.t("إلغاء التحديد", "Deselect")}
             >
-              <IconTrash size={13} />
-              <span>{ctx.t("حذف جماعي", "Delete")}</span>
+              <IconX size={14} />
             </button>
-          )}
-
-          <button
-            type="button"
-            onClick={() => setSelectedIds([])}
-            className="h-8 w-8 grid place-items-center rounded-xl text-ink-faint hover:text-ink hover:bg-raised transition active:scale-95 shrink-0"
-            title={ctx.t("إلغاء التحديد", "Deselect")}
-          >
-            <IconX size={14} />
-          </button>
-        </div>
-      )}
+          </div>,
+          document.body,
+        )}
     </Card>
   );
 }
