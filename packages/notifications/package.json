@@ -5,8 +5,9 @@
   "exports": {
     ".": {
       "types": "./src/index.ts",
-      "import": "./src/index.ts",
-      "default": "./src/index.ts"
+      "source": "./src/index.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
     }
   },
   "types": "./src/index.ts",
@@ -14,7 +15,7 @@
     "build": "tsc -p tsconfig.json",
     "lint": "pnpm run typecheck",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "tsx --test src/**/*.test.ts && pnpm run typecheck"
+    "test": "tsx --conditions source --test src/**/*.test.ts && pnpm run typecheck"
   },
   "devDependencies": {
     "@types/node": "22.19.15",

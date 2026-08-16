@@ -5,18 +5,21 @@
   "exports": {
     ".": {
       "types": "./src/index.ts",
-      "import": "./src/index.ts",
-      "default": "./src/index.ts"
+      "source": "./src/index.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
     },
     "./schema": {
       "types": "./src/schema.ts",
-      "import": "./src/schema.ts",
-      "default": "./src/schema.ts"
+      "source": "./src/schema.ts",
+      "import": "./dist/schema.js",
+      "default": "./dist/schema.js"
     },
     "./errors": {
       "types": "./src/errors.ts",
-      "import": "./src/errors.ts",
-      "default": "./src/errors.ts"
+      "source": "./src/errors.ts",
+      "import": "./dist/errors.js",
+      "default": "./dist/errors.js"
     }
   },
   "types": "./src/index.ts",
@@ -24,8 +27,8 @@
     "build": "tsc -p tsconfig.json",
     "lint": "pnpm run typecheck",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "tsx --env-file-if-exists=../../.env --test src/**/*.test.ts && pnpm run typecheck",
-    "test:integration": "tsx --env-file-if-exists=../../.env --test integration/**/*.test.ts"
+    "test": "tsx --conditions source --env-file-if-exists=../../.env --test src/**/*.test.ts && pnpm run typecheck",
+    "test:integration": "tsx --conditions source --env-file-if-exists=../../.env --test integration/**/*.test.ts"
   },
   "dependencies": {
     "@calmboard/notifications": "workspace:*",

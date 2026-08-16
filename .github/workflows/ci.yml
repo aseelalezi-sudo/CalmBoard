@@ -107,7 +107,14 @@ jobs:
           pnpm run start:api > /tmp/calmboard-api-ci.log 2>&1 &
           pnpm run start > /tmp/calmboard-web-ci.log 2>&1 &
       - name: Wait for web and API applications
-        run: pnpm exec wait-on http://127.0.0.1:3000 http://127.0.0.1:4000/health --timeout 60000
+        run: |
+          pnpm exec wait-on http://127.0.0.1:3000 http://127.0.0.1:4000/health --timeout 120000 || {
+            echo "=== API startup log ==="
+            cat /tmp/calmboard-api-ci.log || true
+            echo "=== Web startup log ==="
+            cat /tmp/calmboard-web-ci.log || true
+            exit 1
+          }
       - name: Protected diagnostics smoke check
         run: |
           STATUS=$(curl --silent --output /dev/null --write-out "%{http_code}" \

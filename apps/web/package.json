@@ -8,7 +8,7 @@
     "typegen": "next typegen",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test src/**/*.test.ts && pnpm run typecheck",
+    "test": "tsx --conditions source --test src/**/*.test.ts && pnpm run typecheck",
     "test:e2e": "playwright test"
   },
   "dependencies": {
