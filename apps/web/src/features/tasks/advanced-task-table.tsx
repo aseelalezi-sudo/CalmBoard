@@ -135,9 +135,6 @@ function SubtaskTableRow({ subtask, ctx, columns }: { subtask: Task; ctx: ViewCt
             {col.id === "title" && (
               <div className="flex min-w-0 items-center gap-2 ps-7 flex-1 group/subrow">
                 <span className="text-accent/80 text-[12px] select-none font-bold">↳</span>
-                <span className="mono shrink-0 rounded-md bg-accent/10 px-1.5 py-0.5 text-[9px] font-semibold text-accent">
-                  {subtask.serial}
-                </span>
                 <span
                   className={cn(
                     "truncate font-medium text-ink flex-1 hover:text-accent transition-colors",
@@ -448,9 +445,6 @@ export function AdvancedTaskTable({ ctx }: { ctx: ViewCtx }) {
                 />
               </button>
               <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${priority?.bar}`} />
-              <span className="mono shrink-0 rounded bg-raised px-1 py-0.5 text-[10px] text-ink-faint">
-                {row.original.serial}
-              </span>
               <span className="truncate font-semibold text-ink">{row.original.title}</span>
               {hasSubtasks && (
                 <span

@@ -1107,9 +1107,6 @@ export function LegacyTableView({ ctx }: { ctx: ViewCtx }) {
                 </div>
                 <div className="flex flex-1 items-center gap-2.5 py-3 min-w-0">
                   <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${pr?.bar}`} />
-                  <span className="mono rounded bg-slate-100 dark:bg-white/5 px-1 py-0.5 text-[10px] text-slate-500 dark:text-zinc-400 shrink-0">
-                    {task.serial}
-                  </span>
                   <span className="truncate font-medium text-slate-800 dark:text-zinc-200">{task.title}</span>
                 </div>
                 {!hiddenCols.includes("status") && (
