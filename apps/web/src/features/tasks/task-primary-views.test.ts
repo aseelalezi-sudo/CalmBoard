@@ -6,10 +6,13 @@ const views = readFileSync(new URL("./task-views.tsx", import.meta.url), "utf8")
 const operations = readFileSync(new URL("./use-task-operations.ts", import.meta.url), "utf8");
 
 test("My Work uses only assigned tasks and real calendar sections", () => {
-  assert.match(views, /ctx\.tasks\.filter\(\(task\) => task\.assigneeId === ctx\.currentUser\?\.id\)/);
-  assert.match(views, /const dueToday = open\.filter/);
-  assert.match(views, /const overdue = open\.filter/);
-  assert.match(views, /const completed = mine\.filter/);
+  assert.match(
+    views,
+    /ctx\.tasks\.filter\(\(task\) => !task\.deletedAt && task\.assigneeId === ctx\.currentUser\?\.id\)/,
+  );
+  assert.match(views, /const dueToday = open[\s\S]*?\.filter/);
+  assert.match(views, /const overdue = open[\s\S]*?\.filter/);
+  assert.match(views, /const completed = mine[\s\S]*?\.filter/);
   assert.doesNotMatch(views, /5 أيام متتالية|5 days in a row|Array\.from\(\{ length: 7 \}\)/);
   assert.match(views, /الأرقام مشتقة من المهام المحمّلة والمسندة إليك/);
 });

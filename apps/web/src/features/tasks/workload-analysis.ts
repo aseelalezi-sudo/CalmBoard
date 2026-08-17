@@ -44,7 +44,8 @@ export function addUtcDays(value: Date, days: number) {
 function taskRange(task: Task) {
   const start = task.startDate ? task.startDate.slice(0, 10) : task.dueDate?.slice(0, 10);
   const end = task.dueDate ? task.dueDate.slice(0, 10) : task.startDate?.slice(0, 10);
-  return start && end ? { start, end } : null;
+  if (!start || !end) return null;
+  return start <= end ? { start, end } : { start: end, end: start };
 }
 
 function assignedUserIds(task: Task) {
@@ -71,7 +72,8 @@ export function calculateWeeklyWorkload(input: {
   let unscheduledTaskCount = 0;
 
   for (const task of input.tasks) {
-    if (task.status === "done" || task.status === "canceled") continue;
+    if (task.deletedAt) continue;
+    if (task.status === "done" || task.status === "canceled" || task.status === "cancelled") continue;
     const range = taskRange(task);
     if (!range) {
       unscheduledTaskCount += 1;
@@ -80,7 +82,11 @@ export function calculateWeeklyWorkload(input: {
     if (range.start > weekEnd || range.end < weekStart) continue;
     const assignees = assignedUserIds(task);
     if (!assignees.length) continue;
-    const minutesPerAssignee = Math.max(0, (task.estimatedHours ?? 0) * 60) / assignees.length;
+    const rawEstimated =
+      typeof task.estimatedHours === "number" && Number.isFinite(task.estimatedHours) ? task.estimatedHours : 0;
+    const minutesPerAssignee = Math.max(0, rawEstimated * 60) / assignees.length;
+    if (!Number.isFinite(minutesPerAssignee) || Number.isNaN(minutesPerAssignee)) continue;
+
     for (const userId of assignees) {
       const current = allocatedByUser.get(userId) ?? { taskIds: [], minutes: 0 };
       current.taskIds.push(task.id);
@@ -91,8 +97,16 @@ export function calculateWeeklyWorkload(input: {
 
   const rows = input.users.map((user): WorkloadRow => {
     const capacity = capacityByUser.get(user.id);
-    const configuredCapacityMinutes = capacity?.weeklyMinutes ?? DEFAULT_WEEKLY_CAPACITY_MINUTES;
-    const workdayMask = capacity?.workdayMask ?? DEFAULT_WORKDAY_MASK;
+    const configuredCapacityMinutes = Math.max(
+      0,
+      typeof capacity?.weeklyMinutes === "number" && Number.isFinite(capacity.weeklyMinutes)
+        ? capacity.weeklyMinutes
+        : DEFAULT_WEEKLY_CAPACITY_MINUTES,
+    );
+    const workdayMask =
+      typeof capacity?.workdayMask === "number" && capacity.workdayMask >= 0
+        ? capacity.workdayMask
+        : DEFAULT_WORKDAY_MASK;
     const selectedWorkdays = workdays(workdayMask);
     const dailyCapacity = selectedWorkdays.length ? configuredCapacityMinutes / selectedWorkdays.length : 0;
     const reductions = new Map<string, number>();
@@ -116,11 +130,11 @@ export function calculateWeeklyWorkload(input: {
     const allocation = allocatedByUser.get(user.id) ?? { taskIds: [], minutes: 0 };
     const utilizationPercent =
       effectiveCapacityMinutes > 0
-        ? Math.round((allocation.minutes / effectiveCapacityMinutes) * 100)
+        ? Math.max(0, Math.round((allocation.minutes / effectiveCapacityMinutes) * 100))
         : allocation.minutes > 0
           ? 100
           : 0;
-    const level =
+    const level: WorkloadRow["level"] =
       effectiveCapacityMinutes === 0
         ? "unavailable"
         : allocation.minutes > effectiveCapacityMinutes
@@ -147,7 +161,13 @@ export function calculateWeeklyWorkload(input: {
     weekEnd,
     rows,
     unscheduledTaskCount,
-    totalAllocatedMinutes: rows.reduce((total, row) => total + row.allocatedMinutes, 0),
-    totalEffectiveCapacityMinutes: rows.reduce((total, row) => total + row.effectiveCapacityMinutes, 0),
+    totalAllocatedMinutes: rows.reduce(
+      (total, row) => total + (Number.isFinite(row.allocatedMinutes) ? row.allocatedMinutes : 0),
+      0,
+    ),
+    totalEffectiveCapacityMinutes: rows.reduce(
+      (total, row) => total + (Number.isFinite(row.effectiveCapacityMinutes) ? row.effectiveCapacityMinutes : 0),
+      0,
+    ),
   };
 }

@@ -34,6 +34,7 @@ import { AdvancedWorkload } from "./advanced-workload";
 import {
   IconPlus,
   IconSearch,
+  IconList,
   IconCalendar,
   IconCheck,
   IconPlay,
@@ -1562,6 +1563,13 @@ export function WorkloadView({ ctx }: { ctx: ViewCtx }) {
 }
 
 /* ================= My Work View ================= */
+const PRIORITY_ORDER: Record<string, number> = {
+  urgent: 4,
+  high: 3,
+  medium: 2,
+  low: 1,
+};
+
 export function MyWorkView({ ctx }: { ctx: ViewCtx }) {
   const [pendingTaskId, setPendingTaskId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -1578,21 +1586,54 @@ export function MyWorkView({ ctx }: { ctx: ViewCtx }) {
     );
   }
 
-  const mine = ctx.tasks.filter((task) => task.assigneeId === ctx.currentUser?.id);
-  const open = mine.filter((task) => task.status !== "done");
-  const todayDateStr = new Date().toISOString().slice(0, 10);
-  const dueToday = open.filter((task) => task.dueDate && task.dueDate.slice(0, 10) === todayDateStr);
-  const overdue = open.filter((task) => task.dueDate && task.dueDate.slice(0, 10) < todayDateStr);
-  const completed = mine.filter((task) => task.status === "done");
+  const mine = ctx.tasks.filter((task) => !task.deletedAt && task.assigneeId === ctx.currentUser?.id);
+  const open = mine.filter(
+    (task) => task.status !== "done" && task.status !== "canceled" && task.status !== "cancelled",
+  );
+  const now = new Date();
+  const todayDateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  const dueToday = open
+    .filter((task) => task.dueDate && task.dueDate.slice(0, 10) === todayDateStr)
+    .sort(
+      (a, b) =>
+        (PRIORITY_ORDER[b.priority] ?? 0) - (PRIORITY_ORDER[a.priority] ?? 0) || a.serial.localeCompare(b.serial),
+    );
+  const overdue = open
+    .filter((task) => task.dueDate && task.dueDate.slice(0, 10) < todayDateStr)
+    .sort(
+      (a, b) =>
+        (a.dueDate ?? "").localeCompare(b.dueDate ?? "") ||
+        (PRIORITY_ORDER[b.priority] ?? 0) - (PRIORITY_ORDER[a.priority] ?? 0) ||
+        a.serial.localeCompare(b.serial),
+    );
+  const upcoming = open
+    .filter((task) => task.dueDate && task.dueDate.slice(0, 10) > todayDateStr)
+    .sort(
+      (a, b) =>
+        (a.dueDate ?? "").localeCompare(b.dueDate ?? "") ||
+        (PRIORITY_ORDER[b.priority] ?? 0) - (PRIORITY_ORDER[a.priority] ?? 0) ||
+        a.serial.localeCompare(b.serial),
+    );
+  const noDueDate = open
+    .filter((task) => !task.dueDate)
+    .sort(
+      (a, b) =>
+        (PRIORITY_ORDER[b.priority] ?? 0) - (PRIORITY_ORDER[a.priority] ?? 0) || a.serial.localeCompare(b.serial),
+    );
+  const completed = mine
+    .filter((task) => task.status === "done")
+    .sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? "") || b.serial.localeCompare(a.serial));
 
   const toggleTask = async (task: Task) => {
     if (pendingTaskId) return;
     setPendingTaskId(task.id);
     setActionError(null);
     try {
+      const isDone = task.status === "done";
       const saved = await ctx.updateTask(task.id, {
-        status: task.status === "done" ? "todo" : "done",
-        progress: task.status === "done" ? 0 : 100,
+        expectedVersion: task.version,
+        status: isDone ? "todo" : "done",
+        progress: isDone ? 0 : 100,
       });
       if (saved === false) {
         setActionError(
@@ -1617,11 +1658,25 @@ export function MyWorkView({ ctx }: { ctx: ViewCtx }) {
       list: dueToday,
     },
     {
+      id: "upcoming",
+      icon: <IconCalendar size={14} />,
+      title_ar: "المهام القادمة",
+      title_en: "Upcoming",
+      list: upcoming,
+    },
+    {
       id: "overdue",
       icon: <IconFlag size={14} />,
       title_ar: "متأخرة",
       title_en: "Overdue",
       list: overdue,
+    },
+    {
+      id: "no_due_date",
+      icon: <IconList size={14} />,
+      title_ar: "بدون موعد استحقاق",
+      title_en: "No Due Date",
+      list: noDueDate,
     },
     {
       id: "done",
@@ -1718,9 +1773,21 @@ export function MyWorkView({ ctx }: { ctx: ViewCtx }) {
                 v: fmtNumber(open.length, ctx.locale),
               },
               {
+                k: ctx.t("مهامي اليوم", "Today"),
+                v: fmtNumber(dueToday.length, ctx.locale),
+              },
+              {
+                k: ctx.t("القادمة", "Upcoming"),
+                v: fmtNumber(upcoming.length, ctx.locale),
+              },
+              {
                 k: ctx.t("متأخرة", "Overdue"),
                 v: fmtNumber(overdue.length, ctx.locale),
                 danger: overdue.length > 0,
+              },
+              {
+                k: ctx.t("بدون موعد", "No due date"),
+                v: fmtNumber(noDueDate.length, ctx.locale),
               },
               {
                 k: ctx.t("المنجزة", "Completed"),

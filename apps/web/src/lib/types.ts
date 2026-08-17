@@ -160,6 +160,8 @@ export type Task = {
   reminders?: Array<{ id: string; time: string; label: string; sent?: boolean }>;
   recurrence?: TaskRecurrence;
   version: number;
+  updatedAt?: string;
+  deletedAt?: string | null;
 };
 export type Team = { id: string; name: string; color: string };
 export type Notification = {
@@ -572,7 +574,7 @@ export type ViewCtx = {
   openTaskById?: (task: Pick<Task, "id" | "organizationId" | "workspaceId">) => void;
   setTaskSprintMembership: (taskId: string, sprintId: string | null) => void;
   refreshProjectTasks: () => Promise<void>;
-  updateTask: (id: string, updates: Partial<Task>) => boolean | Promise<boolean>;
+  updateTask: (id: string, updates: Partial<Task> & { expectedVersion?: number }) => boolean | Promise<boolean>;
   deleteTask?: (id: string) => Promise<boolean>;
   moveTask: (
     id: string,

@@ -8,6 +8,8 @@ import {
   memberships,
   organizations,
   pool,
+  TenantConflictError,
+  TenantResourceNotFoundError,
   users,
   workloadCapacities,
   workspaces,
@@ -50,6 +52,66 @@ describe("tenant-scoped workload capacity and time off", () => {
       assert.equal(loaded.capacities.length, 1);
       assert.equal(loaded.timeOff.length, 2);
       assert.deepEqual(loaded.timeOff.map((entry) => entry.kind).sort(), ["public_holiday", "vacation"]);
+
+      // Test zero-minutes capacity
+      const zeroCapacity = await repository.upsertCapacity({ userId, weeklyMinutes: 0, workdayMask: 62 });
+      assert.equal(zeroCapacity.weeklyMinutes, 0);
+
+      // Invariant: Public holiday cannot have a specific userId
+      await assert.rejects(
+        () =>
+          repository.createTimeOff({
+            userId,
+            kind: "public_holiday",
+            startsOn: "2026-07-31",
+            endsOn: "2026-07-31",
+          }),
+        (err: unknown) => err instanceof TenantConflictError,
+      );
+
+      // Invariant: Member time off requires a valid userId
+      await assert.rejects(
+        () =>
+          repository.createTimeOff({
+            userId: null,
+            kind: "sick",
+            startsOn: "2026-07-31",
+            endsOn: "2026-07-31",
+          }),
+        (err: unknown) => err instanceof TenantConflictError,
+      );
+
+      // Invariant: Non-member userId is rejected
+      await assert.rejects(
+        () =>
+          repository.createTimeOff({
+            userId: randomUUID(),
+            kind: "sick",
+            startsOn: "2026-07-31",
+            endsOn: "2026-07-31",
+          }),
+        (err: unknown) => err instanceof TenantResourceNotFoundError,
+      );
+
+      // Delete time-off and verify deletion
+      const timeOffToDelete = loaded.timeOff.find((t) => t.kind === "vacation")!;
+      await repository.deleteTimeOff(timeOffToDelete.id);
+
+      const afterDelete = await repository.list("2026-07-27", "2026-08-02");
+      assert.equal(afterDelete.timeOff.length, 1);
+      assert.equal(afterDelete.timeOff[0]!.kind, "public_holiday");
+
+      // Invariant: Other workspace cannot access or delete
+      const otherWorkspaceId = randomUUID();
+      const otherRepo = createWorkloadRepository({ organizationId, workspaceId: otherWorkspaceId, actorId: userId });
+      const otherLoaded = await otherRepo.list("2026-07-27", "2026-08-02");
+      assert.equal(otherLoaded.capacities.length, 0);
+      assert.equal(otherLoaded.timeOff.length, 0);
+
+      await assert.rejects(
+        () => otherRepo.deleteTimeOff(afterDelete.timeOff[0]!.id),
+        (err: unknown) => err instanceof TenantResourceNotFoundError,
+      );
 
       await assert.rejects(
         () =>

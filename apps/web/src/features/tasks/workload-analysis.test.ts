@@ -104,3 +104,102 @@ test("weekly workload uses persisted capacity, assignments, time off, and real t
   assert.equal(result.rows[1]!.allocatedMinutes, 240);
   assert.equal(result.rows[1]!.effectiveCapacityMinutes, 1920);
 });
+
+test("workload calculation handles zero capacity, overloaded state, overlapping time off, and deleted tasks", () => {
+  const capacities: WorkloadCapacity[] = [
+    {
+      id: "c-zero",
+      organizationId: "o",
+      workspaceId: "w",
+      userId: "a",
+      weeklyMinutes: 0,
+      workdayMask: 62,
+      createdAt: "2026-07-01T00:00:00Z",
+      updatedAt: "2026-07-01T00:00:00Z",
+    },
+    {
+      id: "c-normal",
+      organizationId: "o",
+      workspaceId: "w",
+      userId: "b",
+      weeklyMinutes: 2400,
+      workdayMask: 62,
+      createdAt: "2026-07-01T00:00:00Z",
+      updatedAt: "2026-07-01T00:00:00Z",
+    },
+  ];
+
+  const timeOff: WorkloadTimeOff[] = [
+    {
+      id: "holiday",
+      organizationId: "o",
+      workspaceId: "w",
+      kind: "public_holiday",
+      status: "approved",
+      startsOn: "2026-07-27",
+      endsOn: "2026-07-27",
+      createdAt: "2026-07-01T00:00:00Z",
+      updatedAt: "2026-07-01T00:00:00Z",
+    },
+    {
+      id: "vacation-overlap",
+      organizationId: "o",
+      workspaceId: "w",
+      userId: "b",
+      kind: "vacation",
+      status: "approved",
+      startsOn: "2026-07-27",
+      endsOn: "2026-07-27",
+      createdAt: "2026-07-01T00:00:00Z",
+      updatedAt: "2026-07-01T00:00:00Z",
+    },
+  ];
+
+  const result = calculateWeeklyWorkload({
+    users,
+    capacities,
+    timeOff,
+    weekStart: new Date("2026-07-27T00:00:00Z"),
+    tasks: [
+      task({
+        id: "overload-b",
+        assigneeId: "b",
+        estimatedHours: 50,
+        startDate: "2026-07-28T00:00:00Z",
+        dueDate: "2026-07-27T00:00:00Z", // Inverted dates
+      }),
+      task({
+        id: "deleted-task",
+        assigneeId: "b",
+        estimatedHours: 40,
+        dueDate: "2026-07-29T00:00:00Z",
+        deletedAt: "2026-07-28T00:00:00Z",
+      }),
+      task({
+        id: "cancelled-task",
+        assigneeId: "b",
+        estimatedHours: 30,
+        dueDate: "2026-07-29T00:00:00Z",
+        status: "canceled",
+      }),
+    ],
+  });
+
+  // User A has 0 capacity -> level is unavailable
+  const rowA = result.rows.find((r) => r.user.id === "a");
+  assert.equal(rowA?.configuredCapacityMinutes, 0);
+  assert.equal(rowA?.effectiveCapacityMinutes, 0);
+  assert.equal(rowA?.level, "unavailable");
+  assert.equal(rowA?.utilizationPercent, 0);
+
+  // User B: overlapping public holiday + vacation on 2026-07-27 caps reduction to 1 dailyCapacity (480 mins)
+  const rowB = result.rows.find((r) => r.user.id === "b");
+  assert.equal(rowB?.configuredCapacityMinutes, 2400);
+  assert.equal(rowB?.timeOffMinutes, 480);
+  assert.equal(rowB?.effectiveCapacityMinutes, 1920);
+  assert.equal(rowB?.allocatedMinutes, 3000);
+  assert.equal(rowB?.level, "overloaded");
+  assert.ok(rowB?.utilizationPercent && rowB.utilizationPercent > 100);
+  assert.ok(Number.isFinite(result.totalAllocatedMinutes));
+  assert.ok(Number.isFinite(result.totalEffectiveCapacityMinutes));
+});

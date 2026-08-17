@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { User, ViewCtx, WorkloadSettings, WorkloadTimeOff } from "@/lib/types";
+import type { Task, User, ViewCtx, WorkloadSettings, WorkloadTimeOff } from "@/lib/types";
 import { fmtMinutes, fmtNumber } from "@/lib/types";
 import { Avatar, Badge, Btn, Card, ScreenState, SectionTitle } from "@/components/ui";
 import { promptAction } from "@/components/feedback";
@@ -55,8 +55,14 @@ export function AdvancedWorkload({ ctx }: { ctx: ViewCtx }) {
             workspaceId: ctx.activeProject.workspaceId,
             actorId: ctx.currentUser?.id,
           }
-        : null,
-    [ctx.activeProject, ctx.currentUser?.id],
+        : ctx.activeWorkspace
+          ? {
+              organizationId: ctx.activeWorkspace.organizationId,
+              workspaceId: ctx.activeWorkspace.id,
+              actorId: ctx.currentUser?.id,
+            }
+          : null,
+    [ctx.activeProject, ctx.activeWorkspace, ctx.currentUser?.id],
   );
 
   const loadSettings = useCallback(async () => {
@@ -138,6 +144,10 @@ export function AdvancedWorkload({ ctx }: { ctx: ViewCtx }) {
       defaultValue: startsOn,
     });
     if (!endsOn) return;
+    if (endsOn < startsOn) {
+      ctx.notify(ctx.t("تاريخ النهاية يجب ألا يكون قبل البداية", "End date must not be before start date"), "error");
+      return;
+    }
     const rawKind = user
       ? await promptAction({
           title: ctx.t("نوع الإجازة", "Time-off type"),
@@ -180,18 +190,30 @@ export function AdvancedWorkload({ ctx }: { ctx: ViewCtx }) {
   const rebalance = async (sourceUserId: string) => {
     const source = workload.rows.find((row) => row.user.id === sourceUserId);
     const target = workload.rows
-      .filter((row) => row.user.id !== sourceUserId && row.effectiveCapacityMinutes > row.allocatedMinutes)
+      .filter(
+        (row) =>
+          row.user.id !== sourceUserId &&
+          row.effectiveCapacityMinutes > row.allocatedMinutes &&
+          row.level !== "unavailable",
+      )
       .sort(
         (left, right) =>
           left.allocatedMinutes / left.effectiveCapacityMinutes -
           right.allocatedMinutes / right.effectiveCapacityMinutes,
       )[0];
-    const task = source?.taskIds.map((id) => ctx.tasks.find((candidate) => candidate.id === id)).find(Boolean);
+    const candidateTasks = (source?.taskIds ?? [])
+      .map((id) => ctx.tasks.find((candidate) => candidate.id === id && !candidate.deletedAt))
+      .filter((t): t is Task => Boolean(t && (t.assigneeId === sourceUserId || t.assigneeIds?.includes(sourceUserId))));
+    const task = candidateTasks[0];
     if (!task || !target) {
       ctx.notify(ctx.t("لا يوجد عضو متاح لنقل المهمة إليه", "No available member can receive a task"), "error");
       return;
     }
-    const updated = await ctx.updateTask(task.id, { assigneeId: target.user.id, assigneeIds: [target.user.id] });
+    const updated = await ctx.updateTask(task.id, {
+      expectedVersion: task.version,
+      assigneeId: target.user.id,
+      assigneeIds: [target.user.id],
+    });
     if (updated) {
       ctx.notify(
         ctx.t(
@@ -199,6 +221,7 @@ export function AdvancedWorkload({ ctx }: { ctx: ViewCtx }) {
           `${task.serial} moved to ${target.user.name} using effective capacity`,
         ),
       );
+      await ctx.refreshProjectTasks();
     }
   };
 
