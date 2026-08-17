@@ -241,7 +241,12 @@ function SubtaskTableRow({ subtask, ctx, columns }: { subtask: Task; ctx: ViewCt
                   name={`subtask-assignee-${subtask.id}`}
                   value={subtask.assigneeId || ""}
                   disabled={!ctx.can("tasks.update")}
-                  onChange={(e) => ctx.updateTask(subtask.id, { assigneeId: e.target.value || null })}
+                  onChange={(e) =>
+                    ctx.updateTask(
+                      subtask.id,
+                      e.target.value ? { assigneeId: e.target.value } : { assigneeId: null, assigneeIds: [] },
+                    )
+                  }
                   className="absolute inset-0 cursor-pointer opacity-0"
                   aria-label={ctx.t("تعيين مسؤول", "Assign task")}
                 >
@@ -561,7 +566,12 @@ export function AdvancedTaskTable({ ctx }: { ctx: ViewCtx }) {
                 name={`task-assignee-${row.original.id}`}
                 value={row.original.assigneeId || ""}
                 disabled={!ctx.can("tasks.update")}
-                onChange={(event) => ctx.updateTask(row.original.id, { assigneeId: event.target.value || null })}
+                onChange={(event) =>
+                  ctx.updateTask(
+                    row.original.id,
+                    event.target.value ? { assigneeId: event.target.value } : { assigneeId: null, assigneeIds: [] },
+                  )
+                }
                 className="absolute inset-0 cursor-pointer opacity-0"
                 aria-label={ctx.t("تعيين مسؤول", "Assign task")}
               >
@@ -874,7 +884,9 @@ export function AdvancedTaskTable({ ctx }: { ctx: ViewCtx }) {
   };
 
   const bulkAssigneeChange = (assigneeId: string) => {
-    selectedIds.forEach((id) => ctx.updateTask(id, { assigneeId: assigneeId || null }));
+    selectedIds.forEach((id) =>
+      ctx.updateTask(id, assigneeId ? { assigneeId } : { assigneeId: null, assigneeIds: [] }),
+    );
     setRowSelection({});
   };
 

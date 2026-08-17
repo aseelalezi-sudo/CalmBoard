@@ -1,4 +1,5 @@
 import type { Task, User, WorkloadCapacity, WorkloadTimeOff } from "@/lib/types";
+import { getTaskAssigneeIds, getTaskEffortShare } from "./assignment-domain";
 
 const DAY_MS = 86_400_000;
 export const DEFAULT_WEEKLY_CAPACITY_MINUTES = 40 * 60;
@@ -80,11 +81,10 @@ export function calculateWeeklyWorkload(input: {
       continue;
     }
     if (range.start > weekEnd || range.end < weekStart) continue;
-    const assignees = assignedUserIds(task);
+    const assignees = getTaskAssigneeIds(task);
     if (!assignees.length) continue;
-    const rawEstimated =
-      typeof task.estimatedHours === "number" && Number.isFinite(task.estimatedHours) ? task.estimatedHours : 0;
-    const minutesPerAssignee = Math.max(0, rawEstimated * 60) / assignees.length;
+    const shareHours = getTaskEffortShare(task);
+    const minutesPerAssignee = Math.max(0, shareHours * 60);
     if (!Number.isFinite(minutesPerAssignee) || Number.isNaN(minutesPerAssignee)) continue;
 
     for (const userId of assignees) {

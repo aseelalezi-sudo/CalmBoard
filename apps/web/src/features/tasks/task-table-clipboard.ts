@@ -11,7 +11,7 @@ export const TASK_CLIPBOARD_COLUMNS = [
 ] as const;
 
 export type TaskClipboardUpdate = Pick<Task, "title" | "status" | "priority"> &
-  Partial<Pick<Task, "assigneeId" | "storyPoints" | "estimatedHours" | "dueDate">>;
+  Partial<Pick<Task, "assigneeId" | "assigneeIds" | "storyPoints" | "estimatedHours" | "dueDate">>;
 
 const validStatuses = new Set(["backlog", "todo", "in_progress", "review", "done", "canceled"]);
 const validPriorities = new Set(["low", "medium", "high", "urgent"]);
@@ -98,6 +98,7 @@ export function parseTaskClipboard(text: string, maxRows = 500): TaskClipboardUp
       status: status!,
       priority: priority!,
       assigneeId: assigneeId || null,
+      assigneeIds: assigneeId ? [assigneeId] : [],
       storyPoints: optionalNumber(storyPoints!, "storyPoints", rowNumber),
       estimatedHours: optionalNumber(estimatedHours!, "estimatedHours", rowNumber),
       dueDate: optionalDate(dueDate!, rowNumber),

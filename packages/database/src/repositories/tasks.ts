@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, gte, ilike, inArray, isNull, lte, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, ilike, inArray, isNull, lte, ne, or, sql, type SQL } from "drizzle-orm";
 import { db } from "../client.js";
 import { TenantConflictError, TenantResourceNotFoundError } from "../errors.js";
 import {
@@ -1501,29 +1501,73 @@ export function createTasksRepository(context: DatabaseTenantContext) {
           if (!updated) return undefined;
           if (hasAssigneeId || hasAssigneeIds) {
             const now = new Date();
-            await transaction
-              .update(taskAssignees)
-              .set({ unassignedAt: now })
-              .where(
-                and(
-                  eq(taskAssignees.organizationId, organizationId),
-                  eq(taskAssignees.workspaceId, workspaceId),
-                  eq(taskAssignees.taskId, taskId),
-                  isNull(taskAssignees.unassignedAt),
-                ),
-              );
-            if (finalAssigneeIds.length) {
+            if (primaryBefore && primaryBefore !== finalAssigneeId && finalAssigneeIds.includes(primaryBefore)) {
+              await transaction
+                .update(taskAssignees)
+                .set({ unassignedAt: null, isPrimary: false })
+                .where(
+                  and(
+                    eq(taskAssignees.organizationId, organizationId),
+                    eq(taskAssignees.workspaceId, workspaceId),
+                    eq(taskAssignees.taskId, taskId),
+                    eq(taskAssignees.userId, primaryBefore),
+                  ),
+                );
+            }
+            if (removedAssigneeIds.length > 0) {
+              await transaction
+                .update(taskAssignees)
+                .set({ unassignedAt: now })
+                .where(
+                  and(
+                    eq(taskAssignees.organizationId, organizationId),
+                    eq(taskAssignees.workspaceId, workspaceId),
+                    eq(taskAssignees.taskId, taskId),
+                    isNull(taskAssignees.unassignedAt),
+                    inArray(taskAssignees.userId, removedAssigneeIds),
+                  ),
+                );
+            }
+            const addedNonPrimaryIds = addedAssigneeIds.filter((userId) => userId !== finalAssigneeId);
+            if (addedNonPrimaryIds.length > 0) {
               await transaction.insert(taskAssignees).values(
-                finalAssigneeIds.map((userId) => ({
+                addedNonPrimaryIds.map((userId) => ({
                   organizationId,
                   workspaceId,
                   projectId: before.projectId,
                   taskId,
                   userId,
-                  isPrimary: userId === finalAssigneeId,
+                  isPrimary: false,
                   assignedBy: actorId ?? null,
                 })),
               );
+            }
+            if (finalAssigneeId !== null) {
+              await transaction
+                .update(taskAssignees)
+                .set({
+                  isPrimary: sql`${taskAssignees.userId} = ${finalAssigneeId}`,
+                })
+                .where(
+                  and(
+                    eq(taskAssignees.organizationId, organizationId),
+                    eq(taskAssignees.workspaceId, workspaceId),
+                    eq(taskAssignees.taskId, taskId),
+                    isNull(taskAssignees.unassignedAt),
+                  ),
+                );
+            } else {
+              await transaction
+                .update(taskAssignees)
+                .set({ isPrimary: false })
+                .where(
+                  and(
+                    eq(taskAssignees.organizationId, organizationId),
+                    eq(taskAssignees.workspaceId, workspaceId),
+                    eq(taskAssignees.taskId, taskId),
+                    isNull(taskAssignees.unassignedAt),
+                  ),
+                );
             }
           }
           if (followerIds !== undefined) {
@@ -1769,7 +1813,7 @@ export function createTasksRepository(context: DatabaseTenantContext) {
           body: task.title,
           entityType: "task",
           entityId: task.id,
-          deduplicationKey: `task/${task.id}/assigned/${userId}`,
+          deduplicationKey: `task/${task.id}/assigned/${userId}/v${task.version}`,
         });
       }
     },

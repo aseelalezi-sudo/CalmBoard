@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, describe, it } from "node:test";
-import { eq } from "drizzle-orm";
+import { and, eq, isNotNull, isNull } from "drizzle-orm";
 import {
   automationEvents,
   createNotificationsRepository,
@@ -12,6 +12,7 @@ import {
   organizations,
   pool,
   projects,
+  taskAssignees,
   TenantConflictError,
   TenantResourceNotFoundError,
   users,
@@ -161,7 +162,17 @@ describe("task assignment domain contract", () => {
       const filteredByContributor = await repository.list({ projectId, assigneeId: userC });
       assert.ok(filteredByContributor.some((t) => t.id === multiTask.id));
 
-      // 8. Lead-only update removes previous Lead from execution set and preserves contributors
+      // 8. Capture initial assignee row IDs and timestamps for history preservation test
+      const initialActiveRows = await db
+        .select()
+        .from(taskAssignees)
+        .where(and(eq(taskAssignees.taskId, multiTask.id), isNull(taskAssignees.unassignedAt)));
+      const userCRowBefore = initialActiveRows.find((r) => r.userId === userC);
+      assert.ok(userCRowBefore, "userC must have an initial active assignment row");
+      const userBRowBefore = initialActiveRows.find((r) => r.userId === userB);
+      assert.ok(userBRowBefore?.isPrimary, "userB was the initial Lead");
+
+      // 9. Lead-only update removes previous Lead from execution set and preserves contributors
       // multiTask was Lead: B, Contributors: [A, C] -> update assigneeId to A
       const leadUpdated = await repository.update(multiTask.id, {
         expectedVersion: multiTask.version,
@@ -172,17 +183,46 @@ describe("task assignment domain contract", () => {
       // Previous Lead B is removed, contributor C is preserved -> [userA, userC]
       assert.deepEqual(leadUpdated.task.assigneeIds, [userA, userC]);
 
-      // 9. Contributor-only update preserves current Lead
+      // Verify assignment history preservation for retained contributor C:
+      const activeRowsAfterLeadUpdate = await db
+        .select()
+        .from(taskAssignees)
+        .where(and(eq(taskAssignees.taskId, multiTask.id), isNull(taskAssignees.unassignedAt)));
+      const userCRowAfter = activeRowsAfterLeadUpdate.find((r) => r.userId === userC);
+      assert.ok(userCRowAfter, "userC must still have an active row");
+      assert.equal(userCRowAfter.id, userCRowBefore.id, "userC row ID must be preserved");
+      assert.equal(
+        userCRowAfter.assignedAt.getTime(),
+        userCRowBefore.assignedAt.getTime(),
+        "userC original assignedAt timestamp must be preserved",
+      );
+
+      // Verify previous Lead B was marked unassigned
+      const userBRows = await db
+        .select()
+        .from(taskAssignees)
+        .where(and(eq(taskAssignees.taskId, multiTask.id), eq(taskAssignees.userId, userB)));
+      assert.ok(
+        userBRows.every((r) => r.unassignedAt !== null),
+        "previous Lead B must have unassignedAt set",
+      );
+
+      // Verify exactly one active primary exists
+      const primaries = activeRowsAfterLeadUpdate.filter((r) => r.isPrimary);
+      assert.equal(primaries.length, 1, "exactly one active primary row");
+      assert.equal(primaries[0]?.userId, userA, "new Lead A is the primary");
+
+      // 10. Contributor-only update preserves current Lead
       // leadUpdated has Lead: A, Contributors: [C] -> update assigneeIds to [A, B, C]
       const contribUpdated = await repository.update(multiTask.id, {
         expectedVersion: leadUpdated.task.version,
         assigneeIds: [userC, userA, userB],
       });
-      const contribRemainingSorted = [userB, userC].sort();
       assert.equal(contribUpdated.task.assigneeId, userA); // Lead A preserved!
-      assert.deepEqual(contribUpdated.task.assigneeIds, [userA, ...contribRemainingSorted]);
+      // userC has earlier assignedAt than userB
+      assert.deepEqual(contribUpdated.task.assigneeIds, [userA, userC, userB]);
 
-      // 10. Both supplied on update: assigneeId is authoritative Lead
+      // 11. Both supplied on update: assigneeId is authoritative Lead
       const bothUpdated = await repository.update(multiTask.id, {
         expectedVersion: contribUpdated.task.version,
         assigneeId: userB,
@@ -191,17 +231,17 @@ describe("task assignment domain contract", () => {
       assert.equal(bothUpdated.task.assigneeId, userB);
       assert.deepEqual(bothUpdated.task.assigneeIds, [userB, ...nonLeadSorted]);
 
-      // 11. Remove Lead with remaining contributors (assigneeId=null alone promotes remaining contributor)
+      // 12. Remove Lead with remaining contributors (assigneeId=null alone promotes remaining contributor)
       const leadRemoved = await repository.update(multiTask.id, {
         expectedVersion: bothUpdated.task.version,
         assigneeId: null,
       });
-      // Remaining were nonLeadSorted -> first remaining becomes Lead
+      // First in nonLeadSorted becomes Lead
       const [newLeadExpected, otherExpected] = nonLeadSorted;
       assert.equal(leadRemoved.task.assigneeId, newLeadExpected);
       assert.deepEqual(leadRemoved.task.assigneeIds, [newLeadExpected, otherExpected]);
 
-      // 12. Remove all assignees explicitly with assigneeIds=[]
+      // 13. Remove all assignees explicitly with assigneeIds=[]
       const cleared = await repository.update(multiTask.id, {
         expectedVersion: leadRemoved.task.version,
         assigneeIds: [],
@@ -209,7 +249,14 @@ describe("task assignment domain contract", () => {
       assert.equal(cleared.task.assigneeId, null);
       assert.deepEqual(cleared.task.assigneeIds, []);
 
-      // 13. Stale expectedVersion rejection
+      // Verify zero active rows and zero active primary when assignees are empty
+      const activeRowsCleared = await db
+        .select()
+        .from(taskAssignees)
+        .where(and(eq(taskAssignees.taskId, multiTask.id), isNull(taskAssignees.unassignedAt)));
+      assert.equal(activeRowsCleared.length, 0, "zero active assignment rows after clearing");
+
+      // 14. Stale expectedVersion rejection
       await assert.rejects(
         () =>
           repository.update(multiTask.id, {
@@ -219,17 +266,45 @@ describe("task assignment domain contract", () => {
         (err: unknown) => err instanceof TenantConflictError,
       );
 
-      // 14. Notifications with deduplicationKey for newly added assignees
+      // 15. Notification deduplication & legitimate reassignment with versioning:
+      // Step A: Assign userA on singleAssigneeTask (version 1)
       await repository.createAssignmentNotifications(singleAssigneeTask, [userA, actorId], actorId);
-      const userANotifications = await db.select().from(notifications).where(eq(notifications.userId, userA));
-      assert.equal(userANotifications.length, 1);
-      assert.equal(userANotifications[0]?.deduplicationKey, `task/${singleAssigneeTask.id}/assigned/${userA}`);
+      const notifsV1 = await db.select().from(notifications).where(eq(notifications.userId, userA));
+      assert.equal(notifsV1.length, 1);
+      assert.equal(notifsV1[0]?.deduplicationKey, `task/${singleAssigneeTask.id}/assigned/${userA}/v1`);
 
-      // Actor was excluded
+      // Step B: Same-version notification retry must remain deduplicated
+      await repository.createAssignmentNotifications(singleAssigneeTask, [userA], actorId);
+      const notifsRetry = await db.select().from(notifications).where(eq(notifications.userId, userA));
+      assert.equal(notifsRetry.length, 1, "same-version retry must remain deduplicated");
+
+      // Step C: Remove userA from task -> update increments version to 2
+      const unassignedSingle = await repository.update(singleAssigneeTask.id, {
+        expectedVersion: singleAssigneeTask.version,
+        assigneeIds: [],
+      });
+      assert.equal(unassignedSingle.task.version, 2);
+
+      // Step D: Re-assign userA again -> update increments version to 3
+      const reassignedSingle = await repository.update(singleAssigneeTask.id, {
+        expectedVersion: unassignedSingle.task.version,
+        assigneeId: userA,
+      });
+      assert.equal(reassignedSingle.task.version, 3);
+
+      // Step E: Create assignment notification for re-assigned userA at version 3
+      await repository.createAssignmentNotifications(reassignedSingle.task, [userA], actorId);
+      const notifsAfterReassign = await db.select().from(notifications).where(eq(notifications.userId, userA));
+      assert.equal(notifsAfterReassign.length, 2, "a NEW assignment notification must exist after reassignment");
+      const keys = notifsAfterReassign.map((n) => n.deduplicationKey);
+      assert.ok(keys.includes(`task/${singleAssigneeTask.id}/assigned/${userA}/v1`));
+      assert.ok(keys.includes(`task/${singleAssigneeTask.id}/assigned/${userA}/v3`));
+
+      // Step F: Actor was excluded
       const actorNotifications = await db.select().from(notifications).where(eq(notifications.userId, actorId));
       assert.equal(actorNotifications.length, 0);
 
-      // 15. Automation events queued for task_assignee_changed
+      // 16. Automation events queued for task_assignee_changed
       const events = await db.select().from(automationEvents).where(eq(automationEvents.taskId, multiTask.id));
       assert.ok(events.some((e) => e.trigger === "task_assignee_changed"));
     } finally {

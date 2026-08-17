@@ -34,6 +34,7 @@ test("task table clipboard format", async (t) => {
         status: "in_progress",
         priority: "high",
         assigneeId: "user-1",
+        assigneeIds: ["user-1"],
         storyPoints: 8,
         estimatedHours: 12,
         dueDate: "2026-08-10T00:00:00.000Z",

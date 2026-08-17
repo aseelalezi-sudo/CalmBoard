@@ -31,7 +31,7 @@ import { Badge, Avatar, Bar, Card, Empty, SectionTitle, Btn, Toggle, ScreenState
 import { confirmAction, promptAction } from "@/components/feedback";
 import { useBulkTaskActions } from "@/features/tasks/use-bulk-task-actions";
 import { AdvancedWorkload } from "./advanced-workload";
-import { isTaskAssignedTo } from "./assignment-domain";
+import { isTaskAssignedTo, getTaskEffortShare, rebalanceTaskAssignees } from "./assignment-domain";
 import {
   IconPlus,
   IconSearch,
@@ -826,7 +826,14 @@ export function ListView({ ctx }: { ctx: ViewCtx }) {
                               disabled={!ctx.can("tasks.update")}
                               name={`assignee-${task.id}`}
                               value={task.assigneeId || ""}
-                              onChange={(e) => ctx.updateTask(task.id, { assigneeId: e.target.value || null })}
+                              onChange={(e) =>
+                                ctx.updateTask(
+                                  task.id,
+                                  e.target.value
+                                    ? { assigneeId: e.target.value }
+                                    : { assigneeId: null, assigneeIds: [] },
+                                )
+                              }
                               className="absolute inset-0 cursor-pointer opacity-0"
                               aria-label={ctx.t("تعيين مسؤول", "Assign task")}
                             >
@@ -928,7 +935,9 @@ export function LegacyTableView({ ctx }: { ctx: ViewCtx }) {
   };
 
   const bulkAssignChange = (assigneeId: string) => {
-    selectedIds.forEach((id) => ctx.updateTask(id, { assigneeId: assigneeId || null }));
+    selectedIds.forEach((id) =>
+      ctx.updateTask(id, assigneeId ? { assigneeId } : { assigneeId: null, assigneeIds: [] }),
+    );
     setSelectedIds([]);
   };
 
@@ -1169,7 +1178,12 @@ export function LegacyTableView({ ctx }: { ctx: ViewCtx }) {
                             name="auto-field-clqbiye"
                             value={task.assigneeId || ""}
                             disabled={!ctx.can("tasks.update")}
-                            onChange={(e) => ctx.updateTask(task.id, { assigneeId: e.target.value || null })}
+                            onChange={(e) =>
+                              ctx.updateTask(
+                                task.id,
+                                e.target.value ? { assigneeId: e.target.value } : { assigneeId: null, assigneeIds: [] },
+                              )
+                            }
                             className="absolute inset-0 cursor-pointer opacity-0"
                             aria-label={ctx.t("تعيين مسؤول", "Assign task")}
                           >
@@ -1431,7 +1445,7 @@ export function LegacyWorkloadView({ ctx }: { ctx: ViewCtx }) {
         <div className="stagger space-y-5">
           {ctx.users.map((u) => {
             const userTasks = ctx.tasks.filter((t) => isTaskAssignedTo(t, u.id));
-            const hours = userTasks.reduce((a, t) => a + (t.estimatedHours || 0), 0);
+            const hours = userTasks.reduce((a, t) => a + getTaskEffortShare(t), 0);
             const pct = Math.min(100, Math.round((hours / capacity) * 100));
             const level = pct > 90 ? "over" : pct > 70 ? "full" : "free";
             return (
@@ -1485,17 +1499,23 @@ export function LegacyWorkloadView({ ctx }: { ctx: ViewCtx }) {
                           ctx.users.find((x) => {
                             const xHours = ctx.tasks
                               .filter((t) => isTaskAssignedTo(t, x.id))
-                              .reduce((a, t) => a + (t.estimatedHours || 0), 0);
+                              .reduce((a, t) => a + getTaskEffortShare(t), 0);
                             return x.id !== u.id && xHours <= 25;
                           }) ||
                           ctx.users.find((x) => x.id !== u.id) ||
                           ctx.users[0];
                         const targetTask = userTasks[0];
                         if (targetTask && freeUser) {
-                          ctx.updateTask(targetTask.id, { assigneeId: freeUser.id });
-                          ctx.notify(
-                            `⚖️ ${ctx.t("توازن فوري:", "Quick Rebalance:")} ${ctx.t("نُقلت المهمة", "Moved")} [${targetTask.serial}] ${ctx.t("من", "from")} ${u.name.split(" ")[0]} ${ctx.t("إلى", "to")} ${freeUser.name.split(" ")[0]} ✓`,
-                          );
+                          const rebalanced = rebalanceTaskAssignees(targetTask, u.id, freeUser.id);
+                          if (rebalanced) {
+                            ctx.updateTask(targetTask.id, {
+                              assigneeId: rebalanced.assigneeId,
+                              assigneeIds: rebalanced.assigneeIds,
+                            });
+                            ctx.notify(
+                              `⚖️ ${ctx.t("توازن فوري:", "Quick Rebalance:")} ${ctx.t("نُقلت المهمة", "Moved")} [${targetTask.serial}] ${ctx.t("من", "from")} ${u.name.split(" ")[0]} ${ctx.t("إلى", "to")} ${freeUser.name.split(" ")[0]} ✓`,
+                            );
+                          }
                         }
                       }}
                       title={ctx.t(
@@ -1587,7 +1607,7 @@ export function MyWorkView({ ctx }: { ctx: ViewCtx }) {
     );
   }
 
-  const mine = ctx.tasks.filter((task) => !task.deletedAt && task.assigneeId === ctx.currentUser?.id);
+  const mine = ctx.tasks.filter((task) => !task.deletedAt && isTaskAssignedTo(task, ctx.currentUser?.id));
   const open = mine.filter(
     (task) => task.status !== "done" && task.status !== "canceled" && task.status !== "cancelled",
   );

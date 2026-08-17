@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { getTaskAssigneeIds, isTaskAssignedTo, isTaskContributor, isTaskLead } from "./assignment-domain.js";
+import {
+  getTaskAssigneeIds,
+  getTaskEffortShare,
+  isTaskAssignedTo,
+  isTaskContributor,
+  isTaskLead,
+  rebalanceTaskAssignees,
+} from "./assignment-domain.js";
 import type { Task } from "../../lib/types.js";
 
 describe("task assignment domain helpers (frontend)", () => {
@@ -20,7 +27,7 @@ describe("task assignment domain helpers (frontend)", () => {
     order: 0,
     tags: [],
     customFields: {},
-    estimatedHours: 10,
+    estimatedHours: 12,
     loggedHours: 0,
     progress: 0,
     timezone: "UTC",
@@ -38,10 +45,14 @@ describe("task assignment domain helpers (frontend)", () => {
     assert.deepEqual(getTaskAssigneeIds(sampleTask), ["user-lead", "user-contrib-1", "user-contrib-2"]);
   });
 
-  it("isTaskAssignedTo matches both Lead and Contributor", () => {
+  it("isTaskAssignedTo matches both Lead and Contributor (proving Contributor appears in My Work)", () => {
+    // Lead matches
     assert.equal(isTaskAssignedTo(sampleTask, "user-lead"), true);
+    // Contributors match (proves Contributor appears in My Work)
     assert.equal(isTaskAssignedTo(sampleTask, "user-contrib-1"), true);
     assert.equal(isTaskAssignedTo(sampleTask, "user-contrib-2"), true);
+
+    // Non-assignees do not match
     assert.equal(isTaskAssignedTo(sampleTask, "user-observer"), false); // Followers are not assignees
     assert.equal(isTaskAssignedTo(sampleTask, "unrelated-user"), false);
     assert.equal(isTaskAssignedTo(null, "user-lead"), false);
@@ -60,46 +71,59 @@ describe("task assignment domain helpers (frontend)", () => {
     assert.equal(isTaskContributor(sampleTask, "unrelated"), false);
   });
 
-  it("workload rebalance logic preserves contributors when Lead is rebalanced", () => {
-    const sourceUserId = "user-lead";
-    const targetUserId = "user-target";
-    const currentAssignees = getTaskAssigneeIds(sampleTask);
+  it("getTaskEffortShare calculates 12h / 3 assignees = 4h allocation each", () => {
+    // 12h task with 3 execution assignees -> 4h each
+    const share = getTaskEffortShare(sampleTask);
+    assert.equal(share, 4);
 
-    let newAssigneeId: string | null = sampleTask.assigneeId ?? null;
-    let newAssigneeIds: string[];
+    // Single assignee task -> full allocation
+    const singleAssigneeTask = { ...sampleTask, assigneeIds: ["user-lead"] };
+    assert.equal(getTaskEffortShare(singleAssigneeTask), 12);
 
-    if (sampleTask.assigneeId === sourceUserId) {
-      newAssigneeId = targetUserId;
-      newAssigneeIds = currentAssignees.map((id) => (id === sourceUserId ? targetUserId : id));
-      if (!newAssigneeIds.includes(targetUserId)) {
-        newAssigneeIds.unshift(targetUserId);
-      }
-    } else {
-      newAssigneeIds = currentAssignees.map((id) => (id === sourceUserId ? targetUserId : id));
-    }
-    newAssigneeIds = [...new Set(newAssigneeIds)];
+    // Unassigned task -> 0
+    const unassignedTask = { ...sampleTask, assigneeId: null, assigneeIds: [] };
+    assert.equal(getTaskEffortShare(unassignedTask), 0);
 
-    assert.equal(newAssigneeId, "user-target");
-    assert.deepEqual(newAssigneeIds, ["user-target", "user-contrib-1", "user-contrib-2"]);
+    // Missing or non-positive estimated hours -> 0
+    assert.equal(getTaskEffortShare({ ...sampleTask, estimatedHours: undefined }), 0);
+    assert.equal(getTaskEffortShare({ ...sampleTask, estimatedHours: 0 }), 0);
+    assert.equal(getTaskEffortShare(null), 0);
   });
 
-  it("workload rebalance logic preserves Lead when Contributor is rebalanced", () => {
-    const sourceUserId = "user-contrib-1";
-    const targetUserId = "user-target";
-    const currentAssignees = getTaskAssigneeIds(sampleTask);
+  it("rebalanceTaskAssignees replaces Lead and preserves contributors", () => {
+    const result = rebalanceTaskAssignees(sampleTask, "user-lead", "user-target");
+    assert.ok(result);
+    assert.equal(result.assigneeId, "user-target");
+    assert.deepEqual(result.assigneeIds, ["user-target", "user-contrib-1", "user-contrib-2"]);
+  });
 
-    let newAssigneeId: string | null = sampleTask.assigneeId ?? null;
-    let newAssigneeIds: string[];
+  it("rebalanceTaskAssignees replaces Contributor and preserves Lead", () => {
+    const result = rebalanceTaskAssignees(sampleTask, "user-contrib-1", "user-target");
+    assert.ok(result);
+    assert.equal(result.assigneeId, "user-lead"); // Lead preserved!
+    assert.deepEqual(result.assigneeIds, ["user-lead", "user-target", "user-contrib-2"]);
+  });
 
-    if (sampleTask.assigneeId === sourceUserId) {
-      newAssigneeId = targetUserId;
-      newAssigneeIds = currentAssignees.map((id) => (id === sourceUserId ? targetUserId : id));
-    } else {
-      newAssigneeIds = currentAssignees.map((id) => (id === sourceUserId ? targetUserId : id));
-    }
-    newAssigneeIds = [...new Set(newAssigneeIds)];
+  it("rebalanceTaskAssignees rejects/skips if target is already assigned", () => {
+    // target user-contrib-2 is already a contributor on sampleTask
+    const result = rebalanceTaskAssignees(sampleTask, "user-lead", "user-contrib-2");
+    assert.equal(result, null);
+  });
 
-    assert.equal(newAssigneeId, "user-lead"); // Lead preserved!
-    assert.deepEqual(newAssigneeIds, ["user-lead", "user-target", "user-contrib-2"]);
+  it("rebalanceTaskAssignees rejects/skips if source is not assigned or same as target", () => {
+    const notAssigned = rebalanceTaskAssignees(sampleTask, "unrelated-user", "user-target");
+    assert.equal(notAssigned, null);
+
+    const sameUser = rebalanceTaskAssignees(sampleTask, "user-lead", "user-lead");
+    assert.equal(sameUser, null);
+  });
+
+  it("explicit Unassigned action creates full assignment clearing payload", () => {
+    const unassignedPayload = (value: string | null) =>
+      value ? { assigneeId: value } : { assigneeId: null, assigneeIds: [] };
+
+    assert.deepEqual(unassignedPayload(""), { assigneeId: null, assigneeIds: [] });
+    assert.deepEqual(unassignedPayload(null), { assigneeId: null, assigneeIds: [] });
+    assert.deepEqual(unassignedPayload("user-1"), { assigneeId: "user-1" });
   });
 });

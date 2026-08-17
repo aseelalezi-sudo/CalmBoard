@@ -6,10 +6,10 @@ const views = readFileSync(new URL("./task-views.tsx", import.meta.url), "utf8")
 
 describe("My Work view contracts and hardening", () => {
   it("filters assigned non-deleted tasks and provides 5 distinct lifecycle sections", () => {
-    // Assigned filter
+    // Assigned filter (matching Lead and Contributors)
     assert.match(
       views,
-      /ctx\.tasks\.filter\(\(task\) => !task\.deletedAt && task\.assigneeId === ctx\.currentUser\?\.id\)/,
+      /ctx\.tasks\.filter\(\(task\) => !task\.deletedAt && isTaskAssignedTo\(task, ctx\.currentUser\?\.id\)\)/,
     );
 
     // Active status filter (excluding done, canceled, cancelled)

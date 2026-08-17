@@ -19,7 +19,7 @@ import {
   isoDate,
   startOfIsoWeek,
 } from "./workload-analysis";
-import { getTaskAssigneeIds, isTaskAssignedTo } from "./assignment-domain";
+import { getTaskAssigneeIds, isTaskAssignedTo, rebalanceTaskAssignees } from "./assignment-domain";
 
 const EMPTY_SETTINGS: WorkloadSettings = { capacities: [], timeOff: [] };
 
@@ -219,25 +219,16 @@ export function AdvancedWorkload({ ctx }: { ctx: ViewCtx }) {
     }
 
     const { task, target } = pair;
-    const currentAssigneeList = getTaskAssigneeIds(task);
-    let newAssigneeId: string | null = task.assigneeId ?? null;
-    let newAssigneeIds: string[];
-
-    if (task.assigneeId === sourceUserId) {
-      newAssigneeId = target.user.id;
-      newAssigneeIds = currentAssigneeList.map((id) => (id === sourceUserId ? target.user.id : id));
-      if (!newAssigneeIds.includes(target.user.id)) {
-        newAssigneeIds.unshift(target.user.id);
-      }
-    } else {
-      newAssigneeIds = currentAssigneeList.map((id) => (id === sourceUserId ? target.user.id : id));
+    const rebalanced = rebalanceTaskAssignees(task, sourceUserId, target.user.id);
+    if (!rebalanced) {
+      ctx.notify(ctx.t("تعذر إعادة التوزيع", "Could not rebalance task"), "error");
+      return;
     }
-    newAssigneeIds = [...new Set(newAssigneeIds)];
 
     const updated = await ctx.updateTask(task.id, {
       expectedVersion: task.version,
-      assigneeId: newAssigneeId,
-      assigneeIds: newAssigneeIds,
+      assigneeId: rebalanced.assigneeId,
+      assigneeIds: rebalanced.assigneeIds,
     });
     if (updated) {
       ctx.notify(

@@ -327,7 +327,12 @@ export function TaskDrawer({
                       <select
                         name="auto-field-g5c5r17"
                         value={task.assigneeId || ""}
-                        onChange={(e) => ctx.updateTask(task.id, { assigneeId: e.target.value || null })}
+                        onChange={(e) =>
+                          ctx.updateTask(
+                            task.id,
+                            e.target.value ? { assigneeId: e.target.value } : { assigneeId: null, assigneeIds: [] },
+                          )
+                        }
                         className="flex-1 bg-transparent text-[12.5px] text-ink outline-none [&>option]:bg-surface"
                       >
                         <option value="">{ctx.t("غير معيّن", "Unassigned")}</option>
