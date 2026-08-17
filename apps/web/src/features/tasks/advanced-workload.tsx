@@ -19,6 +19,7 @@ import {
   isoDate,
   startOfIsoWeek,
 } from "./workload-analysis";
+import { getTaskAssigneeIds, isTaskAssignedTo } from "./assignment-domain";
 
 const EMPTY_SETTINGS: WorkloadSettings = { capacities: [], timeOff: [] };
 
@@ -189,30 +190,54 @@ export function AdvancedWorkload({ ctx }: { ctx: ViewCtx }) {
 
   const rebalance = async (sourceUserId: string) => {
     const source = workload.rows.find((row) => row.user.id === sourceUserId);
-    const target = workload.rows
-      .filter(
-        (row) =>
-          row.user.id !== sourceUserId &&
-          row.effectiveCapacityMinutes > row.allocatedMinutes &&
-          row.level !== "unavailable",
-      )
-      .sort(
-        (left, right) =>
-          left.allocatedMinutes / left.effectiveCapacityMinutes -
-          right.allocatedMinutes / right.effectiveCapacityMinutes,
-      )[0];
     const candidateTasks = (source?.taskIds ?? [])
       .map((id) => ctx.tasks.find((candidate) => candidate.id === id && !candidate.deletedAt))
-      .filter((t): t is Task => Boolean(t && (t.assigneeId === sourceUserId || t.assigneeIds?.includes(sourceUserId))));
-    const task = candidateTasks[0];
-    if (!task || !target) {
+      .filter((t): t is Task => Boolean(t && isTaskAssignedTo(t, sourceUserId)));
+
+    const candidatePairs = candidateTasks.flatMap((t) => {
+      const currentAssigneeIds = getTaskAssigneeIds(t);
+      const eligibleTargets = workload.rows
+        .filter(
+          (row) =>
+            row.user.id !== sourceUserId &&
+            !currentAssigneeIds.includes(row.user.id) &&
+            row.effectiveCapacityMinutes > row.allocatedMinutes &&
+            row.level !== "unavailable",
+        )
+        .sort(
+          (left, right) =>
+            left.allocatedMinutes / left.effectiveCapacityMinutes -
+            right.allocatedMinutes / right.effectiveCapacityMinutes,
+        );
+      return eligibleTargets.length > 0 ? [{ task: t, target: eligibleTargets[0]! }] : [];
+    });
+
+    const pair = candidatePairs[0];
+    if (!pair) {
       ctx.notify(ctx.t("لا يوجد عضو متاح لنقل المهمة إليه", "No available member can receive a task"), "error");
       return;
     }
+
+    const { task, target } = pair;
+    const currentAssigneeList = getTaskAssigneeIds(task);
+    let newAssigneeId: string | null = task.assigneeId ?? null;
+    let newAssigneeIds: string[];
+
+    if (task.assigneeId === sourceUserId) {
+      newAssigneeId = target.user.id;
+      newAssigneeIds = currentAssigneeList.map((id) => (id === sourceUserId ? target.user.id : id));
+      if (!newAssigneeIds.includes(target.user.id)) {
+        newAssigneeIds.unshift(target.user.id);
+      }
+    } else {
+      newAssigneeIds = currentAssigneeList.map((id) => (id === sourceUserId ? target.user.id : id));
+    }
+    newAssigneeIds = [...new Set(newAssigneeIds)];
+
     const updated = await ctx.updateTask(task.id, {
       expectedVersion: task.version,
-      assigneeId: target.user.id,
-      assigneeIds: [target.user.id],
+      assigneeId: newAssigneeId,
+      assigneeIds: newAssigneeIds,
     });
     if (updated) {
       ctx.notify(

@@ -14,6 +14,7 @@ import { SortableContext, rectSortingStrategy, sortableKeyboardCoordinates, useS
 import { CSS } from "@dnd-kit/utilities";
 import type { DashboardWidget, DashboardWidgetId, DashboardWidgetWidth, Task, ViewCtx } from "@/lib/types";
 import { PRIORITY_CONFIG, STATUS_CONFIG, STATUS_ORDER, fmtMinutes } from "@/lib/types";
+import { isTaskAssignedTo } from "@/features/tasks/assignment-domain";
 import {
   Avatar,
   Badge,
@@ -596,13 +597,13 @@ function GoalsWidget({ ctx }: { ctx: ViewCtx }) {
 }
 
 function TeamWidget({ ctx, tasks }: { ctx: ViewCtx; tasks: Task[] }) {
-  const max = Math.max(...ctx.users.map((user) => tasks.filter((task) => task.assigneeId === user.id).length), 1);
+  const max = Math.max(...ctx.users.map((user) => tasks.filter((task) => isTaskAssignedTo(task, user.id)).length), 1);
   return (
     <Card className="min-h-[250px] p-5">
       <SectionTitle>{ctx.t("توزيع الفريق", "Team distribution")}</SectionTitle>
       <div className="space-y-4">
         {ctx.users.slice(0, 5).map((user) => {
-          const count = tasks.filter((task) => task.assigneeId === user.id).length;
+          const count = tasks.filter((task) => isTaskAssignedTo(task, user.id)).length;
           return (
             <div key={user.id} className="flex items-center gap-3">
               <Avatar src={user.avatarUrl} name={user.name} size={28} />

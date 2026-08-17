@@ -266,7 +266,7 @@ export function NewTaskModal({
               description: fd.get("description") as string,
               priority: fd.get("priority") as string,
               status: fd.get("status") as string,
-              assigneeId: (fd.get("assignee") as string) || undefined,
+              assigneeId: (fd.get("assignee") as string) || null,
               dueDate: (fd.get("dueDate") as string) || undefined,
             });
             if (!created) {

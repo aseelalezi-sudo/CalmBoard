@@ -97,7 +97,7 @@ export function parseTaskClipboard(text: string, maxRows = 500): TaskClipboardUp
       title: title!,
       status: status!,
       priority: priority!,
-      assigneeId: assigneeId || undefined,
+      assigneeId: assigneeId || null,
       storyPoints: optionalNumber(storyPoints!, "storyPoints", rowNumber),
       estimatedHours: optionalNumber(estimatedHours!, "estimatedHours", rowNumber),
       dueDate: optionalDate(dueDate!, rowNumber),

@@ -86,7 +86,7 @@ export function useTaskOperations(input: TaskOperationsInput) {
       setTaskDetail((previous) => (previous ? ({ ...previous, ...updates } as Task) : null));
     }
     try {
-      await updateTaskRecord({
+      const canonical = await updateTaskRecord({
         id,
         ...updates,
         expectedVersion: targetTask.version,
@@ -94,7 +94,18 @@ export function useTaskOperations(input: TaskOperationsInput) {
         workspaceId: targetTask.workspaceId,
         actorId: currentUser?.id,
       });
-      if (updates.status || updates.assigneeId) {
+      setTasks((previous) => previous.map((task) => (task.id === id ? canonical : task)));
+      if (taskDetail?.id === id) {
+        setTaskDetail(canonical);
+      }
+      setSubtasks((previous) => previous.map((task) => (task.id === id ? canonical : task)));
+
+      if (
+        updates.status !== undefined ||
+        "assigneeId" in updates ||
+        "assigneeIds" in updates ||
+        updates.priority !== undefined
+      ) {
         await refreshTasks();
         if (activeWorkspace && activeOrg) {
           const state = await getAutomationState({
@@ -160,7 +171,9 @@ export function useTaskOperations(input: TaskOperationsInput) {
         parentId: data.parentId ?? null,
         status: data.status || "todo",
         priority: data.priority || "medium",
-        assigneeId: data.assigneeId || currentUser.id,
+        assigneeId: data.assigneeId !== undefined ? data.assigneeId : undefined,
+        assigneeIds: data.assigneeIds,
+        followerIds: data.followerIds,
         reporterId: currentUser.id,
         tags: data.tags || [],
         dueDate: data.dueDate,

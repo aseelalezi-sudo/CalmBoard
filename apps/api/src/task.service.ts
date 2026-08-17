@@ -30,8 +30,17 @@ export function createTaskService(context: DatabaseTenantContext) {
         action: "task.created",
         entityType: "task",
         entityId: task.id,
-        newValues: { title: task.title, status: task.status },
+        newValues: {
+          title: task.title,
+          status: task.status,
+          priority: task.priority,
+          assigneeId: task.assigneeId,
+          assigneeIds: task.assigneeIds,
+        },
       });
+    }
+    if (task.assigneeIds && task.assigneeIds.length > 0) {
+      await tasksRepository.createAssignmentNotifications(task, task.assigneeIds, actorId);
     }
     return task;
   }
@@ -68,12 +77,31 @@ export function createTaskService(context: DatabaseTenantContext) {
           action: "task.updated",
           entityType: "task",
           entityId: task.id,
-          oldValues: { status: before.status, priority: before.priority, assigneeId: before.assigneeId },
-          newValues: { status: task.status, priority: task.priority, assigneeId: task.assigneeId },
+          oldValues: {
+            status: before.status,
+            priority: before.priority,
+            assigneeId: before.assigneeId,
+            assigneeIds: before.assigneeIds,
+          },
+          newValues: {
+            status: task.status,
+            priority: task.priority,
+            assigneeId: task.assigneeId,
+            assigneeIds: task.assigneeIds,
+          },
         });
       }
-      if (before.assigneeId !== task.assigneeId) {
-        await tasksRepository.createAssignmentNotification(task);
+      const beforeAssignees =
+        before.assigneeIds && before.assigneeIds.length > 0
+          ? before.assigneeIds
+          : before.assigneeId
+            ? [before.assigneeId]
+            : [];
+      const afterAssignees =
+        task.assigneeIds && task.assigneeIds.length > 0 ? task.assigneeIds : task.assigneeId ? [task.assigneeId] : [];
+      const addedAssigneeIds = afterAssignees.filter((id) => !beforeAssignees.includes(id));
+      if (addedAssigneeIds.length > 0) {
+        await tasksRepository.createAssignmentNotifications(task, addedAssigneeIds, actorId);
       }
       return task;
     },

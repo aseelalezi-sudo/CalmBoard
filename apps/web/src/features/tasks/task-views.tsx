@@ -31,6 +31,7 @@ import { Badge, Avatar, Bar, Card, Empty, SectionTitle, Btn, Toggle, ScreenState
 import { confirmAction, promptAction } from "@/components/feedback";
 import { useBulkTaskActions } from "@/features/tasks/use-bulk-task-actions";
 import { AdvancedWorkload } from "./advanced-workload";
+import { isTaskAssignedTo } from "./assignment-domain";
 import {
   IconPlus,
   IconSearch,
@@ -825,7 +826,7 @@ export function ListView({ ctx }: { ctx: ViewCtx }) {
                               disabled={!ctx.can("tasks.update")}
                               name={`assignee-${task.id}`}
                               value={task.assigneeId || ""}
-                              onChange={(e) => ctx.updateTask(task.id, { assigneeId: e.target.value || undefined })}
+                              onChange={(e) => ctx.updateTask(task.id, { assigneeId: e.target.value || null })}
                               className="absolute inset-0 cursor-pointer opacity-0"
                               aria-label={ctx.t("تعيين مسؤول", "Assign task")}
                             >
@@ -927,7 +928,7 @@ export function LegacyTableView({ ctx }: { ctx: ViewCtx }) {
   };
 
   const bulkAssignChange = (assigneeId: string) => {
-    selectedIds.forEach((id) => ctx.updateTask(id, { assigneeId: assigneeId || undefined }));
+    selectedIds.forEach((id) => ctx.updateTask(id, { assigneeId: assigneeId || null }));
     setSelectedIds([]);
   };
 
@@ -1168,7 +1169,7 @@ export function LegacyTableView({ ctx }: { ctx: ViewCtx }) {
                             name="auto-field-clqbiye"
                             value={task.assigneeId || ""}
                             disabled={!ctx.can("tasks.update")}
-                            onChange={(e) => ctx.updateTask(task.id, { assigneeId: e.target.value || undefined })}
+                            onChange={(e) => ctx.updateTask(task.id, { assigneeId: e.target.value || null })}
                             className="absolute inset-0 cursor-pointer opacity-0"
                             aria-label={ctx.t("تعيين مسؤول", "Assign task")}
                           >
@@ -1429,7 +1430,7 @@ export function LegacyWorkloadView({ ctx }: { ctx: ViewCtx }) {
         <SectionTitle count={ctx.users.length}>{ctx.t("عبء العمل الأسبوعي", "Weekly Workload")}</SectionTitle>
         <div className="stagger space-y-5">
           {ctx.users.map((u) => {
-            const userTasks = ctx.tasks.filter((t) => t.assigneeId === u.id);
+            const userTasks = ctx.tasks.filter((t) => isTaskAssignedTo(t, u.id));
             const hours = userTasks.reduce((a, t) => a + (t.estimatedHours || 0), 0);
             const pct = Math.min(100, Math.round((hours / capacity) * 100));
             const level = pct > 90 ? "over" : pct > 70 ? "full" : "free";
@@ -1483,7 +1484,7 @@ export function LegacyWorkloadView({ ctx }: { ctx: ViewCtx }) {
                         const freeUser =
                           ctx.users.find((x) => {
                             const xHours = ctx.tasks
-                              .filter((t) => t.assigneeId === x.id)
+                              .filter((t) => isTaskAssignedTo(t, x.id))
                               .reduce((a, t) => a + (t.estimatedHours || 0), 0);
                             return x.id !== u.id && xHours <= 25;
                           }) ||

@@ -6,6 +6,7 @@ import { fmtNumber } from "@/lib/types";
 import { Avatar, Badge, Bar, Btn, Card, ScreenHeader, ScreenState, SectionTitle } from "@/components/ui";
 import { IconMail, IconPlus, IconShield, IconUsers } from "@/components/icons";
 import { confirmAction } from "@/components/feedback";
+import { isTaskAssignedTo } from "@/features/tasks/assignment-domain";
 
 const dateLocale = (locale: string) => (locale === "ar" ? "ar-u-nu-latn" : "en-US");
 
@@ -105,7 +106,7 @@ export function MembersView({ ctx }: { ctx: ViewCtx }) {
       <Card className="overflow-hidden bg-surface" glow>
         <div className="divide-y divide-line">
           {ctx.members.map((m) => {
-            const userTasks = ctx.tasks.filter((t) => t.assigneeId === m.userId);
+            const userTasks = ctx.tasks.filter((t) => isTaskAssignedTo(t, m.userId));
             const hours = userTasks.reduce((a, t) => a + (t.estimatedHours || 0), 0);
             const pct = Math.min(100, Math.round((hours / 40) * 100));
             const skills = m.user?.skills || [];

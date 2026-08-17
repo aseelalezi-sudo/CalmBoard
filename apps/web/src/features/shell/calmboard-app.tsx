@@ -45,6 +45,7 @@ import { CommandPalette } from "@/features/search/command-palette";
 import { TaskDrawer } from "@/features/tasks/task-drawer";
 import { useTaskPagination } from "@/features/tasks/use-task-pagination";
 import { useTaskOperations } from "@/features/tasks/use-task-operations";
+import { isTaskAssignedTo } from "@/features/tasks/assignment-domain";
 import {
   InviteModal,
   NewAutomationModal,
@@ -299,7 +300,7 @@ export function CalmBoardApp() {
     let arr = [...tasks];
     if (taskFilter.status) arr = arr.filter((x) => x.status === taskFilter.status);
     if (taskFilter.priority) arr = arr.filter((x) => x.priority === taskFilter.priority);
-    if (taskFilter.assignee) arr = arr.filter((x) => x.assigneeId === taskFilter.assignee);
+    if (taskFilter.assignee) arr = arr.filter((x) => isTaskAssignedTo(x, taskFilter.assignee));
     if (taskFilter.search) {
       const q = taskFilter.search.toLowerCase();
       arr = arr.filter((x) => x.title.toLowerCase().includes(q) || x.serial.toLowerCase().includes(q));

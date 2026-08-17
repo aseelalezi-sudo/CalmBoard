@@ -126,7 +126,7 @@ export type Task = {
   description?: string;
   status: string;
   priority: string;
-  assigneeId?: string;
+  assigneeId?: string | null;
   assigneeIds?: string[];
   followerIds?: string[];
   assignees?: User[];
