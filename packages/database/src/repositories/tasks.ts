@@ -20,6 +20,7 @@ import {
 import { allocateTaskSerialNumbers, FIRST_TASK_SERIAL_NUMBER, formatTaskSerial } from "../task-serials.js";
 import { assertWorkspaceTenantContext, type DatabaseTenantContext } from "../tenant-context.js";
 import { createNotificationsRepository } from "./notifications.js";
+import { createTaskFollowersRepository } from "./task-followers.js";
 
 export type TaskRecord = typeof tasks.$inferSelect;
 export type TaskStatus = TaskRecord["status"];
@@ -984,19 +985,12 @@ export function createTasksRepository(context: DatabaseTenantContext) {
             )
             .onConflictDoNothing();
         }
-        if (followerIds.length) {
-          await transaction
-            .insert(taskFollowers)
-            .values(
-              followerIds.map((userId) => ({
-                organizationId,
-                workspaceId,
-                projectId: input.projectId,
-                taskId: created.id,
-                userId,
-              })),
-            )
-            .onConflictDoNothing();
+        const initialWatcherIds = [
+          ...new Set([...(input.reporterId ? [input.reporterId] : []), ...finalAssigneeIds, ...followerIds]),
+        ];
+        if (initialWatcherIds.length) {
+          const followersRepo = createTaskFollowersRepository(context, transaction);
+          await followersRepo.ensureWatchers(created.id, initialWatcherIds);
         }
 
         if (reminders.length) {
@@ -1592,30 +1586,12 @@ export function createTasksRepository(context: DatabaseTenantContext) {
                 );
             }
           }
+          const followersRepo = createTaskFollowersRepository(context, transaction);
           if (followerIds !== undefined) {
-            const now = new Date();
-            await transaction
-              .update(taskFollowers)
-              .set({ unfollowedAt: now })
-              .where(
-                and(
-                  eq(taskFollowers.organizationId, organizationId),
-                  eq(taskFollowers.workspaceId, workspaceId),
-                  eq(taskFollowers.taskId, taskId),
-                  isNull(taskFollowers.unfollowedAt),
-                ),
-              );
-            if (followerIds.length) {
-              await transaction.insert(taskFollowers).values(
-                [...new Set(followerIds)].map((userId) => ({
-                  organizationId,
-                  workspaceId,
-                  projectId: before.projectId,
-                  taskId,
-                  userId,
-                })),
-              );
-            }
+            const desiredWatcherIds = [...new Set([...followerIds, ...addedAssigneeIds])];
+            await followersRepo.replaceWatchersDelta(taskId, desiredWatcherIds);
+          } else if (addedAssigneeIds.length > 0) {
+            await followersRepo.ensureWatchers(taskId, addedAssigneeIds);
           }
           if (dependencySerials !== undefined) {
             await transaction

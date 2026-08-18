@@ -1,6 +1,21 @@
-import { BadRequestException, Body, Controller, Delete, Get, Headers, Param, Patch, Post, Query } from "@nestjs/common";
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Headers,
+  Param,
+  Patch,
+  Post,
+  Query,
+  Req,
+  UnauthorizedException,
+} from "@nestjs/common";
 import { createIdempotencyRepository } from "@calmboard/database";
 import { createTaskService } from "./task.service.js";
+import { createTaskWatcherService } from "./task-watcher.service.js";
+import { type AuthenticatedRequest } from "./auth.guard.js";
 import {
   requiredIdempotencyKey,
   requiredString,
@@ -87,6 +102,18 @@ function parseSortDirection(value?: string): "asc" | "desc" | undefined {
   if (value === undefined) return undefined;
   if (value !== "asc" && value !== "desc") throw new BadRequestException("sortDirection is invalid");
   return value;
+}
+
+function watcherTenantContext(
+  request: AuthenticatedRequest,
+  body?: JsonObject,
+  query?: { organizationId?: string; workspaceId?: string },
+) {
+  const userId = request.auth?.userId;
+  if (!userId) throw new UnauthorizedException("Authentication is required");
+  const organizationId = (typeof body?.organizationId === "string" && body.organizationId) || query?.organizationId;
+  const workspaceId = (typeof body?.workspaceId === "string" && body.workspaceId) || query?.workspaceId;
+  return tenantContext(organizationId, workspaceId, userId);
 }
 
 @Controller("tasks")
@@ -232,6 +259,60 @@ export class TasksController {
   @RequirePermission("tasks.update")
   cancelApproval(@Param("approvalRequestId") approvalRequestId: string, @Body() body: JsonObject) {
     return createTaskService(tenantContextFromBody(body)).cancelApproval(approvalRequestId);
+  }
+
+  @Post(":id/watch")
+  @TenantMember()
+  selfWatch(
+    @Param("id") id: string,
+    @Req() request: AuthenticatedRequest,
+    @Body() body: JsonObject = {},
+    @Query("organizationId") organizationId?: string,
+    @Query("workspaceId") workspaceId?: string,
+  ) {
+    const context = watcherTenantContext(request, body, { organizationId, workspaceId });
+    return createTaskWatcherService(context).selfWatch(id, request.auth!.userId);
+  }
+
+  @Delete(":id/watch")
+  @TenantMember()
+  selfUnwatch(
+    @Param("id") id: string,
+    @Req() request: AuthenticatedRequest,
+    @Body() body: JsonObject = {},
+    @Query("organizationId") organizationId?: string,
+    @Query("workspaceId") workspaceId?: string,
+  ) {
+    const context = watcherTenantContext(request, body, { organizationId, workspaceId });
+    return createTaskWatcherService(context).selfUnwatch(id, request.auth!.userId);
+  }
+
+  @Post(":id/watchers/:userId")
+  @RequirePermission("tasks.update")
+  addWatcher(
+    @Param("id") id: string,
+    @Param("userId") targetUserId: string,
+    @Req() request: AuthenticatedRequest,
+    @Body() body: JsonObject = {},
+    @Query("organizationId") organizationId?: string,
+    @Query("workspaceId") workspaceId?: string,
+  ) {
+    const context = watcherTenantContext(request, body, { organizationId, workspaceId });
+    return createTaskWatcherService(context).addWatcher(id, targetUserId, request.auth!.userId);
+  }
+
+  @Delete(":id/watchers/:userId")
+  @RequirePermission("tasks.update")
+  removeWatcher(
+    @Param("id") id: string,
+    @Param("userId") targetUserId: string,
+    @Req() request: AuthenticatedRequest,
+    @Body() body: JsonObject = {},
+    @Query("organizationId") organizationId?: string,
+    @Query("workspaceId") workspaceId?: string,
+  ) {
+    const context = watcherTenantContext(request, body, { organizationId, workspaceId });
+    return createTaskWatcherService(context).removeWatcher(id, targetUserId, request.auth!.userId);
   }
 
   @Delete(":id")

@@ -16,7 +16,7 @@ import AxeBuilder from "@axe-core/playwright";
 test.describe("Accessibility (WCAG 2.1 AA)", () => {
   test("landing / login page has no automatically detectable violations", async ({ page }) => {
     await page.goto("/");
-    await page.waitForLoadState("networkidle");
+    await page.waitForLoadState("domcontentloaded");
 
     const results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze();
 
@@ -28,7 +28,7 @@ test.describe("Accessibility (WCAG 2.1 AA)", () => {
 
   test("public API reference page has no automatically detectable violations", async ({ page }) => {
     await page.goto("/api-reference");
-    await page.waitForLoadState("networkidle");
+    await page.waitForLoadState("domcontentloaded");
 
     const results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze();
 

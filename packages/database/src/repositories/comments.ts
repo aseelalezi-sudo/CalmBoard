@@ -4,6 +4,7 @@ import { TenantPermissionDeniedError, TenantResourceNotFoundError } from "../err
 import { automationEvents, commentMentions, comments, memberships, tasks, users } from "../schema.js";
 import { assertWorkspaceTenantContext, type DatabaseTenantContext } from "../tenant-context.js";
 import { createNotificationsRepository } from "./notifications.js";
+import { dispatchWatcherNotifications } from "./watcher-notifications.js";
 
 type DatabaseTransaction = Parameters<Parameters<(typeof db)["transaction"]>[0]>[0];
 
@@ -39,6 +40,7 @@ export function createCommentsRepository(context: DatabaseTenantContext) {
     const [task] = await db
       .select({
         id: tasks.id,
+        serial: tasks.serial,
         version: tasks.version,
         status: tasks.status,
         priority: tasks.priority,
@@ -285,20 +287,36 @@ export function createCommentsRepository(context: DatabaseTenantContext) {
           },
           transaction,
         );
-        if (parent && parent.userId !== input.userId && !mentionedUserIds.includes(parent.userId)) {
+        const replyRecipientId =
+          parent && parent.userId !== input.userId && !mentionedUserIds.includes(parent.userId) ? parent.userId : null;
+        if (replyRecipientId) {
           await dispatchCollaborationNotification(
             {
-              userId: parent.userId,
+              userId: replyRecipientId,
               type: "comment_reply",
               title: "رد جديد على تعليقك",
               body: input.content.slice(0, 500),
               taskId: input.taskId,
               commentId: comment.id,
-              deduplicationKey: `reply:${comment.id}:${parent.userId}`,
+              deduplicationKey: `reply:${comment.id}:${replyRecipientId}`,
             },
             transaction,
           );
         }
+        await dispatchWatcherNotifications(
+          context,
+          {
+            taskId: input.taskId,
+            actorId: input.userId,
+            excludedUserIds: [...mentionedUserIds, ...(replyRecipientId ? [replyRecipientId] : [])],
+            type: "task_watch_comment",
+            title: `تعليق جديد على المهمة ${task.serial}`,
+            body: input.content.slice(0, 500),
+            deduplicationKeyTemplate: (watcherId) => `task-watch/${input.taskId}/comment/${comment.id}/${watcherId}`,
+            actionPath: `/?taskId=${encodeURIComponent(input.taskId)}&commentId=${encodeURIComponent(comment.id)}`,
+          },
+          transaction,
+        );
         const depth = context.automation ? context.automation.depth + 1 : 0;
         if (depth <= 5) {
           await transaction.insert(automationEvents).values({

@@ -69,7 +69,7 @@ describe("task collaboration and concurrency", () => {
         delayReason: "Waiting for approval",
       });
       assert.deepEqual(task.assigneeIds, [actorId, assigneeId]);
-      assert.deepEqual([...task.followerIds].sort(), [actorId, followerId].sort());
+      assert.deepEqual([...task.followerIds].sort(), [actorId, assigneeId, followerId].sort());
       assert.equal(task.delayReason, "Waiting for approval");
       assert.equal(task.version, 1);
 

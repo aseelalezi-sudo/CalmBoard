@@ -3,6 +3,7 @@ import {
   createNotificationsRepository,
   createTaskWorkflowsRepository,
   createTasksRepository,
+  dispatchWatcherNotifications,
   type CreateTaskApprovalInput,
   type CreateTaskInput,
   type DatabaseTenantContext,
@@ -19,37 +20,11 @@ export function createTaskService(context: DatabaseTenantContext) {
   const tasksRepository = createTasksRepository(context);
   const workflowsRepository = createTaskWorkflowsRepository(context);
 
-  async function createTask(input: CreateTaskInput) {
-    const task = await tasksRepository.create(input);
-    const actorId = context.actorId ?? input.reporterId ?? undefined;
-    if (actorId) {
-      await logActivity({
-        organizationId: task.organizationId,
-        workspaceId: task.workspaceId,
-        actorId,
-        action: "task.created",
-        entityType: "task",
-        entityId: task.id,
-        newValues: {
-          title: task.title,
-          status: task.status,
-          priority: task.priority,
-          assigneeId: task.assigneeId,
-          assigneeIds: task.assigneeIds,
-        },
-      });
-    }
-    if (task.assigneeIds && task.assigneeIds.length > 0) {
-      await tasksRepository.createAssignmentNotifications(task, task.assigneeIds, actorId);
-    }
-    return task;
-  }
-
   return {
-    list(filters: TaskListFilters) {
+    async list(filters: TaskListFilters = {}) {
       return tasksRepository.list(filters);
     },
-    listPage(filters: TaskListFilters & { cursor?: string; limit: number }) {
+    async listPage(filters: Parameters<typeof tasksRepository.listPage>[0]) {
       return tasksRepository.listPage(filters);
     },
     async getDetails(taskId: string) {
@@ -60,8 +35,44 @@ export function createTaskService(context: DatabaseTenantContext) {
       const approvals = await workflowsRepository.listApprovals(taskId);
       return { task, comments, attachments, checklists, approvals };
     },
-    create: createTask,
+    async create(input: CreateTaskInput) {
+      const task = await tasksRepository.create(input);
+      const actorId = context.actorId ?? input.reporterId ?? undefined;
+      if (actorId) {
+        await logActivity({
+          organizationId: task.organizationId,
+          workspaceId: task.workspaceId,
+          actorId,
+          action: "task.created",
+          entityType: "task",
+          entityId: task.id,
+          newValues: {
+            title: task.title,
+            status: task.status,
+            priority: task.priority,
+            assigneeId: task.assigneeId,
+            assigneeIds: task.assigneeIds,
+            projectId: task.projectId,
+          },
+        });
+      }
+      const assigneesToNotify =
+        task.assigneeIds && task.assigneeIds.length > 0 ? task.assigneeIds : task.assigneeId ? [task.assigneeId] : [];
+      if (assigneesToNotify.length > 0) {
+        await tasksRepository.createAssignmentNotifications(task, assigneesToNotify, actorId);
+      }
+      return task;
+    },
     async importTasks(inputs: CreateTaskInput[]) {
+      const createTask = async (input: CreateTaskInput) => {
+        const task = await tasksRepository.create(input);
+        const assigneesToNotify =
+          task.assigneeIds && task.assigneeIds.length > 0 ? task.assigneeIds : task.assigneeId ? [task.assigneeId] : [];
+        if (assigneesToNotify.length > 0) {
+          await tasksRepository.createAssignmentNotifications(task, assigneesToNotify, context.actorId);
+        }
+        return task;
+      };
       const imported = [];
       for (const input of inputs) imported.push(await createTask(input));
       return imported;
@@ -69,6 +80,11 @@ export function createTaskService(context: DatabaseTenantContext) {
     async update(taskId: string, input: UpdateTaskInput) {
       const { before, task } = await tasksRepository.update(taskId, input);
       const actorId = context.actorId;
+      const followersChanged =
+        input.followerIds !== undefined &&
+        JSON.stringify(before.followerIds ? [...before.followerIds].sort() : []) !==
+          JSON.stringify(task.followerIds ? [...task.followerIds].sort() : []);
+
       if (actorId) {
         await logActivity({
           organizationId: task.organizationId,
@@ -82,12 +98,14 @@ export function createTaskService(context: DatabaseTenantContext) {
             priority: before.priority,
             assigneeId: before.assigneeId,
             assigneeIds: before.assigneeIds,
+            ...(followersChanged ? { followerIds: before.followerIds } : {}),
           },
           newValues: {
             status: task.status,
             priority: task.priority,
             assigneeId: task.assigneeId,
             assigneeIds: task.assigneeIds,
+            ...(followersChanged ? { followerIds: task.followerIds } : {}),
           },
         });
       }
@@ -103,6 +121,45 @@ export function createTaskService(context: DatabaseTenantContext) {
       if (addedAssigneeIds.length > 0) {
         await tasksRepository.createAssignmentNotifications(task, addedAssigneeIds, actorId);
       }
+
+      const statusChanged = task.status !== before.status;
+      const priorityChanged = task.priority !== before.priority;
+      const scheduleChanged =
+        (task.startDate ?? null) !== (before.startDate ?? null) || (task.dueDate ?? null) !== (before.dueDate ?? null);
+      const assigneesChanged =
+        beforeAssignees.length !== afterAssignees.length ||
+        beforeAssignees.some((id) => !afterAssignees.includes(id)) ||
+        afterAssignees.some((id) => !beforeAssignees.includes(id));
+
+      if (statusChanged || priorityChanged || scheduleChanged || assigneesChanged) {
+        let event = "task_updated";
+        let body = `تم تحديث المهمة ${task.serial}`;
+        if (statusChanged) {
+          event = "status_changed";
+          body = `تم تغيير حالة المهمة إلى ${task.status}`;
+        } else if (priorityChanged) {
+          event = "priority_changed";
+          body = `تم تغيير أولوية المهمة إلى ${task.priority}`;
+        } else if (scheduleChanged) {
+          event = "schedule_changed";
+          body = `تم تحديث الموعد للمهمة ${task.serial}`;
+        } else if (assigneesChanged) {
+          event = "assignees_changed";
+          body = `تم تحديث المكلفين بالمهمة ${task.serial}`;
+        }
+
+        await dispatchWatcherNotifications(context, {
+          taskId: task.id,
+          actorId,
+          excludedUserIds: addedAssigneeIds,
+          type: "task_watch_update",
+          title: `تحديث في المهمة ${task.serial}`,
+          body,
+          deduplicationKeyTemplate: (watcherId) => `task-watch/${task.id}/${event}/v${task.version}/${watcherId}`,
+          actionPath: `/?taskId=${encodeURIComponent(task.id)}`,
+        });
+      }
+
       return task;
     },
     async move(taskId: string, input: MoveTaskInput) {
@@ -117,6 +174,17 @@ export function createTaskService(context: DatabaseTenantContext) {
           entityId: task.id,
           oldValues: { status: before.status, order: before.order },
           newValues: { status: task.status, order: task.order },
+        });
+      }
+      if (task.status !== before.status) {
+        await dispatchWatcherNotifications(context, {
+          taskId: task.id,
+          actorId: context.actorId,
+          type: "task_watch_update",
+          title: `تحديث في المهمة ${task.serial}`,
+          body: `تم تغيير حالة المهمة إلى ${task.status}`,
+          deduplicationKeyTemplate: (watcherId) => `task-watch/${task.id}/status_changed/v${task.version}/${watcherId}`,
+          actionPath: `/?taskId=${encodeURIComponent(task.id)}`,
         });
       }
       return task;
