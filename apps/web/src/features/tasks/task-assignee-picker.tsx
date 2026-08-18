@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import type { Member, Task, User } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -47,9 +47,14 @@ export function TaskAssigneePicker({
   t = (ar, en) => en,
   locale = "en",
 }: TaskAssigneePickerProps) {
+  const uniqueId = useId();
+  const listId = `assignee-candidates-list-${uniqueId.replace(/:/g, "")}`;
+  const searchInputId = `assignee-search-input-${uniqueId.replace(/:/g, "")}`;
+
   const containerRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
-  const listRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLUListElement>(null);
+  const candidateButtonRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const triggerElementRef = useRef<HTMLElement | null>(null);
 
   // Controlled/local assignment draft
@@ -75,7 +80,6 @@ export function TaskAssigneePicker({
   }, [task, taskLeadId, taskAssigneeIds]);
 
   const [searchQuery, setSearchQuery] = useState("");
-  const [focusedIndex, setFocusedIndex] = useState(-1);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Get active candidate users strictly scoped to active workspace members
@@ -178,6 +182,24 @@ export function TaskAssigneePicker({
     };
   }, [handleCloseWithFocusRestore]);
 
+  // If filtering removes the currently focused candidate, move focus safely
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const activeEl = document.activeElement;
+    if (listRef.current && activeEl && listRef.current.contains(activeEl)) {
+      const isStillValid = candidateButtonRefs.current.some(
+        (btn) => btn && (btn === activeEl || btn.parentElement?.contains(activeEl)),
+      );
+      if (!isStillValid) {
+        if (candidateButtonRefs.current[0]) {
+          candidateButtonRefs.current[0]?.focus();
+        } else {
+          searchInputRef.current?.focus();
+        }
+      }
+    }
+  }, [filteredCandidates]);
+
   // Popover positioning calculation
   const popoverStyle = useMemo(() => {
     if (position === "modal" || !anchorRect || typeof window === "undefined") {
@@ -215,44 +237,62 @@ export function TaskAssigneePicker({
     };
   }, [anchorRect, position, locale]);
 
-  const handleListKeyDown = (e: KeyboardEvent<HTMLInputElement | HTMLDivElement>) => {
-    if (filteredCandidates.length === 0) return;
+  // Search input keyboard handling
+  const handleSearchKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "ArrowDown") {
+      if (filteredCandidates.length > 0) {
+        e.preventDefault();
+        candidateButtonRefs.current[0]?.focus();
+        candidateButtonRefs.current[0]?.scrollIntoView({ block: "nearest" });
+      }
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      handleCloseWithFocusRestore();
+    }
+  };
 
+  // Candidate primary toggle button keyboard handling
+  const handleCandidateKeyDown = (e: KeyboardEvent<HTMLButtonElement>, idx: number) => {
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      const nextIndex = focusedIndex < filteredCandidates.length - 1 ? focusedIndex + 1 : 0;
-      setFocusedIndex(nextIndex);
-      const targetUser = filteredCandidates[nextIndex];
-      if (targetUser) {
-        listRef.current?.querySelector(`#member-item-${targetUser.id}`)?.scrollIntoView({ block: "nearest" });
-      }
+      const nextIdx = idx < filteredCandidates.length - 1 ? idx + 1 : 0;
+      candidateButtonRefs.current[nextIdx]?.focus();
+      candidateButtonRefs.current[nextIdx]?.scrollIntoView({ block: "nearest" });
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
-      const nextIndex = focusedIndex > 0 ? focusedIndex - 1 : filteredCandidates.length - 1;
-      setFocusedIndex(nextIndex);
-      const targetUser = filteredCandidates[nextIndex];
-      if (targetUser) {
-        listRef.current?.querySelector(`#member-item-${targetUser.id}`)?.scrollIntoView({ block: "nearest" });
+      if (idx === 0) {
+        searchInputRef.current?.focus();
+      } else {
+        const prevIdx = idx - 1;
+        candidateButtonRefs.current[prevIdx]?.focus();
+        candidateButtonRefs.current[prevIdx]?.scrollIntoView({ block: "nearest" });
       }
-    } else if (e.key === "Enter" && focusedIndex >= 0 && focusedIndex < filteredCandidates.length) {
+    } else if (e.key === "Escape") {
       e.preventDefault();
-      const targetUser = filteredCandidates[focusedIndex];
-      if (canEdit && !isSubmitting) {
-        const isAssigned = draftAssigneeIds.includes(targetUser.id);
-        if (isAssigned) {
-          void applyMutation(buildRemoveAssigneeMutation(draftTaskObj, targetUser.id));
-        } else {
-          void applyMutation(buildAddAssigneeMutation(draftTaskObj, targetUser.id));
-        }
-      }
+      e.stopPropagation();
+      handleCloseWithFocusRestore();
+    }
+  };
+
+  // Candidate Make Lead button keyboard handling
+  const handleMakeLeadKeyDown = (e: KeyboardEvent<HTMLButtonElement>, idx: number) => {
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      const nextIdx = idx < filteredCandidates.length - 1 ? idx + 1 : 0;
+      candidateButtonRefs.current[nextIdx]?.focus();
+      candidateButtonRefs.current[nextIdx]?.scrollIntoView({ block: "nearest" });
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      candidateButtonRefs.current[idx]?.focus();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      handleCloseWithFocusRestore();
     }
   };
 
   const isRtl = locale === "ar";
-  const activeDescendantId =
-    focusedIndex >= 0 && filteredCandidates[focusedIndex]
-      ? `member-item-${filteredCandidates[focusedIndex].id}`
-      : undefined;
 
   const pickerContent = (
     <div
@@ -296,70 +336,62 @@ export function TaskAssigneePicker({
         </div>
       )}
 
-      {/* Search Input with ARIA Combobox / Activedescendant attributes */}
+      {/* Search Input */}
       <div className="p-3 border-b border-line/60">
         <div className="relative flex items-center">
           <IconSearch size={13} className="absolute start-2.5 text-ink-faint pointer-events-none" />
           <input
+            id={searchInputId}
             ref={searchInputRef}
-            type="text"
-            role="combobox"
-            aria-expanded="true"
-            aria-autocomplete="list"
-            aria-controls="assignee-candidates-list"
-            aria-activedescendant={activeDescendantId}
+            type="search"
+            aria-controls={listId}
+            aria-label={t("البحث في الأعضاء", "Search members")}
             value={searchQuery}
-            onChange={(e) => {
-              setSearchQuery(e.target.value);
-              setFocusedIndex(0);
-            }}
-            onKeyDown={handleListKeyDown}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onKeyDown={handleSearchKeyDown}
             placeholder={t("البحث بالاسم أو البريد…", "Search members…")}
             className="h-8 w-full rounded-xl border border-line bg-raised/50 ps-8 pe-3 text-[12px] text-ink placeholder:text-ink-faint focus:border-accent focus:bg-surface focus:outline-none transition"
           />
         </div>
       </div>
 
-      {/* Member Listbox */}
-      <div
-        id="assignee-candidates-list"
+      {/* Member Semantic List */}
+      <ul
+        id={listId}
         ref={listRef}
-        role="listbox"
+        role="list"
         aria-label={t("قائمة المرشحين", "Candidate assignees")}
-        tabIndex={0}
-        onKeyDown={handleListKeyDown}
-        className="flex-1 overflow-y-auto p-2 space-y-1 focus:outline-none min-h-[160px] max-h-[240px]"
+        className="flex-1 overflow-y-auto p-2 space-y-1 min-h-[160px] max-h-[240px] list-none focus:outline-none"
       >
         {filteredCandidates.length === 0 ? (
-          <div className="py-6 text-center text-[12px] text-ink-faint">
+          <li className="py-6 text-center text-[12px] text-ink-faint list-none">
             {t("لم يتم العثور على أعضاء مطابقين", "No members found")}
-          </div>
+          </li>
         ) : (
           filteredCandidates.map((user, idx) => {
             const isAssigned = draftAssigneeIds.includes(user.id);
             const isLead = draftLeadId === user.id || (!draftLeadId && draftAssigneeIds[0] === user.id);
             const isContributor = isAssigned && !isLead;
-            const isFocused = focusedIndex === idx;
 
             const memberLabel = `${user.name}${
               isLead ? ` (${t("مسؤول رئيسي", "Lead")})` : isContributor ? ` (${t("مشارك", "Contributor")})` : ""
-            }`;
+            } - ${isAssigned ? t("معين", "Assigned") : t("غير معين", "Unassigned")}`;
 
             return (
-              <div
+              <li
                 key={user.id}
-                id={`member-item-${user.id}`}
-                role="option"
-                aria-selected={isAssigned}
+                role="listitem"
                 className={cn(
                   "group flex items-center justify-between gap-2 rounded-xl px-2.5 py-1.5 transition-colors text-start",
-                  isFocused ? "bg-raised" : "hover:bg-raised/70",
                   isAssigned && "bg-accent/5 dark:bg-accent/10",
                 )}
               >
                 {/* Main Member Toggle Button */}
                 <button
                   type="button"
+                  ref={(el) => {
+                    candidateButtonRefs.current[idx] = el;
+                  }}
                   disabled={!canEdit || isSubmitting}
                   aria-pressed={isAssigned}
                   aria-label={memberLabel}
@@ -370,13 +402,14 @@ export function TaskAssigneePicker({
                       void applyMutation(buildAddAssigneeMutation(draftTaskObj, user.id));
                     }
                   }}
-                  className="flex flex-1 min-w-0 items-center gap-2.5 focus:outline-none"
+                  onKeyDown={(e) => handleCandidateKeyDown(e, idx)}
+                  className="flex flex-1 min-w-0 items-center gap-2.5 rounded-lg p-1 text-start focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                 >
                   <div className="relative shrink-0">
                     <Avatar src={user.avatarUrl} name={user.name} size={24} />
                     {isLead && (
                       <span
-                        aria-label={t("مسؤول رئيسي", "Lead")}
+                        aria-hidden="true"
                         title={t("مسؤول رئيسي", "Lead")}
                         className="absolute -bottom-0.5 -end-0.5 grid h-3.5 w-3.5 place-items-center rounded-full bg-amber-500 text-white text-[8px] font-black ring-1 ring-surface shadow-xs pointer-events-none"
                       >
@@ -390,7 +423,7 @@ export function TaskAssigneePicker({
                       <span className="truncate text-[12px] font-semibold text-ink">{user.name}</span>
                       {isLead && (
                         <span className="inline-flex items-center gap-0.5 rounded-md bg-amber-500/10 border border-amber-500/30 px-1 py-0.2 text-[9px] font-bold text-amber-700 dark:text-amber-300 shrink-0">
-                          ★ {t("رئيسي", "Lead")}
+                          <span aria-hidden="true">★</span> <span>{t("رئيسي", "Lead")}</span>
                         </span>
                       )}
                       {isContributor && (
@@ -426,16 +459,18 @@ export function TaskAssigneePicker({
                       e.stopPropagation();
                       void applyMutation(buildSetLeadMutation(draftTaskObj, user.id));
                     }}
-                    className="shrink-0 rounded-lg p-1 text-ink-faint hover:text-amber-600 dark:hover:text-amber-400 hover:bg-amber-500/10 transition"
+                    onKeyDown={(e) => handleMakeLeadKeyDown(e, idx)}
+                    className="shrink-0 rounded-lg p-1 text-ink-faint hover:text-amber-600 dark:hover:text-amber-400 hover:bg-amber-500/10 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                   >
-                    <IconStar size={13} />
+                    <IconStar size={13} aria-hidden="true" />
+                    <span className="sr-only">{t("تعيين كمسؤول رئيسي", "Make Lead")}</span>
                   </button>
                 )}
-              </div>
+              </li>
             );
           })
         )}
-      </div>
+      </ul>
 
       {/* Footer / Actions */}
       <div className="flex items-center justify-between border-t border-line p-2.5 bg-raised/30">

@@ -7,11 +7,13 @@ import {
   buildRemoveAssigneeMutation,
   buildSetLeadMutation,
   getTaskAssigneeIds,
+  getTaskAssignmentRole,
   getTaskEffortShare,
   getWorkspaceCandidateUsers,
   isAssignmentMutationNoop,
   isTaskAssignedTo,
   isTaskContributor,
+  isTaskIncludedInMyWork,
   isTaskLead,
   rebalanceTaskAssignees,
   resolveTaskPeople,
@@ -77,6 +79,38 @@ describe("task assignment domain helpers (frontend)", () => {
     assert.equal(isTaskContributor(sampleTask, "user-contrib-1"), true);
     assert.equal(isTaskContributor(sampleTask, "user-contrib-2"), true);
     assert.equal(isTaskContributor(sampleTask, "unrelated"), false);
+  });
+
+  it("getTaskAssignmentRole resolves lead, contributor, or null accurately", () => {
+    assert.equal(getTaskAssignmentRole(sampleTask, "user-lead"), "lead");
+    assert.equal(getTaskAssignmentRole(sampleTask, "user-contrib-1"), "contributor");
+    assert.equal(getTaskAssignmentRole(sampleTask, "user-contrib-2"), "contributor");
+    assert.equal(getTaskAssignmentRole(sampleTask, "user-observer"), null);
+    assert.equal(getTaskAssignmentRole(sampleTask, "unrelated"), null);
+    assert.equal(getTaskAssignmentRole(null, "user-lead"), null);
+    assert.equal(getTaskAssignmentRole(sampleTask, null), null);
+    assert.equal(getTaskAssignmentRole(sampleTask, undefined), null);
+  });
+
+  it("isTaskIncludedInMyWork respects assignment and soft-deletion contracts", () => {
+    // Active Lead and Contributors are included
+    assert.equal(isTaskIncludedInMyWork(sampleTask, "user-lead"), true);
+    assert.equal(isTaskIncludedInMyWork(sampleTask, "user-contrib-1"), true);
+    assert.equal(isTaskIncludedInMyWork(sampleTask, "user-contrib-2"), true);
+
+    // Followers and unrelated users are excluded
+    assert.equal(isTaskIncludedInMyWork(sampleTask, "user-observer"), false);
+    assert.equal(isTaskIncludedInMyWork(sampleTask, "unrelated"), false);
+
+    // Soft-deleted task is excluded for everyone
+    const deletedTask = { ...sampleTask, deletedAt: "2026-08-18T12:00:00.000Z" };
+    assert.equal(isTaskIncludedInMyWork(deletedTask, "user-lead"), false);
+    assert.equal(isTaskIncludedInMyWork(deletedTask, "user-contrib-1"), false);
+
+    // Null/undefined checks
+    assert.equal(isTaskIncludedInMyWork(null, "user-lead"), false);
+    assert.equal(isTaskIncludedInMyWork(sampleTask, null), false);
+    assert.equal(isTaskIncludedInMyWork(sampleTask, undefined), false);
   });
 
   it("getTaskEffortShare calculates 12h / 3 assignees = 4h allocation each", () => {

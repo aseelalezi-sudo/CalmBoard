@@ -36,6 +36,8 @@ import {
   isTaskAssignedTo,
   isTaskLead,
   isTaskContributor,
+  getTaskAssignmentRole,
+  isTaskIncludedInMyWork,
   getTaskEffortShare,
   rebalanceTaskAssignees,
   buildSetLeadMutation,
@@ -1829,7 +1831,7 @@ export function MyWorkView({ ctx }: { ctx: ViewCtx }) {
     );
   }
 
-  const mine = ctx.tasks.filter((task) => !task.deletedAt && isTaskAssignedTo(task, ctx.currentUser?.id));
+  const mine = ctx.tasks.filter((task) => isTaskIncludedInMyWork(task, ctx.currentUser?.id));
   const open = mine.filter(
     (task) => task.status !== "done" && task.status !== "canceled" && task.status !== "cancelled",
   );
@@ -1955,6 +1957,7 @@ export function MyWorkView({ ctx }: { ctx: ViewCtx }) {
             <div className="divide-y divide-line">
               {s.list.map((task) => {
                 const pr = PRIORITY_CONFIG[task.priority];
+                const assignmentRole = getTaskAssignmentRole(task, ctx.currentUser?.id);
                 return (
                   <div
                     key={task.id}
@@ -1988,11 +1991,11 @@ export function MyWorkView({ ctx }: { ctx: ViewCtx }) {
                       <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[11px] text-ink-faint">
                         <span className="mono">{task.serial}</span>
                         {task.dueDate && <span>• {fmtDate(task.dueDate, ctx.locale)}</span>}
-                        {isTaskLead(task, ctx.currentUser?.id) ? (
+                        {assignmentRole === "lead" ? (
                           <span className="inline-flex items-center gap-0.5 rounded bg-amber-500/10 border border-amber-500/30 px-1.5 py-0.2 text-[9.5px] font-bold text-amber-700 dark:text-amber-300">
-                            ★ {ctx.t("رئيسي", "Lead")}
+                            <span aria-hidden="true">★</span> <span>{ctx.t("رئيسي", "Lead")}</span>
                           </span>
-                        ) : isTaskContributor(task, ctx.currentUser?.id) ? (
+                        ) : assignmentRole === "contributor" ? (
                           <span className="inline-flex items-center rounded bg-slate-500/10 border border-slate-500/20 px-1.5 py-0.2 text-[9.5px] font-medium text-ink-soft">
                             {ctx.t("مشارك", "Contributor")}
                           </span>

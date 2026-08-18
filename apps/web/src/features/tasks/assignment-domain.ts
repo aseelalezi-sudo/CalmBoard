@@ -40,6 +40,34 @@ export function isTaskContributor(task: Partial<Task> | null | undefined, userId
   return task.assigneeId !== userId && (task.assigneeIds?.includes(userId) ?? false);
 }
 
+export type TaskAssignmentRole = "lead" | "contributor" | null;
+
+/**
+ * Returns the assignment role for a given user on a task ("lead", "contributor", or null).
+ */
+export function getTaskAssignmentRole(
+  task: Partial<Task> | null | undefined,
+  userId: string | null | undefined,
+): TaskAssignmentRole {
+  if (!task || !userId) return null;
+  if (isTaskLead(task, userId)) return "lead";
+  if (isTaskContributor(task, userId)) return "contributor";
+  return null;
+}
+
+/**
+ * Determines whether a task should be included in the given user's "My Work" view.
+ * A task is included if it is not soft-deleted and the user is assigned as Lead or Contributor.
+ */
+export function isTaskIncludedInMyWork(
+  task: Partial<Task> | null | undefined,
+  userId: string | null | undefined,
+): boolean {
+  if (!task || !userId) return false;
+  if (task.deletedAt) return false;
+  return isTaskAssignedTo(task, userId);
+}
+
 /**
  * Calculates the allocated effort share (in hours) for each execution assignee of a task.
  * For a task with estimatedHours = 12 and 3 assignees, returns 4.

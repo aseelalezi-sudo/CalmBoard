@@ -6,10 +6,7 @@ const views = readFileSync(new URL("./task-views.tsx", import.meta.url), "utf8")
 const operations = readFileSync(new URL("./use-task-operations.ts", import.meta.url), "utf8");
 
 test("My Work uses only assigned tasks and real calendar sections", () => {
-  assert.match(
-    views,
-    /ctx\.tasks\.filter\(\(task\) => !task\.deletedAt && isTaskAssignedTo\(task, ctx\.currentUser\?\.id\)\)/,
-  );
+  assert.match(views, /ctx\.tasks\.filter\(\(task\) => isTaskIncludedInMyWork\(task, ctx\.currentUser\?\.id\)\)/);
   assert.match(views, /const dueToday = open[\s\S]*?\.filter/);
   assert.match(views, /const overdue = open[\s\S]*?\.filter/);
   assert.match(views, /const completed = mine[\s\S]*?\.filter/);

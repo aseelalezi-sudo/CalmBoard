@@ -217,32 +217,38 @@ test.describe("CalmBoard core acceptance", () => {
     await expect(page.getByText("People & Assignment", { exact: true })).toBeVisible();
 
     const drawerPanel = page.locator(".fixed.inset-0.z-50");
-    await expect(drawerPanel.getByText(member1Name).first()).toBeVisible();
-    await expect(drawerPanel.getByText(member2Name).first()).toBeVisible();
+    const leadGroup = drawerPanel.getByRole("group", { name: /Lead Assignee|المسؤول الرئيسي/i });
+    const contributorsGroup = drawerPanel.getByRole("group", { name: /Contributors|المشاركون/i });
+
+    await expect(leadGroup.getByText(member1Name)).toBeVisible();
+    await expect(contributorsGroup.getByText(member2Name)).toBeVisible();
 
     // 4. Make B Lead (unconditional assertion)
-    const promoteToLeadBtn = drawerPanel.getByRole("button", {
+    const promoteToLeadBtn = contributorsGroup.getByRole("button", {
       name: new RegExp(`Set ${member2Name} as Lead|تعيين ${member2Name} كمسؤول رئيسي`),
     });
     await expect(promoteToLeadBtn).toBeVisible();
     await promoteToLeadBtn.click();
 
-    // 5. Assert B = Lead, A = Contributor
-    const demotedToLeadBtn = drawerPanel.getByRole("button", {
+    // 5. Assert B = Lead, A = Contributor (scoped to semantic groups)
+    await expect(leadGroup.getByText(member2Name)).toBeVisible();
+    await expect(contributorsGroup.getByText(member1Name)).toBeVisible();
+
+    const demotedToLeadBtn = contributorsGroup.getByRole("button", {
       name: new RegExp(`Set ${member1Name} as Lead|تعيين ${member1Name} كمسؤول رئيسي`),
     });
     await expect(demotedToLeadBtn).toBeVisible();
 
     // 6. Remove A
-    const removeABtn = drawerPanel.getByRole("button", {
+    const removeABtn = contributorsGroup.getByRole("button", {
       name: new RegExp(`Remove ${member1Name}|إزالة ${member1Name}`),
     });
     await expect(removeABtn).toBeVisible();
     await removeABtn.click();
 
-    // 7. Assert B remains only execution assignee
-    await expect(drawerPanel.getByText(member2Name).first()).toBeVisible();
-    await expect(drawerPanel.getByText(member1Name)).not.toBeVisible();
+    // 7. Assert B remains only execution assignee in Lead group and A is absent
+    await expect(leadGroup.getByText(member2Name)).toBeVisible();
+    await expect(contributorsGroup.getByText(member1Name)).not.toBeVisible();
 
     // 8. Close Drawer
     const drawerCloseBtn = drawerPanel.getByLabel(/Close|إغلاق/i).first();

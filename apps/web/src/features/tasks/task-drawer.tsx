@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useId, useRef, useState, type CSSProperties } from "react";
 import type { Comment, Task, User, ViewCtx, Workspace } from "@/lib/types";
 import { PRIORITY_CONFIG, STATUS_CONFIG } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -73,6 +73,9 @@ export function TaskDrawer({
   const [isAssigning, setIsAssigning] = useState(false);
   const peopleCardRef = useRef<HTMLDivElement>(null);
   const [assigneePickerAnchorRect, setAssigneePickerAnchorRect] = useState<DOMRect | null>(null);
+
+  const leadHeadingId = useId();
+  const contributorsHeadingId = useId();
 
   const people = resolveTaskPeople(task, ctx.users, ctx.members);
   const leadPerson = people.find((p) => p.isLead);
@@ -440,10 +443,15 @@ export function TaskDrawer({
                     </div>
 
                     {/* Lead Display */}
-                    <div className="space-y-1.5">
-                      <div className="text-[10.5px] font-bold uppercase tracking-wider text-ink-faint flex items-center gap-1">
-                        <span className="text-amber-500">★</span>
-                        {ctx.t("المسؤول الرئيسي (Lead)", "Lead Assignee")}
+                    <div role="group" aria-labelledby={leadHeadingId} className="space-y-1.5">
+                      <div
+                        id={leadHeadingId}
+                        className="text-[10.5px] font-bold uppercase tracking-wider text-ink-faint flex items-center gap-1"
+                      >
+                        <span className="text-amber-500" aria-hidden="true">
+                          ★
+                        </span>
+                        <span>{ctx.t("المسؤول الرئيسي (Lead)", "Lead Assignee")}</span>
                       </div>
                       {leadPerson ? (
                         <div className="flex items-center justify-between rounded-xl border border-amber-500/20 bg-amber-500/5 px-3 py-2">
@@ -470,8 +478,11 @@ export function TaskDrawer({
                     </div>
 
                     {/* Contributors Display */}
-                    <div className="space-y-1.5 pt-0.5">
-                      <div className="text-[10.5px] font-bold uppercase tracking-wider text-ink-faint">
+                    <div role="group" aria-labelledby={contributorsHeadingId} className="space-y-1.5 pt-0.5">
+                      <div
+                        id={contributorsHeadingId}
+                        className="text-[10.5px] font-bold uppercase tracking-wider text-ink-faint"
+                      >
                         {ctx.t("المشاركون في التنفيذ (Contributors)", "Contributors")} ({contributorPeople.length})
                       </div>
                       {contributorPeople.length > 0 ? (
