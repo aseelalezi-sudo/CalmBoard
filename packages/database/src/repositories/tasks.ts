@@ -1487,6 +1487,25 @@ export function createTasksRepository(context: DatabaseTenantContext) {
       let task: TaskRecord | undefined;
       try {
         task = await db.transaction(async (transaction) => {
+          if (hasAssigneeId || hasAssigneeIds) {
+            // A. If Primary changes, demote current active Primary only BEFORE update(tasks)
+            // (preventing the tasks table trigger from closing the old primary when retained as contributor)
+            if (primaryBefore && primaryBefore !== finalAssigneeId) {
+              await transaction
+                .update(taskAssignees)
+                .set({ isPrimary: false })
+                .where(
+                  and(
+                    eq(taskAssignees.organizationId, organizationId),
+                    eq(taskAssignees.workspaceId, workspaceId),
+                    eq(taskAssignees.taskId, taskId),
+                    eq(taskAssignees.isPrimary, true),
+                    isNull(taskAssignees.unassignedAt),
+                  ),
+                );
+            }
+          }
+
           const [updated] = await transaction
             .update(tasks)
             .set({
@@ -1498,26 +1517,17 @@ export function createTasksRepository(context: DatabaseTenantContext) {
             .where(and(eq(tasks.id, taskId), tenantScope, isNull(tasks.deletedAt), eq(tasks.version, expectedVersion!)))
             .returning();
 
-          if (!updated) return undefined;
+          if (!updated) {
+            throw new TenantConflictError("Task was modified by another request; reload it and retry");
+          }
           if (hasAssigneeId || hasAssigneeIds) {
             const now = new Date();
-            if (primaryBefore && primaryBefore !== finalAssigneeId && finalAssigneeIds.includes(primaryBefore)) {
-              await transaction
-                .update(taskAssignees)
-                .set({ unassignedAt: null, isPrimary: false })
-                .where(
-                  and(
-                    eq(taskAssignees.organizationId, organizationId),
-                    eq(taskAssignees.workspaceId, workspaceId),
-                    eq(taskAssignees.taskId, taskId),
-                    eq(taskAssignees.userId, primaryBefore),
-                  ),
-                );
-            }
+
+            // B. Mark removed assignees as unassignedAt = now, isPrimary = false
             if (removedAssigneeIds.length > 0) {
               await transaction
                 .update(taskAssignees)
-                .set({ unassignedAt: now })
+                .set({ unassignedAt: now, isPrimary: false })
                 .where(
                   and(
                     eq(taskAssignees.organizationId, organizationId),
@@ -1528,20 +1538,32 @@ export function createTasksRepository(context: DatabaseTenantContext) {
                   ),
                 );
             }
-            const addedNonPrimaryIds = addedAssigneeIds.filter((userId) => userId !== finalAssigneeId);
-            if (addedNonPrimaryIds.length > 0) {
-              await transaction.insert(taskAssignees).values(
-                addedNonPrimaryIds.map((userId) => ({
-                  organizationId,
-                  workspaceId,
-                  projectId: before.projectId,
-                  taskId,
-                  userId,
-                  isPrimary: false,
-                  assignedBy: actorId ?? null,
-                })),
-              );
+
+            // C. Insert every addedAssigneeId (including brand new Lead if added)
+            if (addedAssigneeIds.length > 0) {
+              await transaction
+                .insert(taskAssignees)
+                .values(
+                  addedAssigneeIds.map((userId) => ({
+                    organizationId,
+                    workspaceId,
+                    projectId: before.projectId,
+                    taskId,
+                    userId,
+                    isPrimary: userId === finalAssigneeId,
+                    assignedBy: actorId ?? null,
+                  })),
+                )
+                .onConflictDoUpdate({
+                  target: [taskAssignees.taskId, taskAssignees.userId],
+                  targetWhere: isNull(taskAssignees.unassignedAt),
+                  set: {
+                    isPrimary: sql`excluded.is_primary`,
+                  },
+                });
             }
+
+            // D & E & F. Ensure active row primary status is strictly consistent
             if (finalAssigneeId !== null) {
               await transaction
                 .update(taskAssignees)

@@ -311,4 +311,336 @@ describe("task assignment domain contract", () => {
       // Cleanup
     }
   });
+
+  it("enforces all 7 assignment delta integrity regression scenarios", async () => {
+    const organizationId = randomUUID();
+    const workspaceId = randomUUID();
+    const projectId = randomUUID();
+    const actorId = randomUUID();
+    const userA = randomUUID();
+    const userB = randomUUID();
+    const userC = randomUUID();
+
+    try {
+      await db.insert(users).values([
+        { id: actorId, email: `${actorId}@example.test`, name: "Actor" },
+        { id: userA, email: `${userA}@example.test`, name: "User A" },
+        { id: userB, email: `${userB}@example.test`, name: "User B" },
+        { id: userC, email: `${userC}@example.test`, name: "User C" },
+      ]);
+      await db.insert(organizations).values({
+        id: organizationId,
+        name: "Delta Regression Org",
+        slug: `delta-reg-${organizationId}`,
+        ownerId: actorId,
+      });
+      await db.insert(workspaces).values({
+        id: workspaceId,
+        organizationId,
+        name: "Delta Regression Ws",
+        slug: `delta-reg-${workspaceId}`,
+      });
+      await db.insert(memberships).values([
+        { organizationId, workspaceId, userId: actorId, status: "active" },
+        { organizationId, workspaceId, userId: userA, status: "active" },
+        { organizationId, workspaceId, userId: userB, status: "active" },
+        { organizationId, workspaceId, userId: userC, status: "active" },
+      ]);
+      await db.insert(projects).values({ id: projectId, organizationId, workspaceId, name: "Delta Project" });
+
+      const repository = createTasksRepository({ organizationId, workspaceId, actorId });
+
+      // =========================================================================
+      // REGRESSION 1: New Lead was never previously assigned
+      // Before: A Lead, B Contributor -> Update: C Lead, B Contributor
+      // =========================================================================
+      const reg1 = await repository.create({
+        projectId,
+        title: "Reg 1 Task",
+        assigneeId: userA,
+        assigneeIds: [userA, userB],
+      });
+      const reg1BRowBefore = (
+        await db
+          .select()
+          .from(taskAssignees)
+          .where(
+            and(eq(taskAssignees.taskId, reg1.id), isNull(taskAssignees.unassignedAt), eq(taskAssignees.userId, userB)),
+          )
+      )[0]!;
+      assert.ok(reg1BRowBefore);
+
+      const reg1Updated = await repository.update(reg1.id, {
+        expectedVersion: reg1.version,
+        assigneeId: userC,
+      });
+      assert.equal(reg1Updated.task.assigneeId, userC);
+      assert.deepEqual(reg1Updated.task.assigneeIds, [userC, userB]);
+
+      const reg1ActiveRows = await db
+        .select()
+        .from(taskAssignees)
+        .where(and(eq(taskAssignees.taskId, reg1.id), isNull(taskAssignees.unassignedAt)));
+      assert.equal(reg1ActiveRows.length, 2);
+
+      const reg1CRow = reg1ActiveRows.find((r) => r.userId === userC);
+      assert.ok(reg1CRow?.isPrimary, "C must be active Primary");
+
+      const reg1BRowAfter = reg1ActiveRows.find((r) => r.userId === userB);
+      assert.ok(reg1BRowAfter);
+      assert.equal(reg1BRowAfter.id, reg1BRowBefore.id, "B row ID must be unchanged");
+      assert.equal(reg1BRowAfter.assignedAt.getTime(), reg1BRowBefore.assignedAt.getTime(), "B assignedAt unchanged");
+      assert.equal(reg1BRowAfter.isPrimary, false);
+
+      const reg1ARows = await db
+        .select()
+        .from(taskAssignees)
+        .where(and(eq(taskAssignees.taskId, reg1.id), eq(taskAssignees.userId, userA)));
+      assert.ok(
+        reg1ARows.every((r) => r.unassignedAt !== null),
+        "A must be inactive",
+      );
+
+      // =========================================================================
+      // REGRESSION 2: Existing Contributor promoted to Lead
+      // Before: A Lead, B Contributor -> Update: B Lead alone
+      // =========================================================================
+      const reg2 = await repository.create({
+        projectId,
+        title: "Reg 2 Task",
+        assigneeId: userA,
+        assigneeIds: [userA, userB],
+      });
+      const reg2BRowBefore = (
+        await db
+          .select()
+          .from(taskAssignees)
+          .where(
+            and(eq(taskAssignees.taskId, reg2.id), isNull(taskAssignees.unassignedAt), eq(taskAssignees.userId, userB)),
+          )
+      )[0]!;
+
+      const reg2Updated = await repository.update(reg2.id, {
+        expectedVersion: reg2.version,
+        assigneeId: userB,
+        assigneeIds: [userB],
+      });
+      assert.equal(reg2Updated.task.assigneeId, userB);
+      assert.deepEqual(reg2Updated.task.assigneeIds, [userB]);
+
+      const reg2ActiveRows = await db
+        .select()
+        .from(taskAssignees)
+        .where(and(eq(taskAssignees.taskId, reg2.id), isNull(taskAssignees.unassignedAt)));
+      assert.equal(reg2ActiveRows.length, 1);
+      assert.equal(reg2ActiveRows[0]?.id, reg2BRowBefore.id, "B row ID must be unchanged");
+      assert.equal(
+        reg2ActiveRows[0]?.assignedAt.getTime(),
+        reg2BRowBefore.assignedAt.getTime(),
+        "B assignedAt unchanged",
+      );
+      assert.equal(reg2ActiveRows[0]?.isPrimary, true);
+
+      const reg2ARows = await db
+        .select()
+        .from(taskAssignees)
+        .where(and(eq(taskAssignees.taskId, reg2.id), eq(taskAssignees.userId, userA)));
+      assert.ok(
+        reg2ARows.every((r) => r.unassignedAt !== null),
+        "A must be removed",
+      );
+
+      // =========================================================================
+      // REGRESSION 3: Old Lead retained as Contributor
+      // Before: A Lead, B Contributor -> Explicit update: B Lead, A Contributor
+      // =========================================================================
+      const reg3 = await repository.create({
+        projectId,
+        title: "Reg 3 Task",
+        assigneeId: userA,
+        assigneeIds: [userA, userB],
+      });
+      const reg3ARowBefore = (
+        await db
+          .select()
+          .from(taskAssignees)
+          .where(
+            and(eq(taskAssignees.taskId, reg3.id), isNull(taskAssignees.unassignedAt), eq(taskAssignees.userId, userA)),
+          )
+      )[0]!;
+
+      const reg3Updated = await repository.update(reg3.id, {
+        expectedVersion: reg3.version,
+        assigneeId: userB,
+        assigneeIds: [userB, userA],
+      });
+      assert.equal(reg3Updated.task.assigneeId, userB);
+      assert.deepEqual(reg3Updated.task.assigneeIds, [userB, userA]);
+
+      const reg3ActiveRows = await db
+        .select()
+        .from(taskAssignees)
+        .where(and(eq(taskAssignees.taskId, reg3.id), isNull(taskAssignees.unassignedAt)));
+      assert.equal(reg3ActiveRows.length, 2);
+
+      const reg3ARowAfter = reg3ActiveRows.find((r) => r.userId === userA);
+      assert.ok(reg3ARowAfter);
+      assert.equal(reg3ARowAfter.id, reg3ARowBefore.id, "A active row ID must be preserved");
+      assert.equal(reg3ARowAfter.assignedAt.getTime(), reg3ARowBefore.assignedAt.getTime(), "A assignedAt preserved");
+      assert.equal(reg3ARowAfter.isPrimary, false);
+      assert.equal(reg3ARowAfter.unassignedAt, null);
+
+      // =========================================================================
+      // REGRESSION 4: Remove then later reassign same user creates a NEW row
+      // =========================================================================
+      const reg4 = await repository.create({
+        projectId,
+        title: "Reg 4 Task",
+        assigneeId: userA,
+      });
+      const reg4InitialRow = (
+        await db
+          .select()
+          .from(taskAssignees)
+          .where(and(eq(taskAssignees.taskId, reg4.id), eq(taskAssignees.userId, userA)))
+      )[0]!;
+      assert.ok(reg4InitialRow);
+
+      // Remove A
+      const reg4Removed = await repository.update(reg4.id, {
+        expectedVersion: reg4.version,
+        assigneeIds: [],
+      });
+      assert.equal(reg4Removed.task.assigneeId, null);
+
+      const reg4ClosedRow = (
+        await db
+          .select()
+          .from(taskAssignees)
+          .where(and(eq(taskAssignees.taskId, reg4.id), eq(taskAssignees.userId, userA)))
+      )[0]!;
+      assert.ok(reg4ClosedRow.unassignedAt !== null, "Historical row must have unassignedAt set");
+
+      // Reassign A later
+      const reg4Reassigned = await repository.update(reg4.id, {
+        expectedVersion: reg4Removed.task.version,
+        assigneeId: userA,
+      });
+      assert.equal(reg4Reassigned.task.assigneeId, userA);
+
+      const reg4AllRows = await db
+        .select()
+        .from(taskAssignees)
+        .where(and(eq(taskAssignees.taskId, reg4.id), eq(taskAssignees.userId, userA)));
+      assert.equal(reg4AllRows.length, 2, "Must result in exactly TWO rows for user A");
+
+      const reg4ActiveRow = reg4AllRows.find((r) => r.unassignedAt === null);
+      const reg4HistoricalRow = reg4AllRows.find((r) => r.unassignedAt !== null);
+
+      assert.ok(reg4ActiveRow, "Must have exactly one active row");
+      assert.ok(reg4HistoricalRow, "Must have exactly one historical row");
+      assert.equal(reg4HistoricalRow.id, reg4InitialRow.id, "Historical row remains closed and untouched");
+      assert.notEqual(reg4ActiveRow.id, reg4InitialRow.id, "New active row must have a distinct new ID");
+      assert.equal(reg4ActiveRow.isPrimary, true);
+
+      // =========================================================================
+      // REGRESSION 5: Clear all assignments
+      // =========================================================================
+      const reg5 = await repository.create({
+        projectId,
+        title: "Reg 5 Task",
+        assigneeId: userA,
+        assigneeIds: [userA, userB],
+      });
+      const reg5Cleared = await repository.update(reg5.id, {
+        expectedVersion: reg5.version,
+        assigneeIds: [],
+      });
+      assert.equal(reg5Cleared.task.assigneeId, null);
+      assert.deepEqual(reg5Cleared.task.assigneeIds, []);
+
+      const reg5Active = await db
+        .select()
+        .from(taskAssignees)
+        .where(and(eq(taskAssignees.taskId, reg5.id), isNull(taskAssignees.unassignedAt)));
+      assert.equal(reg5Active.length, 0, "Zero active task_assignees");
+      assert.equal(reg5Active.filter((r) => r.isPrimary).length, 0, "Zero active primary rows");
+
+      // =========================================================================
+      // REGRESSION 6: Multiple sequential Lead replacements (A → B → C → A)
+      // =========================================================================
+      const reg6 = await repository.create({
+        projectId,
+        title: "Reg 6 Task",
+        assigneeId: userA,
+        assigneeIds: [userA, userB, userC],
+      });
+
+      // A -> B
+      const t1 = await repository.update(reg6.id, { expectedVersion: reg6.version, assigneeId: userB });
+      assert.equal(t1.task.assigneeId, userB);
+      let t1Active = await db
+        .select()
+        .from(taskAssignees)
+        .where(and(eq(taskAssignees.taskId, reg6.id), isNull(taskAssignees.unassignedAt)));
+      assert.equal(t1Active.filter((r) => r.isPrimary).length, 1);
+      assert.equal(t1Active.find((r) => r.isPrimary)?.userId, userB);
+
+      // B -> C
+      const t2 = await repository.update(reg6.id, { expectedVersion: t1.task.version, assigneeId: userC });
+      assert.equal(t2.task.assigneeId, userC);
+      let t2Active = await db
+        .select()
+        .from(taskAssignees)
+        .where(and(eq(taskAssignees.taskId, reg6.id), isNull(taskAssignees.unassignedAt)));
+      assert.equal(t2Active.filter((r) => r.isPrimary).length, 1);
+      assert.equal(t2Active.find((r) => r.isPrimary)?.userId, userC);
+
+      // C -> A
+      const t3 = await repository.update(reg6.id, { expectedVersion: t2.task.version, assigneeId: userA });
+      assert.equal(t3.task.assigneeId, userA);
+      let t3Active = await db
+        .select()
+        .from(taskAssignees)
+        .where(and(eq(taskAssignees.taskId, reg6.id), isNull(taskAssignees.unassignedAt)));
+      assert.equal(t3Active.filter((r) => r.isPrimary).length, 1);
+      assert.equal(t3Active.find((r) => r.isPrimary)?.userId, userA);
+
+      // Verify no duplicate active rows for any user
+      const userIdsInActive = t3Active.map((r) => r.userId);
+      assert.equal(new Set(userIdsInActive).size, userIdsInActive.length, "No duplicate active user rows");
+
+      // =========================================================================
+      // REGRESSION 7: Stale expectedVersion rejected without changing participant rows
+      // =========================================================================
+      const reg7 = await repository.create({
+        projectId,
+        title: "Reg 7 Task",
+        assigneeId: userA,
+        assigneeIds: [userA, userB],
+      });
+      const reg7ActiveBefore = await db
+        .select()
+        .from(taskAssignees)
+        .where(and(eq(taskAssignees.taskId, reg7.id), isNull(taskAssignees.unassignedAt)));
+
+      await assert.rejects(
+        () =>
+          repository.update(reg7.id, {
+            expectedVersion: 999,
+            assigneeId: userC,
+          }),
+        (err: unknown) => err instanceof TenantConflictError,
+      );
+
+      const reg7ActiveAfter = await db
+        .select()
+        .from(taskAssignees)
+        .where(and(eq(taskAssignees.taskId, reg7.id), isNull(taskAssignees.unassignedAt)));
+      assert.equal(reg7ActiveAfter.length, reg7ActiveBefore.length);
+      assert.equal(reg7ActiveAfter.find((r) => r.isPrimary)?.userId, userA);
+    } finally {
+      // Cleanup
+    }
+  });
 });
