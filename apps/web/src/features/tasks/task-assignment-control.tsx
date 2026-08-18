@@ -43,14 +43,14 @@ export function TaskAssignmentControl({
     setIsOpen(true);
   };
 
-  const handleSave = async (result: { assigneeId: string | null; assigneeIds: string[] }) => {
-    if (isPending) return;
+  const handleSave = async (result: import("./assignment-domain").AssignmentMutationPayload): Promise<boolean> => {
+    if (isPending) return false;
     setIsPending(true);
 
     try {
       const success = await ctx.updateTask(task.id, {
         expectedVersion: task.version,
-        assigneeId: result.assigneeId,
+        ...(result.assigneeId !== undefined ? { assigneeId: result.assigneeId } : {}),
         assigneeIds: result.assigneeIds,
       });
 
@@ -62,12 +62,15 @@ export function TaskAssignmentControl({
           ),
           "error",
         );
+        return false;
       }
+      return true;
     } catch {
       ctx.notify?.(
         ctx.t("تعذر تحديث المسؤولين. حاول مجدداً.", "Could not update assignees. Please try again."),
         "error",
       );
+      return false;
     } finally {
       setIsPending(false);
     }

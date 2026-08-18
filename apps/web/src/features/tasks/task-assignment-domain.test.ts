@@ -9,6 +9,7 @@ import {
   getTaskAssigneeIds,
   getTaskEffortShare,
   getWorkspaceCandidateUsers,
+  isAssignmentMutationNoop,
   isTaskAssignedTo,
   isTaskContributor,
   isTaskLead,
@@ -125,7 +126,7 @@ describe("task assignment domain helpers (frontend)", () => {
     assert.equal(sameUser, null);
   });
 
-  describe("getWorkspaceCandidateUsers", () => {
+  describe("getWorkspaceCandidateUsers (fail-closed)", () => {
     const members: Member[] = [
       {
         id: "m-1",
@@ -151,27 +152,101 @@ describe("task assignment domain helpers (frontend)", () => {
         joinedAt: "2026-01-01",
         user: { id: "u-3", name: "Inactive User", email: "inactive@example.com" },
       },
+      {
+        id: "m-4",
+        userId: "u-4",
+        role: "member",
+        status: "pending",
+        joinedAt: "2026-01-01",
+        user: { id: "u-4", name: "Pending User", email: "pending@example.com" },
+      },
+      {
+        id: "m-5",
+        userId: "u-5",
+        role: "member",
+        status: "revoked",
+        joinedAt: "2026-01-01",
+        user: { id: "u-5", name: "Revoked User", email: "revoked@example.com" },
+      },
+      {
+        id: "m-6",
+        userId: "u-6",
+        role: "member",
+        status: "active",
+        joinedAt: "2026-01-01",
+        // no user attached, must resolve from directory
+      },
     ];
 
     const directoryUsers: User[] = [
       { id: "u-1", name: "Alice", email: "alice@example.com" },
       { id: "u-2", name: "Bob", email: "bob@example.com" },
       { id: "u-3", name: "Inactive User", email: "inactive@example.com" },
+      { id: "u-4", name: "Pending User", email: "pending@example.com" },
+      { id: "u-5", name: "Revoked User", email: "revoked@example.com" },
+      { id: "u-6", name: "Active Member In Directory", email: "active6@example.com" },
       { id: "u-outside", name: "Outside User", email: "outside@example.com" },
     ];
 
-    it("filters active members and excludes inactive users and outsiders", () => {
+    it("filters active members strictly and excludes inactive, pending, revoked users and outsiders", () => {
       const candidates = getWorkspaceCandidateUsers(members, directoryUsers);
-      assert.equal(candidates.length, 2);
+      assert.equal(candidates.length, 3);
       assert.deepEqual(
         candidates.map((u) => u.id),
-        ["u-1", "u-2"],
+        ["u-1", "u-2", "u-6"],
       );
     });
 
-    it("falls back to directory users if members array is empty", () => {
+    it("FAIL-CLOSED: returns empty array when members is empty (does NOT fall back to directory users)", () => {
       const candidates = getWorkspaceCandidateUsers([], directoryUsers);
-      assert.equal(candidates.length, directoryUsers.length);
+      assert.deepEqual(candidates, []);
+    });
+
+    it("FAIL-CLOSED: returns empty array when members has 0 active members", () => {
+      const inactiveMembers: Member[] = [
+        { id: "m-3", userId: "u-3", role: "member", status: "inactive", joinedAt: "2026-01-01" },
+        { id: "m-4", userId: "u-4", role: "member", status: "pending", joinedAt: "2026-01-01" },
+      ];
+      const candidates = getWorkspaceCandidateUsers(inactiveMembers, directoryUsers);
+      assert.deepEqual(candidates, []);
+    });
+  });
+
+  describe("isAssignmentMutationNoop", () => {
+    it("detects no-op when adding a user who is already an assignee", () => {
+      // sampleTask assignees: ["user-lead", "user-contrib-1", "user-contrib-2"]
+      const addExistingLead = buildAddAssigneeMutation(sampleTask, "user-lead");
+      assert.equal(isAssignmentMutationNoop(sampleTask, addExistingLead), true);
+
+      const addExistingContrib = buildAddAssigneeMutation(sampleTask, "user-contrib-1");
+      assert.equal(isAssignmentMutationNoop(sampleTask, addExistingContrib), true);
+
+      const addNewUser = buildAddAssigneeMutation(sampleTask, "user-new");
+      assert.equal(isAssignmentMutationNoop(sampleTask, addNewUser), false);
+    });
+
+    it("detects no-op when removing a user who is not an assignee", () => {
+      const removeNotAssigned = buildRemoveAssigneeMutation(sampleTask, "user-unassigned");
+      assert.equal(isAssignmentMutationNoop(sampleTask, removeNotAssigned), true);
+
+      const removeAssigned = buildRemoveAssigneeMutation(sampleTask, "user-contrib-1");
+      assert.equal(isAssignmentMutationNoop(sampleTask, removeAssigned), false);
+    });
+
+    it("detects no-op when setting lead to current lead", () => {
+      const setSameLead = buildSetLeadMutation(sampleTask, "user-lead");
+      assert.equal(isAssignmentMutationNoop(sampleTask, setSameLead), true);
+
+      const setDifferentLead = buildSetLeadMutation(sampleTask, "user-contrib-1");
+      assert.equal(isAssignmentMutationNoop(sampleTask, setDifferentLead), false);
+    });
+
+    it("detects no-op when clearing assignees on an already unassigned task", () => {
+      const unassignedTask: Partial<Task> = { assigneeId: null, assigneeIds: [] };
+      const clearMutation = buildClearAllAssigneesMutation();
+      assert.equal(isAssignmentMutationNoop(unassignedTask, clearMutation), true);
+
+      assert.equal(isAssignmentMutationNoop(sampleTask, clearMutation), false);
     });
   });
 
@@ -228,9 +303,9 @@ describe("task assignment domain helpers (frontend)", () => {
       assert.deepEqual(res.assigneeIds, ["user-lead", "user-contrib-2"]);
     });
 
-    it("buildRemoveAssigneeMutation removes Lead and lets backend canonical response promote next", () => {
+    it("buildRemoveAssigneeMutation removes Lead and lets backend canonical response promote next (assigneeId is undefined)", () => {
       const res = buildRemoveAssigneeMutation(sampleTask, "user-lead");
-      // assigneeId is omitted so backend canonical promotion promotes user-contrib-1
+      // assigneeId MUST be undefined to avoid inventing assigneeId on the client
       assert.equal(res.assigneeId, undefined);
       assert.deepEqual(res.assigneeIds, ["user-contrib-1", "user-contrib-2"]);
     });

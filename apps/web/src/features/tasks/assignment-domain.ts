@@ -103,7 +103,10 @@ export function rebalanceTaskAssignees(
 
 /**
  * Derives valid candidate assignees strictly scoped to the active workspace members.
- * Filters out inactive or deleted users and deduplicates by user ID.
+ * FAIL-CLOSED: ONLY accepts member.status === "active".
+ * Does NOT fall back to arbitrary directory users if workspace members are empty or have 0 active members.
+ * directoryUsers is only used to populate the profile of an active member if member.user is not attached.
+ * If zero active workspace members can be proven: candidate list = [].
  */
 export function getWorkspaceCandidateUsers(
   members: Member[] | null | undefined,
@@ -113,7 +116,7 @@ export function getWorkspaceCandidateUsers(
 
   if (members && members.length > 0) {
     for (const member of members) {
-      if (member.status === "inactive" || member.status === "deleted" || member.status === "revoked") {
+      if (member.status !== "active") {
         continue;
       }
       if (member.user && member.user.id) {
@@ -127,16 +130,52 @@ export function getWorkspaceCandidateUsers(
     }
   }
 
-  // Fallback to directory users if no active members were resolved
-  if (userMap.size === 0 && directoryUsers && directoryUsers.length > 0) {
-    for (const user of directoryUsers) {
-      if (user && user.id) {
-        userMap.set(user.id, user);
-      }
+  return Array.from(userMap.values());
+}
+
+/**
+ * Pure domain helper to determine if an assignment mutation produces no change
+ * compared to the current task assignment state.
+ *
+ * Examples:
+ * - Add user X when user X is already in task assignees.
+ * - Remove user X when user X is not in task assignees.
+ * - Set Lead user X when user X is already the Lead (task.assigneeId === user X).
+ * - Clear all when task is already unassigned.
+ */
+export function isAssignmentMutationNoop(
+  task: Partial<Task> | null | undefined,
+  mutation: AssignmentMutationPayload,
+): boolean {
+  if (!task) {
+    const targetIds = mutation.assigneeIds || [];
+    return targetIds.length === 0 && (mutation.assigneeId === null || mutation.assigneeId === undefined);
+  }
+
+  const currentLead = task.assigneeId ?? null;
+  const currentIds = getTaskAssigneeIds(task);
+
+  // If mutation specifies an explicit assigneeId and it differs from currentLead
+  if (mutation.assigneeId !== undefined) {
+    const targetLead = mutation.assigneeId ?? null;
+    if (targetLead !== currentLead) {
+      return false;
     }
   }
 
-  return Array.from(userMap.values());
+  // Check if assigneeIds set is identical
+  const targetIds = mutation.assigneeIds || [];
+  if (currentIds.length !== targetIds.length) {
+    return false;
+  }
+
+  for (let i = 0; i < currentIds.length; i++) {
+    if (currentIds[i] !== targetIds[i]) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 export type ResolvedTaskPerson = {

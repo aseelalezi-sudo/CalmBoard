@@ -78,12 +78,12 @@ export function TaskDrawer({
   const leadPerson = people.find((p) => p.isLead);
   const contributorPeople = people.filter((p) => p.isContributor);
 
-  const handleSetLead = async (userId: string) => {
-    if (!task || isAssigning) return;
+  const handleSetLead = async (userId: string): Promise<boolean> => {
+    if (!task || isAssigning) return false;
     setIsAssigning(true);
     try {
       const payload = buildSetLeadMutation(task, userId);
-      await ctx.updateTask(task.id, {
+      return await ctx.updateTask(task.id, {
         expectedVersion: task.version,
         ...payload,
       });
@@ -92,12 +92,12 @@ export function TaskDrawer({
     }
   };
 
-  const handleRemoveAssignee = async (userId: string) => {
-    if (!task || isAssigning) return;
+  const handleRemoveAssignee = async (userId: string): Promise<boolean> => {
+    if (!task || isAssigning) return false;
     setIsAssigning(true);
     try {
       const payload = buildRemoveAssigneeMutation(task, userId);
-      await ctx.updateTask(task.id, {
+      return await ctx.updateTask(task.id, {
         expectedVersion: task.version,
         ...payload,
       });
@@ -106,12 +106,12 @@ export function TaskDrawer({
     }
   };
 
-  const handleClearAssignees = async () => {
-    if (!task || isAssigning) return;
+  const handleClearAssignees = async (): Promise<boolean> => {
+    if (!task || isAssigning) return false;
     setIsAssigning(true);
     try {
       const payload = buildClearAllAssigneesMutation();
-      await ctx.updateTask(task.id, {
+      return await ctx.updateTask(task.id, {
         expectedVersion: task.version,
         ...payload,
       });
@@ -120,16 +120,22 @@ export function TaskDrawer({
     }
   };
 
-  const handlePickerSave = async (result: { assigneeId: string | null; assigneeIds: string[] }) => {
-    if (!task || isAssigning) return;
+  const handlePickerSave = async (
+    result: import("./assignment-domain").AssignmentMutationPayload,
+  ): Promise<boolean> => {
+    if (!task || isAssigning) return false;
     setIsAssigning(true);
     try {
-      await ctx.updateTask(task.id, {
+      const success = await ctx.updateTask(task.id, {
         expectedVersion: task.version,
-        assigneeId: result.assigneeId,
+        ...(result.assigneeId !== undefined ? { assigneeId: result.assigneeId } : {}),
         assigneeIds: result.assigneeIds,
       });
-      setAssigneePickerOpen(false);
+      if (success) {
+        setAssigneePickerOpen(false);
+        return true;
+      }
+      return false;
     } finally {
       setIsAssigning(false);
     }
@@ -498,6 +504,7 @@ export function TaskDrawer({
                                     type="button"
                                     disabled={isAssigning}
                                     title={ctx.t("إزالة من المهمة", "Remove")}
+                                    aria-label={ctx.t(`إزالة ${cp.user.name} من المهمة`, `Remove ${cp.user.name}`)}
                                     onClick={() => void handleRemoveAssignee(cp.user.id)}
                                     className="rounded p-1 text-ink-faint hover:text-rose-600 hover:bg-rose-500/10 transition disabled:opacity-50"
                                   >

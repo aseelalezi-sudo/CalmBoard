@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import type { Member, Task, User } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { Avatar, Badge, Btn, Kbd } from "@/components/ui";
+import { Avatar } from "@/components/ui";
 import { IconCheck, IconPlus, IconSearch, IconStar, IconUsers, IconX } from "@/components/icons";
 import {
   buildAddAssigneeMutation,
@@ -13,8 +13,7 @@ import {
   buildSetLeadMutation,
   getTaskAssigneeIds,
   getWorkspaceCandidateUsers,
-  isTaskContributor,
-  isTaskLead,
+  type AssignmentMutationPayload,
 } from "./assignment-domain";
 
 export type TaskAssigneePickerProps = {
@@ -24,7 +23,7 @@ export type TaskAssigneePickerProps = {
   users?: User[];
   members?: Member[];
   canEdit?: boolean;
-  onSave?: (result: { assigneeId: string | null; assigneeIds: string[] }) => void | Promise<void | boolean>;
+  onSave?: (result: AssignmentMutationPayload) => Promise<boolean> | boolean | void;
   onChange?: (result: { assigneeId: string | null; assigneeIds: string[] }) => void;
   onClose: () => void;
   anchorRect?: { top: number; left: number; width: number; height: number; bottom: number; right: number } | null;
@@ -51,6 +50,7 @@ export function TaskAssigneePicker({
   const containerRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const triggerElementRef = useRef<HTMLElement | null>(null);
 
   // Controlled/local assignment draft
   const [draftLeadId, setDraftLeadId] = useState<string | null>(() => {
@@ -63,11 +63,22 @@ export function TaskAssigneePicker({
     return getTaskAssigneeIds(task);
   });
 
+  const taskLeadId = task?.assigneeId ?? null;
+  const taskAssigneeIds = useMemo(() => getTaskAssigneeIds(task), [task]);
+
+  // Sync draft state whenever task props change from canonical server responses
+  useEffect(() => {
+    if (task) {
+      setDraftLeadId(taskLeadId);
+      setDraftAssigneeIds(taskAssigneeIds);
+    }
+  }, [task, taskLeadId, taskAssigneeIds]);
+
   const [searchQuery, setSearchQuery] = useState("");
   const [focusedIndex, setFocusedIndex] = useState(-1);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Get active candidate users scoped to workspace
+  // Get active candidate users strictly scoped to active workspace members
   const candidateUsers = useMemo(() => getWorkspaceCandidateUsers(members, users), [members, users]);
 
   // Filter candidates by search query
@@ -88,39 +99,63 @@ export function TaskAssigneePicker({
     [draftLeadId, draftAssigneeIds],
   );
 
+  const handleCloseWithFocusRestore = useCallback(() => {
+    onClose();
+    if (triggerElementRef.current && document.body.contains(triggerElementRef.current)) {
+      setTimeout(() => {
+        triggerElementRef.current?.focus();
+      }, 0);
+    }
+  }, [onClose]);
+
   // Sync back to callers
-  const applyMutation = async (mutation: { assigneeId?: string | null; assigneeIds: string[] }) => {
-    const newLead = mutation.assigneeId !== undefined ? mutation.assigneeId : (mutation.assigneeIds[0] ?? null);
+  const applyMutation = async (mutation: AssignmentMutationPayload) => {
+    const prevLead = draftLeadId;
+    const prevIds = draftAssigneeIds;
+
+    // Optimistic local state update
+    const optimisticLead = mutation.assigneeId !== undefined ? mutation.assigneeId : (mutation.assigneeIds[0] ?? null);
     const newIds = mutation.assigneeIds;
 
-    setDraftLeadId(newLead);
+    setDraftLeadId(optimisticLead);
     setDraftAssigneeIds(newIds);
 
+    // Notify draft consumer (e.g. NewTaskModal) with deterministic local lead
     onChange?.({
-      assigneeId: newLead,
+      assigneeId: optimisticLead,
       assigneeIds: newIds,
     });
 
     if (onSave) {
       setIsSubmitting(true);
       try {
-        await onSave({
-          assigneeId: newLead,
-          assigneeIds: newIds,
-        });
+        // Send mutation payload EXACTLY as produced by the domain builder (preserving undefined assigneeId)
+        const saveResult = await onSave(mutation);
+        if (saveResult === false) {
+          // Restore draft state on failure
+          setDraftLeadId(prevLead);
+          setDraftAssigneeIds(prevIds);
+        }
+      } catch {
+        // Restore draft state on error
+        setDraftLeadId(prevLead);
+        setDraftAssigneeIds(prevIds);
       } finally {
         setIsSubmitting(false);
       }
     }
   };
 
-  // Keyboard and click-outside listeners
+  // Keyboard and click-outside listeners with focus capture/restoration
   useEffect(() => {
+    if (typeof document !== "undefined") {
+      triggerElementRef.current = document.activeElement as HTMLElement | null;
+    }
     searchInputRef.current?.focus();
 
     const handlePointerDown = (event: globalThis.MouseEvent | globalThis.TouchEvent) => {
       if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
-        onClose();
+        handleCloseWithFocusRestore();
       }
     };
 
@@ -128,7 +163,7 @@ export function TaskAssigneePicker({
       if (event.key === "Escape") {
         event.preventDefault();
         event.stopPropagation();
-        onClose();
+        handleCloseWithFocusRestore();
       }
     };
 
@@ -141,7 +176,7 @@ export function TaskAssigneePicker({
       document.removeEventListener("touchstart", handlePointerDown);
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [onClose]);
+  }, [handleCloseWithFocusRestore]);
 
   // Popover positioning calculation
   const popoverStyle = useMemo(() => {
@@ -180,15 +215,25 @@ export function TaskAssigneePicker({
     };
   }, [anchorRect, position, locale]);
 
-  const handleListKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+  const handleListKeyDown = (e: KeyboardEvent<HTMLInputElement | HTMLDivElement>) => {
     if (filteredCandidates.length === 0) return;
 
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      setFocusedIndex((prev) => (prev < filteredCandidates.length - 1 ? prev + 1 : 0));
+      const nextIndex = focusedIndex < filteredCandidates.length - 1 ? focusedIndex + 1 : 0;
+      setFocusedIndex(nextIndex);
+      const targetUser = filteredCandidates[nextIndex];
+      if (targetUser) {
+        listRef.current?.querySelector(`#member-item-${targetUser.id}`)?.scrollIntoView({ block: "nearest" });
+      }
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
-      setFocusedIndex((prev) => (prev > 0 ? prev - 1 : filteredCandidates.length - 1));
+      const nextIndex = focusedIndex > 0 ? focusedIndex - 1 : filteredCandidates.length - 1;
+      setFocusedIndex(nextIndex);
+      const targetUser = filteredCandidates[nextIndex];
+      if (targetUser) {
+        listRef.current?.querySelector(`#member-item-${targetUser.id}`)?.scrollIntoView({ block: "nearest" });
+      }
     } else if (e.key === "Enter" && focusedIndex >= 0 && focusedIndex < filteredCandidates.length) {
       e.preventDefault();
       const targetUser = filteredCandidates[focusedIndex];
@@ -204,12 +249,16 @@ export function TaskAssigneePicker({
   };
 
   const isRtl = locale === "ar";
+  const activeDescendantId =
+    focusedIndex >= 0 && filteredCandidates[focusedIndex]
+      ? `member-item-${filteredCandidates[focusedIndex].id}`
+      : undefined;
 
   const pickerContent = (
     <div
       ref={containerRef}
       role="dialog"
-      aria-modal="true"
+      aria-modal={position === "modal" ? "true" : undefined}
       aria-label={t("تعيين المسؤولين والمشاركين", "Assign Lead and Contributors")}
       dir={isRtl ? "rtl" : "ltr"}
       style={popoverStyle}
@@ -229,7 +278,7 @@ export function TaskAssigneePicker({
         </div>
         <button
           type="button"
-          onClick={onClose}
+          onClick={handleCloseWithFocusRestore}
           aria-label={t("إغلاق", "Close")}
           className="grid h-6 w-6 place-items-center rounded-lg text-ink-faint hover:bg-raised hover:text-ink transition"
         >
@@ -247,14 +296,18 @@ export function TaskAssigneePicker({
         </div>
       )}
 
-      {/* Search Input */}
+      {/* Search Input with ARIA Combobox / Activedescendant attributes */}
       <div className="p-3 border-b border-line/60">
         <div className="relative flex items-center">
           <IconSearch size={13} className="absolute start-2.5 text-ink-faint pointer-events-none" />
           <input
             ref={searchInputRef}
             type="text"
-            role="searchbox"
+            role="combobox"
+            aria-expanded="true"
+            aria-autocomplete="list"
+            aria-controls="assignee-candidates-list"
+            aria-activedescendant={activeDescendantId}
             value={searchQuery}
             onChange={(e) => {
               setSearchQuery(e.target.value);
@@ -267,10 +320,12 @@ export function TaskAssigneePicker({
         </div>
       </div>
 
-      {/* Member List */}
+      {/* Member Listbox */}
       <div
+        id="assignee-candidates-list"
         ref={listRef}
-        role="list"
+        role="listbox"
+        aria-label={t("قائمة المرشحين", "Candidate assignees")}
         tabIndex={0}
         onKeyDown={handleListKeyDown}
         className="flex-1 overflow-y-auto p-2 space-y-1 focus:outline-none min-h-[160px] max-h-[240px]"
@@ -286,10 +341,16 @@ export function TaskAssigneePicker({
             const isContributor = isAssigned && !isLead;
             const isFocused = focusedIndex === idx;
 
+            const memberLabel = `${user.name}${
+              isLead ? ` (${t("مسؤول رئيسي", "Lead")})` : isContributor ? ` (${t("مشارك", "Contributor")})` : ""
+            }`;
+
             return (
               <div
                 key={user.id}
-                role="listitem"
+                id={`member-item-${user.id}`}
+                role="option"
+                aria-selected={isAssigned}
                 className={cn(
                   "group flex items-center justify-between gap-2 rounded-xl px-2.5 py-1.5 transition-colors text-start",
                   isFocused ? "bg-raised" : "hover:bg-raised/70",
@@ -301,6 +362,7 @@ export function TaskAssigneePicker({
                   type="button"
                   disabled={!canEdit || isSubmitting}
                   aria-pressed={isAssigned}
+                  aria-label={memberLabel}
                   onClick={() => {
                     if (isAssigned) {
                       void applyMutation(buildRemoveAssigneeMutation(draftTaskObj, user.id));
@@ -388,7 +450,7 @@ export function TaskAssigneePicker({
 
         <button
           type="button"
-          onClick={onClose}
+          onClick={handleCloseWithFocusRestore}
           className="rounded-xl bg-accent px-3 py-1 text-[11.5px] font-bold text-white shadow-xs hover:brightness-105 active:scale-95 transition"
         >
           {t("تم", "Done")}

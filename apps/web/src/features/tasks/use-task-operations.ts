@@ -80,11 +80,13 @@ export function useTaskOperations(input: TaskOperationsInput) {
   const updateTask = async (id: string, updates: Partial<Task>) => {
     const targetTask = tasks.find((task) => task.id === id) ?? (taskDetail?.id === id ? taskDetail : null);
     if (!targetTask) return false;
-    const snapshot = tasks;
+    const snapshotTasks = tasks;
+    const snapshotTaskDetail = taskDetail;
     setTasks((previous) => previous.map((task) => (task.id === id ? ({ ...task, ...updates } as Task) : task)));
     if (taskDetail?.id === id) {
       setTaskDetail((previous) => (previous ? ({ ...previous, ...updates } as Task) : null));
     }
+    setSubtasks((previous) => previous.map((task) => (task.id === id ? ({ ...task, ...updates } as Task) : task)));
     try {
       const canonical = await updateTaskRecord({
         id,
@@ -120,8 +122,17 @@ export function useTaskOperations(input: TaskOperationsInput) {
       }
       return true;
     } catch {
-      setTasks(snapshot);
+      setTasks(snapshotTasks);
+      setTaskDetail(snapshotTaskDetail);
+      setSubtasks((previous) =>
+        previous.map((task) =>
+          task.id === id
+            ? (snapshotTasks.find((st) => st.id === id) ?? (snapshotTaskDetail?.id === id ? snapshotTaskDetail : task))
+            : task,
+        ),
+      );
       notify(t("تعذر تحديث المهمة. بقيت حالتها السابقة.", "Save failed, reverted"), "error");
+      void refreshTasks().catch(() => {});
       return false;
     }
   };

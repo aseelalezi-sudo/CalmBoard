@@ -44,6 +44,7 @@ import {
   buildRemoveAssigneeMutation,
   buildSetLeadMutation,
   getWorkspaceCandidateUsers,
+  isAssignmentMutationNoop,
 } from "./assignment-domain";
 
 const columnLabels: Record<string, { ar: string; en: string }> = {
@@ -864,20 +865,51 @@ export function AdvancedTaskTable({ ctx }: { ctx: ViewCtx }) {
 
   const bulkSetLead = async (leadUserId: string) => {
     const selectedTasks = ctx.tasks.filter((t) => selectedIds.includes(t.id));
+    const tasksToUpdate: Task[] = [];
+    let skippedCount = 0;
+
+    for (const t of selectedTasks) {
+      const payload = buildSetLeadMutation(t, leadUserId);
+      if (isAssignmentMutationNoop(t, payload)) {
+        skippedCount++;
+      } else {
+        tasksToUpdate.push(t);
+      }
+    }
+
+    if (tasksToUpdate.length === 0) {
+      ctx.notify(
+        ctx.t(
+          `تم تخطي ${skippedCount} مهمة (المسؤول الرئيسي معين مسبقاً)`,
+          `Skipped ${skippedCount} tasks (already set as lead)`,
+        ),
+      );
+      setRowSelection({});
+      return;
+    }
+
     const results = await Promise.allSettled(
-      selectedTasks.map((t) => {
+      tasksToUpdate.map((t) => {
         const payload = buildSetLeadMutation(t, leadUserId);
         return ctx.updateTask(t.id, { expectedVersion: t.version, ...payload });
       }),
     );
     const failures = results.filter((r) => r.status === "rejected" || (r.status === "fulfilled" && r.value === false));
+    const updatedCount = tasksToUpdate.length - failures.length;
     if (failures.length > 0) {
       ctx.notify(
         ctx.t(
-          `تم تحديث المسؤول الرئيسي لـ ${selectedTasks.length - failures.length} من ${selectedTasks.length} مهمة.`,
-          `Updated lead for ${selectedTasks.length - failures.length} of ${selectedTasks.length} tasks. Some failed.`,
+          `تم تحديث ${updatedCount} مهمة، وتخطي ${skippedCount}، وفشل ${failures.length}.`,
+          `Updated ${updatedCount}, skipped ${skippedCount}, failed ${failures.length}.`,
         ),
         "error",
+      );
+    } else if (skippedCount > 0) {
+      ctx.notify(
+        ctx.t(
+          `تم تحديث ${updatedCount} مهمة وتخطي ${skippedCount}.`,
+          `Updated ${updatedCount} tasks, skipped ${skippedCount} unchanged.`,
+        ),
       );
     } else {
       ctx.notify(ctx.t("تم تعيين المسؤول الرئيسي للمهام المحددة", "Lead assignee updated for selected tasks"));
@@ -887,20 +919,48 @@ export function AdvancedTaskTable({ ctx }: { ctx: ViewCtx }) {
 
   const bulkAddAssignee = async (userId: string) => {
     const selectedTasks = ctx.tasks.filter((t) => selectedIds.includes(t.id));
+    const tasksToUpdate: Task[] = [];
+    let skippedCount = 0;
+
+    for (const t of selectedTasks) {
+      const payload = buildAddAssigneeMutation(t, userId);
+      if (isAssignmentMutationNoop(t, payload)) {
+        skippedCount++;
+      } else {
+        tasksToUpdate.push(t);
+      }
+    }
+
+    if (tasksToUpdate.length === 0) {
+      ctx.notify(
+        ctx.t(`تم تخطي ${skippedCount} مهمة (المشارك معين مسبقاً)`, `Skipped ${skippedCount} tasks (already assigned)`),
+      );
+      setRowSelection({});
+      return;
+    }
+
     const results = await Promise.allSettled(
-      selectedTasks.map((t) => {
+      tasksToUpdate.map((t) => {
         const payload = buildAddAssigneeMutation(t, userId);
         return ctx.updateTask(t.id, { expectedVersion: t.version, ...payload });
       }),
     );
     const failures = results.filter((r) => r.status === "rejected" || (r.status === "fulfilled" && r.value === false));
+    const updatedCount = tasksToUpdate.length - failures.length;
     if (failures.length > 0) {
       ctx.notify(
         ctx.t(
-          `تم إضافة المشارك لـ ${selectedTasks.length - failures.length} من ${selectedTasks.length} مهمة.`,
-          `Added assignee to ${selectedTasks.length - failures.length} of ${selectedTasks.length} tasks. Some failed.`,
+          `تم إضافة المشارك لـ ${updatedCount} مهمة، وتخطي ${skippedCount}، وفشل ${failures.length}.`,
+          `Added assignee to ${updatedCount} tasks, skipped ${skippedCount}, failed ${failures.length}.`,
         ),
         "error",
+      );
+    } else if (skippedCount > 0) {
+      ctx.notify(
+        ctx.t(
+          `تم إضافة المشارك لـ ${updatedCount} مهمة وتخطي ${skippedCount}.`,
+          `Added assignee to ${updatedCount} tasks, skipped ${skippedCount} unchanged.`,
+        ),
       );
     } else {
       ctx.notify(ctx.t("تم إضافة المشارك للمهام المحددة", "Assignee added to selected tasks"));
@@ -910,20 +970,51 @@ export function AdvancedTaskTable({ ctx }: { ctx: ViewCtx }) {
 
   const bulkRemoveAssignee = async (userId: string) => {
     const selectedTasks = ctx.tasks.filter((t) => selectedIds.includes(t.id));
+    const tasksToUpdate: Task[] = [];
+    let skippedCount = 0;
+
+    for (const t of selectedTasks) {
+      const payload = buildRemoveAssigneeMutation(t, userId);
+      if (isAssignmentMutationNoop(t, payload)) {
+        skippedCount++;
+      } else {
+        tasksToUpdate.push(t);
+      }
+    }
+
+    if (tasksToUpdate.length === 0) {
+      ctx.notify(
+        ctx.t(
+          `تم تخطي ${skippedCount} مهمة (الشخص غير معين في هذه المهام)`,
+          `Skipped ${skippedCount} tasks (not assigned)`,
+        ),
+      );
+      setRowSelection({});
+      return;
+    }
+
     const results = await Promise.allSettled(
-      selectedTasks.map((t) => {
+      tasksToUpdate.map((t) => {
         const payload = buildRemoveAssigneeMutation(t, userId);
         return ctx.updateTask(t.id, { expectedVersion: t.version, ...payload });
       }),
     );
     const failures = results.filter((r) => r.status === "rejected" || (r.status === "fulfilled" && r.value === false));
+    const updatedCount = tasksToUpdate.length - failures.length;
     if (failures.length > 0) {
       ctx.notify(
         ctx.t(
-          `تمت الإزالة من ${selectedTasks.length - failures.length} من ${selectedTasks.length} مهمة.`,
-          `Removed assignee from ${selectedTasks.length - failures.length} of ${selectedTasks.length} tasks.`,
+          `تمت الإزالة من ${updatedCount} مهمة، وتخطي ${skippedCount}، وفشل ${failures.length}.`,
+          `Removed assignee from ${updatedCount} tasks, skipped ${skippedCount}, failed ${failures.length}.`,
         ),
         "error",
+      );
+    } else if (skippedCount > 0) {
+      ctx.notify(
+        ctx.t(
+          `تمت الإزالة من ${updatedCount} مهمة وتخطي ${skippedCount}.`,
+          `Removed assignee from ${updatedCount} tasks, skipped ${skippedCount} unchanged.`,
+        ),
       );
     } else {
       ctx.notify(ctx.t("تمت إزالة الشخص من المهام المحددة", "Assignee removed from selected tasks"));
@@ -933,23 +1024,54 @@ export function AdvancedTaskTable({ ctx }: { ctx: ViewCtx }) {
 
   const bulkClearAssignees = async () => {
     const selectedTasks = ctx.tasks.filter((t) => selectedIds.includes(t.id));
+    const tasksToUpdate: Task[] = [];
+    let skippedCount = 0;
+
+    for (const t of selectedTasks) {
+      const payload = buildClearAllAssigneesMutation();
+      if (isAssignmentMutationNoop(t, payload)) {
+        skippedCount++;
+      } else {
+        tasksToUpdate.push(t);
+      }
+    }
+
+    if (tasksToUpdate.length === 0) {
+      ctx.notify(
+        ctx.t(
+          `تم تخطي ${skippedCount} مهمة (المهام غير معينة مسبقاً)`,
+          `Skipped ${skippedCount} tasks (already unassigned)`,
+        ),
+      );
+      setRowSelection({});
+      return;
+    }
+
     const results = await Promise.allSettled(
-      selectedTasks.map((t) => {
+      tasksToUpdate.map((t) => {
         const payload = buildClearAllAssigneesMutation();
         return ctx.updateTask(t.id, { expectedVersion: t.version, ...payload });
       }),
     );
     const failures = results.filter((r) => r.status === "rejected" || (r.status === "fulfilled" && r.value === false));
+    const updatedCount = tasksToUpdate.length - failures.length;
     if (failures.length > 0) {
       ctx.notify(
         ctx.t(
-          `تم إلغاء التعيين لـ ${selectedTasks.length - failures.length} من ${selectedTasks.length} مهمة.`,
-          `Cleared assignees for ${selectedTasks.length - failures.length} of ${selectedTasks.length} tasks.`,
+          `تم إلغاء التعيين لـ ${updatedCount} مهمة، وتخطي ${skippedCount}، وفشل ${failures.length}.`,
+          `Cleared assignees for ${updatedCount} tasks, skipped ${skippedCount}, failed ${failures.length}.`,
         ),
         "error",
       );
+    } else if (skippedCount > 0) {
+      ctx.notify(
+        ctx.t(
+          `تم إلغاء التعيين لـ ${updatedCount} مهمة وتخطي ${skippedCount}.`,
+          `Cleared assignees for ${updatedCount} tasks, skipped ${skippedCount} unchanged.`,
+        ),
+      );
     } else {
-      ctx.notify(ctx.t("تم إلغاء التعيين لجميع المهام المحددة", "Cleared assignees for selected tasks"));
+      ctx.notify(ctx.t("تم إلغاء تعيين المسؤولين للمهام المحددة", "Cleared assignees for selected tasks"));
     }
     setRowSelection({});
   };

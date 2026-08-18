@@ -163,6 +163,7 @@ test.describe("CalmBoard core acceptance", () => {
     page,
   }) => {
     test.setTimeout(120_000);
+    // 1. Provision active Member A + Member B
     const identity = await registerIsolatedOwner(page);
     const projectName = `Assignee Project ${randomUUID().slice(0, 8)}`;
     const taskName = `Multi-assignee feature ${randomUUID().slice(0, 8)}`;
@@ -185,7 +186,7 @@ test.describe("CalmBoard core acceptance", () => {
     await page.getByRole("button", { name: "Create with Starter Kit" }).click();
     await expect(page.getByRole("heading", { name: projectName, exact: true })).toBeVisible({ timeout: 15_000 });
 
-    // Open New Task Modal
+    // 2. Create Task with A as Lead and B as Contributor
     await page.getByRole("button", { name: /New Task/ }).click();
     await page.getByPlaceholder("What needs to be done?").fill(taskName);
 
@@ -196,7 +197,7 @@ test.describe("CalmBoard core acceptance", () => {
 
     // Assign Sara (becomes Lead)
     const pickerDialog = page.getByRole("dialog", {
-      name: /Assign Lead and Contributors|تعيين المسؤول الرئيسي والمشاركين/i,
+      name: /Assign Lead and Contributors|تعيين المسؤولين والمشاركين/i,
     });
     await expect(pickerDialog.getByText("People & Assignment")).toBeVisible();
     await pickerDialog.getByText(member1Name).click();
@@ -210,29 +211,80 @@ test.describe("CalmBoard core acceptance", () => {
     // Submit task creation
     await page.getByRole("button", { name: "Create task", exact: true }).last().click();
 
-    // Verify task appears on Table view
+    // 3. Verify Drawer explicitly identifies A = Lead, B = Contributor
     await expect(page.getByText(taskName, { exact: true })).toBeVisible({ timeout: 10_000 });
-
-    // Open Task Drawer
     await page.getByText(taskName, { exact: true }).click();
     await expect(page.getByText("People & Assignment", { exact: true })).toBeVisible();
 
-    // Verify Lead is Sara and Contributor is Khaled in Drawer
-    await expect(page.getByText(member1Name).first()).toBeVisible();
-    await expect(page.getByText(member2Name).first()).toBeVisible();
-
-    // Promote Khaled to Lead
     const drawerPanel = page.locator(".fixed.inset-0.z-50");
-    const promoteToLeadBtn = drawerPanel.getByRole("button", { name: new RegExp(`Set ${member2Name} as Lead|Lead`) });
-    if (await promoteToLeadBtn.first().isVisible()) {
-      await promoteToLeadBtn.first().click();
-    }
+    await expect(drawerPanel.getByText(member1Name).first()).toBeVisible();
+    await expect(drawerPanel.getByText(member2Name).first()).toBeVisible();
 
-    // Close Drawer using close button
-    await drawerPanel.getByLabel(/Close|إغلاق/i).click();
+    // 4. Make B Lead (unconditional assertion)
+    const promoteToLeadBtn = drawerPanel.getByRole("button", {
+      name: new RegExp(`Set ${member2Name} as Lead|تعيين ${member2Name} كمسؤول رئيسي`),
+    });
+    await expect(promoteToLeadBtn).toBeVisible();
+    await promoteToLeadBtn.click();
 
-    // Switch to Board view and verify task card
+    // 5. Assert B = Lead, A = Contributor
+    const demotedToLeadBtn = drawerPanel.getByRole("button", {
+      name: new RegExp(`Set ${member1Name} as Lead|تعيين ${member1Name} كمسؤول رئيسي`),
+    });
+    await expect(demotedToLeadBtn).toBeVisible();
+
+    // 6. Remove A
+    const removeABtn = drawerPanel.getByRole("button", {
+      name: new RegExp(`Remove ${member1Name}|إزالة ${member1Name}`),
+    });
+    await expect(removeABtn).toBeVisible();
+    await removeABtn.click();
+
+    // 7. Assert B remains only execution assignee
+    await expect(drawerPanel.getByText(member2Name).first()).toBeVisible();
+    await expect(drawerPanel.getByText(member1Name)).not.toBeVisible();
+
+    // 8. Close Drawer
+    const drawerCloseBtn = drawerPanel.getByLabel(/Close|إغلاق/i).first();
+    await expect(drawerCloseBtn).toBeVisible();
+    await drawerCloseBtn.click();
+    await expect(drawerPanel).not.toBeVisible();
+
+    // 9. Verify Table assignment stack
+    const tableAssigneeStack = page.getByRole("button", { name: new RegExp(`${member2Name}`) }).first();
+    await expect(tableAssigneeStack).toBeVisible();
+
+    // 10. Verify Board assignment stack
     await page.getByRole("tab", { name: /Board/i }).click();
     await expect(page.getByText(taskName, { exact: true })).toBeVisible();
+    const taskCard = page.locator(".task-card").filter({ hasText: taskName });
+    const boardAssigneeStack = taskCard.getByRole("button", { name: new RegExp(`${member2Name}`) }).first();
+    await expect(boardAssigneeStack).toBeVisible();
+
+    // 11. Clicking Board assignment stack opens picker and does NOT open Task Drawer
+    await boardAssigneeStack.click();
+    const boardPickerDialog = page.getByRole("dialog", {
+      name: /Assign Lead and Contributors|تعيين المسؤولين والمشاركين/i,
+    });
+    await expect(boardPickerDialog).toBeVisible();
+    await expect(drawerPanel).not.toBeVisible();
+
+    // 12. Verify appropriate role behavior (B is identified with Lead role in picker)
+    await expect(boardPickerDialog.getByText(member2Name)).toBeVisible();
+    await expect(boardPickerDialog.getByText(/Lead|رئيسي/i).first()).toBeVisible();
+
+    // 13. Verify Clear All in picker
+    const clearAllBtn = boardPickerDialog.getByRole("button", { name: /Clear all|إلغاء التعيين للكل/i });
+    await expect(clearAllBtn).toBeVisible();
+    await clearAllBtn.click();
+
+    // Close picker
+    const doneBtn = boardPickerDialog.getByRole("button", { name: /Done|تم/i });
+    await expect(doneBtn).toBeVisible();
+    await doneBtn.click();
+
+    // 14. Verify Unassigned state
+    const unassignedButton = taskCard.getByRole("button", { name: /Assign people|Unassigned|غير محدد/i }).first();
+    await expect(unassignedButton).toBeVisible();
   });
 });
