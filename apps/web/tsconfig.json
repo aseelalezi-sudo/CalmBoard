@@ -15,7 +15,9 @@
     "incremental": true,
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@calmboard/database": ["../../packages/database/src/index.ts"],
+      "@calmboard/database/*": ["../../packages/database/src/*"]
     },
     "plugins": [
       {

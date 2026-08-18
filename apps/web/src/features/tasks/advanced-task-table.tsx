@@ -37,6 +37,14 @@ import { useBulkTaskActions } from "./use-bulk-task-actions";
 import { parseTaskClipboard, serializeTasksForClipboard, type TaskClipboardUpdate } from "./task-table-clipboard";
 import { moveTableColumn } from "./task-table-state";
 import { useTaskViewStateStore } from "@/stores/task-view-state-store";
+import { TaskAssignmentControl } from "./task-assignment-control";
+import {
+  buildAddAssigneeMutation,
+  buildClearAllAssigneesMutation,
+  buildRemoveAssigneeMutation,
+  buildSetLeadMutation,
+  getWorkspaceCandidateUsers,
+} from "./assignment-domain";
 
 const columnLabels: Record<string, { ar: string; en: string }> = {
   title: { ar: "المهمة", en: "Task" },
@@ -229,35 +237,7 @@ function SubtaskTableRow({ subtask, ctx, columns }: { subtask: Task; ctx: ViewCt
             )}
 
             {col.id === "assignee" && (
-              <div
-                className="group/assignee relative inline-flex items-center gap-1.5 rounded-lg px-1.5 py-0.5 transition-colors hover:bg-raised cursor-pointer max-w-full"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <Avatar src={avatarUrl} name={assigneeName} size={16} />
-                <span className="truncate text-[10.5px] font-medium text-ink-soft group-hover/assignee:text-ink">
-                  {assigneeName || ctx.t("غير محدد", "Unassigned")}
-                </span>
-                <select
-                  name={`subtask-assignee-${subtask.id}`}
-                  value={subtask.assigneeId || ""}
-                  disabled={!ctx.can("tasks.update")}
-                  onChange={(e) =>
-                    ctx.updateTask(
-                      subtask.id,
-                      e.target.value ? { assigneeId: e.target.value } : { assigneeId: null, assigneeIds: [] },
-                    )
-                  }
-                  className="absolute inset-0 cursor-pointer opacity-0"
-                  aria-label={ctx.t("تعيين مسؤول", "Assign task")}
-                >
-                  <option value="">{ctx.t("غير محدد", "Unassigned")}</option>
-                  {ctx.users.map((user) => (
-                    <option key={user.id} value={user.id}>
-                      {user.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <TaskAssignmentControl task={subtask} ctx={ctx} size={16} maxVisible={2} showLabel={false} />
             )}
 
             {col.id === "points" && (
@@ -547,44 +527,9 @@ export function AdvancedTaskTable({ ctx }: { ctx: ViewCtx }) {
         size: 165,
         minSize: 125,
         header: ctx.t("المسؤول", "Assignee"),
-        cell: ({ row }) => {
-          const assigneeName =
-            row.original.assignee?.name || ctx.users.find((user) => user.id === row.original.assigneeId)?.name;
-          const avatarUrl =
-            row.original.assignee?.avatarUrl ||
-            ctx.users.find((user) => user.id === row.original.assigneeId)?.avatarUrl;
-          return (
-            <div
-              className="group relative inline-flex items-center gap-1.5 rounded-lg px-1.5 py-0.5 transition-colors hover:bg-raised cursor-pointer max-w-full"
-              onClick={(event) => event.stopPropagation()}
-            >
-              <Avatar src={avatarUrl} name={assigneeName} size={20} />
-              <span className="truncate text-[11.5px] font-medium text-ink-soft group-hover:text-ink">
-                {assigneeName || ctx.t("غير محدد", "Unassigned")}
-              </span>
-              <select
-                name={`task-assignee-${row.original.id}`}
-                value={row.original.assigneeId || ""}
-                disabled={!ctx.can("tasks.update")}
-                onChange={(event) =>
-                  ctx.updateTask(
-                    row.original.id,
-                    event.target.value ? { assigneeId: event.target.value } : { assigneeId: null, assigneeIds: [] },
-                  )
-                }
-                className="absolute inset-0 cursor-pointer opacity-0"
-                aria-label={ctx.t("تعيين مسؤول", "Assign task")}
-              >
-                <option value="">{ctx.t("غير محدد", "Unassigned")}</option>
-                {ctx.users.map((user) => (
-                  <option key={user.id} value={user.id}>
-                    {user.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          );
-        },
+        cell: ({ row }) => (
+          <TaskAssignmentControl task={row.original} ctx={ctx} size={20} maxVisible={3} showLabel={false} />
+        ),
       },
       {
         id: "points",
@@ -873,20 +818,139 @@ export function AdvancedTaskTable({ ctx }: { ctx: ViewCtx }) {
     }
   };
 
-  const bulkStatusChange = (status: string) => {
-    selectedIds.forEach((id) => ctx.updateTask(id, { status, progress: status === "done" ? 100 : undefined }));
-    setRowSelection({});
-  };
+  const candidateUsers = useMemo(() => getWorkspaceCandidateUsers(ctx.members, ctx.users), [ctx.members, ctx.users]);
 
-  const bulkPriorityChange = (priority: string) => {
-    selectedIds.forEach((id) => ctx.updateTask(id, { priority }));
-    setRowSelection({});
-  };
-
-  const bulkAssigneeChange = (assigneeId: string) => {
-    selectedIds.forEach((id) =>
-      ctx.updateTask(id, assigneeId ? { assigneeId } : { assigneeId: null, assigneeIds: [] }),
+  const bulkStatusChange = async (status: string) => {
+    const selectedTasks = ctx.tasks.filter((t) => selectedIds.includes(t.id));
+    const results = await Promise.allSettled(
+      selectedTasks.map((t) =>
+        ctx.updateTask(t.id, {
+          expectedVersion: t.version,
+          status,
+          progress: status === "done" ? 100 : undefined,
+        }),
+      ),
     );
+    const failures = results.filter((r) => r.status === "rejected" || (r.status === "fulfilled" && r.value === false));
+    if (failures.length > 0) {
+      ctx.notify(
+        ctx.t(
+          `تم تحديث بعض المهام (${selectedTasks.length - failures.length}/${selectedTasks.length}). تعذر تحديث الباقي.`,
+          `Updated ${selectedTasks.length - failures.length} of ${selectedTasks.length} tasks. Some failed.`,
+        ),
+        "error",
+      );
+    }
+    setRowSelection({});
+  };
+
+  const bulkPriorityChange = async (priority: string) => {
+    const selectedTasks = ctx.tasks.filter((t) => selectedIds.includes(t.id));
+    const results = await Promise.allSettled(
+      selectedTasks.map((t) => ctx.updateTask(t.id, { expectedVersion: t.version, priority })),
+    );
+    const failures = results.filter((r) => r.status === "rejected" || (r.status === "fulfilled" && r.value === false));
+    if (failures.length > 0) {
+      ctx.notify(
+        ctx.t(
+          `تم تحديث بعض المهام (${selectedTasks.length - failures.length}/${selectedTasks.length}). تعذر تحديث الباقي.`,
+          `Updated ${selectedTasks.length - failures.length} of ${selectedTasks.length} tasks. Some failed.`,
+        ),
+        "error",
+      );
+    }
+    setRowSelection({});
+  };
+
+  const bulkSetLead = async (leadUserId: string) => {
+    const selectedTasks = ctx.tasks.filter((t) => selectedIds.includes(t.id));
+    const results = await Promise.allSettled(
+      selectedTasks.map((t) => {
+        const payload = buildSetLeadMutation(t, leadUserId);
+        return ctx.updateTask(t.id, { expectedVersion: t.version, ...payload });
+      }),
+    );
+    const failures = results.filter((r) => r.status === "rejected" || (r.status === "fulfilled" && r.value === false));
+    if (failures.length > 0) {
+      ctx.notify(
+        ctx.t(
+          `تم تحديث المسؤول الرئيسي لـ ${selectedTasks.length - failures.length} من ${selectedTasks.length} مهمة.`,
+          `Updated lead for ${selectedTasks.length - failures.length} of ${selectedTasks.length} tasks. Some failed.`,
+        ),
+        "error",
+      );
+    } else {
+      ctx.notify(ctx.t("تم تعيين المسؤول الرئيسي للمهام المحددة", "Lead assignee updated for selected tasks"));
+    }
+    setRowSelection({});
+  };
+
+  const bulkAddAssignee = async (userId: string) => {
+    const selectedTasks = ctx.tasks.filter((t) => selectedIds.includes(t.id));
+    const results = await Promise.allSettled(
+      selectedTasks.map((t) => {
+        const payload = buildAddAssigneeMutation(t, userId);
+        return ctx.updateTask(t.id, { expectedVersion: t.version, ...payload });
+      }),
+    );
+    const failures = results.filter((r) => r.status === "rejected" || (r.status === "fulfilled" && r.value === false));
+    if (failures.length > 0) {
+      ctx.notify(
+        ctx.t(
+          `تم إضافة المشارك لـ ${selectedTasks.length - failures.length} من ${selectedTasks.length} مهمة.`,
+          `Added assignee to ${selectedTasks.length - failures.length} of ${selectedTasks.length} tasks. Some failed.`,
+        ),
+        "error",
+      );
+    } else {
+      ctx.notify(ctx.t("تم إضافة المشارك للمهام المحددة", "Assignee added to selected tasks"));
+    }
+    setRowSelection({});
+  };
+
+  const bulkRemoveAssignee = async (userId: string) => {
+    const selectedTasks = ctx.tasks.filter((t) => selectedIds.includes(t.id));
+    const results = await Promise.allSettled(
+      selectedTasks.map((t) => {
+        const payload = buildRemoveAssigneeMutation(t, userId);
+        return ctx.updateTask(t.id, { expectedVersion: t.version, ...payload });
+      }),
+    );
+    const failures = results.filter((r) => r.status === "rejected" || (r.status === "fulfilled" && r.value === false));
+    if (failures.length > 0) {
+      ctx.notify(
+        ctx.t(
+          `تمت الإزالة من ${selectedTasks.length - failures.length} من ${selectedTasks.length} مهمة.`,
+          `Removed assignee from ${selectedTasks.length - failures.length} of ${selectedTasks.length} tasks.`,
+        ),
+        "error",
+      );
+    } else {
+      ctx.notify(ctx.t("تمت إزالة الشخص من المهام المحددة", "Assignee removed from selected tasks"));
+    }
+    setRowSelection({});
+  };
+
+  const bulkClearAssignees = async () => {
+    const selectedTasks = ctx.tasks.filter((t) => selectedIds.includes(t.id));
+    const results = await Promise.allSettled(
+      selectedTasks.map((t) => {
+        const payload = buildClearAllAssigneesMutation();
+        return ctx.updateTask(t.id, { expectedVersion: t.version, ...payload });
+      }),
+    );
+    const failures = results.filter((r) => r.status === "rejected" || (r.status === "fulfilled" && r.value === false));
+    if (failures.length > 0) {
+      ctx.notify(
+        ctx.t(
+          `تم إلغاء التعيين لـ ${selectedTasks.length - failures.length} من ${selectedTasks.length} مهمة.`,
+          `Cleared assignees for ${selectedTasks.length - failures.length} of ${selectedTasks.length} tasks.`,
+        ),
+        "error",
+      );
+    } else {
+      ctx.notify(ctx.t("تم إلغاء التعيين لجميع المهام المحددة", "Cleared assignees for selected tasks"));
+    }
     setRowSelection({});
   };
 
@@ -1589,17 +1653,66 @@ export function AdvancedTaskTable({ ctx }: { ctx: ViewCtx }) {
                 ))}
               </select>
 
-              {/* Quick Assignee Select */}
+              {/* Bulk Set Lead Select */}
               <select
-                name="bulk-assignee-select"
+                name="bulk-set-lead-select"
                 defaultValue=""
-                onChange={(event) => bulkAssigneeChange(event.target.value)}
+                onChange={(event) => {
+                  if (event.target.value) {
+                    void bulkSetLead(event.target.value);
+                    event.target.value = "";
+                  }
+                }}
                 className="h-8 rounded-xl border border-line bg-raised/80 px-2.5 text-[11.5px] font-semibold text-ink outline-none cursor-pointer hover:bg-surface transition shrink-0 max-w-[130px] truncate"
-                aria-label={ctx.t("تعيين مسؤول لجميع المهام المحددة", "Bulk assign user")}
+                aria-label={ctx.t("تعيين مسؤول رئيسي للمهام المحددة", "Set Lead for selected tasks")}
               >
-                <option value="">👤 {ctx.t("تعيين لـ…", "Assign to…")}</option>
-                <option value="">{ctx.t("غير محدد (إلغاء التعيين)", "Unassigned")}</option>
-                {ctx.users.map((user) => (
+                <option value="">★ {ctx.t("تعيين رئيسي…", "Set Lead…")}</option>
+                {candidateUsers.map((user) => (
+                  <option key={user.id} value={user.id}>
+                    {user.name}
+                  </option>
+                ))}
+              </select>
+
+              {/* Bulk Add Assignee Select */}
+              <select
+                name="bulk-add-assignee-select"
+                defaultValue=""
+                onChange={(event) => {
+                  if (event.target.value) {
+                    void bulkAddAssignee(event.target.value);
+                    event.target.value = "";
+                  }
+                }}
+                className="h-8 rounded-xl border border-line bg-raised/80 px-2.5 text-[11.5px] font-semibold text-ink outline-none cursor-pointer hover:bg-surface transition shrink-0 max-w-[130px] truncate"
+                aria-label={ctx.t("إضافة مشارك للمهام المحددة", "Add assignee to selected tasks")}
+              >
+                <option value="">+ {ctx.t("إضافة مشارك…", "Add assignee…")}</option>
+                {candidateUsers.map((user) => (
+                  <option key={user.id} value={user.id}>
+                    {user.name}
+                  </option>
+                ))}
+              </select>
+
+              {/* Bulk Remove Assignee / Clear */}
+              <select
+                name="bulk-remove-assignee-select"
+                defaultValue=""
+                onChange={(event) => {
+                  if (event.target.value === "__clear_all__") {
+                    void bulkClearAssignees();
+                  } else if (event.target.value) {
+                    void bulkRemoveAssignee(event.target.value);
+                  }
+                  event.target.value = "";
+                }}
+                className="h-8 rounded-xl border border-line bg-raised/80 px-2.5 text-[11.5px] font-semibold text-ink outline-none cursor-pointer hover:bg-surface transition shrink-0 max-w-[130px] truncate"
+                aria-label={ctx.t("إزالة تعيين من المهام المحددة", "Remove assignee from selected tasks")}
+              >
+                <option value="">- {ctx.t("إزالة…", "Remove…")}</option>
+                <option value="__clear_all__">{ctx.t("إلغاء تعيين الكل", "Clear all assignees")}</option>
+                {candidateUsers.map((user) => (
                   <option key={user.id} value={user.id}>
                     {user.name}
                   </option>

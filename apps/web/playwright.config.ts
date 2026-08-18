@@ -1,5 +1,10 @@
 import { defineConfig, devices } from "@playwright/test";
 
+try {
+  const envPath = "../../.env";
+  process.loadEnvFile?.(envPath);
+} catch {}
+
 /**
  * Keep the same browser matrix locally and in CI. The workflow installs the
  * Playwright-managed binaries that match this package version and runs every

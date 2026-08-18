@@ -31,7 +31,19 @@ import { Badge, Avatar, Bar, Card, Empty, SectionTitle, Btn, Toggle, ScreenState
 import { confirmAction, promptAction } from "@/components/feedback";
 import { useBulkTaskActions } from "@/features/tasks/use-bulk-task-actions";
 import { AdvancedWorkload } from "./advanced-workload";
-import { isTaskAssignedTo, getTaskEffortShare, rebalanceTaskAssignees } from "./assignment-domain";
+import { TaskAssignmentControl } from "./task-assignment-control";
+import {
+  isTaskAssignedTo,
+  isTaskLead,
+  isTaskContributor,
+  getTaskEffortShare,
+  rebalanceTaskAssignees,
+  buildSetLeadMutation,
+  buildAddAssigneeMutation,
+  buildRemoveAssigneeMutation,
+  buildClearAllAssigneesMutation,
+  getWorkspaceCandidateUsers,
+} from "./assignment-domain";
 import {
   IconPlus,
   IconSearch,
@@ -220,7 +232,7 @@ function TaskCard({
       )}
       <div className="mt-3 flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
-          <Avatar src={task.assignee?.avatarUrl} name={task.assignee?.name} size={22} />
+          <TaskAssignmentControl task={task} ctx={ctx} size={22} maxVisible={3} />
           {task.dueDate && (
             <span
               className={`inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10.5px] ${overdue ? "border-rose-300 bg-rose-50 text-rose-700 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-300" : "border-slate-200 bg-slate-100 text-slate-600 dark:border-white/[0.07] dark:bg-white/3 dark:text-zinc-400"}`}
@@ -811,42 +823,7 @@ export function ListView({ ctx }: { ctx: ViewCtx }) {
                       })()}
                     </td>
                     <td className="px-4 py-3.5" onClick={(e) => e.stopPropagation()}>
-                      {(() => {
-                        const assigneeName =
-                          task.assignee?.name || ctx.users.find((u) => u.id === task.assigneeId)?.name;
-                        const avatarUrl =
-                          task.assignee?.avatarUrl || ctx.users.find((u) => u.id === task.assigneeId)?.avatarUrl;
-                        return (
-                          <div className="group relative inline-flex items-center gap-1.5 rounded-lg px-1.5 py-0.5 transition-colors hover:bg-raised cursor-pointer max-w-full">
-                            <Avatar src={avatarUrl} name={assigneeName} size={22} />
-                            <span className="truncate text-[11.5px] font-medium text-ink-soft group-hover:text-ink">
-                              {assigneeName ? assigneeName.split(" ")[0] : ctx.t("غير محدد", "Unassigned")}
-                            </span>
-                            <select
-                              disabled={!ctx.can("tasks.update")}
-                              name={`assignee-${task.id}`}
-                              value={task.assigneeId || ""}
-                              onChange={(e) =>
-                                ctx.updateTask(
-                                  task.id,
-                                  e.target.value
-                                    ? { assigneeId: e.target.value }
-                                    : { assigneeId: null, assigneeIds: [] },
-                                )
-                              }
-                              className="absolute inset-0 cursor-pointer opacity-0"
-                              aria-label={ctx.t("تعيين مسؤول", "Assign task")}
-                            >
-                              <option value="">{ctx.t("غير محدد", "Unassigned")}</option>
-                              {ctx.users.map((u) => (
-                                <option key={u.id} value={u.id}>
-                                  {u.name}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-                        );
-                      })()}
+                      <TaskAssignmentControl task={task} ctx={ctx} size={22} maxVisible={3} showLabel={false} />
                     </td>
                     <td className="px-4 py-3.5 text-[12px] text-ink-faint font-medium">
                       {task.dueDate ? fmtDate(task.dueDate, ctx.locale) : "—"}
@@ -929,15 +906,121 @@ export function LegacyTableView({ ctx }: { ctx: ViewCtx }) {
     }
   };
 
-  const bulkStatusChange = (status: string) => {
-    selectedIds.forEach((id) => ctx.updateTask(id, { status, progress: status === "done" ? 100 : undefined }));
+  const candidateUsers = useMemo(() => getWorkspaceCandidateUsers(ctx.members, ctx.users), [ctx.members, ctx.users]);
+
+  const bulkStatusChange = async (status: string) => {
+    const selectedTasks = ctx.tasks.filter((t) => selectedIds.includes(t.id));
+    const results = await Promise.allSettled(
+      selectedTasks.map((t) =>
+        ctx.updateTask(t.id, {
+          expectedVersion: t.version,
+          status,
+          progress: status === "done" ? 100 : undefined,
+        }),
+      ),
+    );
+    const failures = results.filter((r) => r.status === "rejected" || (r.status === "fulfilled" && r.value === false));
+    if (failures.length > 0) {
+      ctx.notify(
+        ctx.t(
+          `تم تحديث بعض المهام (${selectedTasks.length - failures.length}/${selectedTasks.length}). تعذر تحديث الباقي.`,
+          `Updated ${selectedTasks.length - failures.length} of ${selectedTasks.length} tasks. Some failed.`,
+        ),
+        "error",
+      );
+    }
     setSelectedIds([]);
   };
 
-  const bulkAssignChange = (assigneeId: string) => {
-    selectedIds.forEach((id) =>
-      ctx.updateTask(id, assigneeId ? { assigneeId } : { assigneeId: null, assigneeIds: [] }),
+  const bulkSetLead = async (leadUserId: string) => {
+    const selectedTasks = ctx.tasks.filter((t) => selectedIds.includes(t.id));
+    const results = await Promise.allSettled(
+      selectedTasks.map((t) => {
+        const payload = buildSetLeadMutation(t, leadUserId);
+        return ctx.updateTask(t.id, { expectedVersion: t.version, ...payload });
+      }),
     );
+    const failures = results.filter((r) => r.status === "rejected" || (r.status === "fulfilled" && r.value === false));
+    if (failures.length > 0) {
+      ctx.notify(
+        ctx.t(
+          `تم تحديث المسؤول الرئيسي لـ ${selectedTasks.length - failures.length} من ${selectedTasks.length} مهمة.`,
+          `Updated lead for ${selectedTasks.length - failures.length} of ${selectedTasks.length} tasks. Some failed.`,
+        ),
+        "error",
+      );
+    } else {
+      ctx.notify(ctx.t("تم تعيين المسؤول الرئيسي للمهام المحددة", "Lead assignee updated for selected tasks"));
+    }
+    setSelectedIds([]);
+  };
+
+  const bulkAddAssignee = async (userId: string) => {
+    const selectedTasks = ctx.tasks.filter((t) => selectedIds.includes(t.id));
+    const results = await Promise.allSettled(
+      selectedTasks.map((t) => {
+        const payload = buildAddAssigneeMutation(t, userId);
+        return ctx.updateTask(t.id, { expectedVersion: t.version, ...payload });
+      }),
+    );
+    const failures = results.filter((r) => r.status === "rejected" || (r.status === "fulfilled" && r.value === false));
+    if (failures.length > 0) {
+      ctx.notify(
+        ctx.t(
+          `تم إضافة المشارك لـ ${selectedTasks.length - failures.length} من ${selectedTasks.length} مهمة.`,
+          `Added assignee to ${selectedTasks.length - failures.length} of ${selectedTasks.length} tasks. Some failed.`,
+        ),
+        "error",
+      );
+    } else {
+      ctx.notify(ctx.t("تم إضافة المشارك للمهام المحددة", "Assignee added to selected tasks"));
+    }
+    setSelectedIds([]);
+  };
+
+  const bulkRemoveAssignee = async (userId: string) => {
+    const selectedTasks = ctx.tasks.filter((t) => selectedIds.includes(t.id));
+    const results = await Promise.allSettled(
+      selectedTasks.map((t) => {
+        const payload = buildRemoveAssigneeMutation(t, userId);
+        return ctx.updateTask(t.id, { expectedVersion: t.version, ...payload });
+      }),
+    );
+    const failures = results.filter((r) => r.status === "rejected" || (r.status === "fulfilled" && r.value === false));
+    if (failures.length > 0) {
+      ctx.notify(
+        ctx.t(
+          `تمت الإزالة من ${selectedTasks.length - failures.length} من ${selectedTasks.length} مهمة.`,
+          `Removed assignee from ${selectedTasks.length - failures.length} of ${selectedTasks.length} tasks.`,
+        ),
+        "error",
+      );
+    } else {
+      ctx.notify(ctx.t("تمت إزالة الشخص من المهام المحددة", "Assignee removed from selected tasks"));
+    }
+    setSelectedIds([]);
+  };
+
+  const bulkClearAssignees = async () => {
+    const selectedTasks = ctx.tasks.filter((t) => selectedIds.includes(t.id));
+    const results = await Promise.allSettled(
+      selectedTasks.map((t) => {
+        const payload = buildClearAllAssigneesMutation();
+        return ctx.updateTask(t.id, { expectedVersion: t.version, ...payload });
+      }),
+    );
+    const failures = results.filter((r) => r.status === "rejected" || (r.status === "fulfilled" && r.value === false));
+    if (failures.length > 0) {
+      ctx.notify(
+        ctx.t(
+          `تم إلغاء التعيين لـ ${selectedTasks.length - failures.length} من ${selectedTasks.length} مهمة.`,
+          `Cleared assignees for ${selectedTasks.length - failures.length} of ${selectedTasks.length} tasks.`,
+        ),
+        "error",
+      );
+    } else {
+      ctx.notify(ctx.t("تم إلغاء التعيين لجميع المهام المحددة", "Cleared assignees for selected tasks"));
+    }
     setSelectedIds([]);
   };
 
@@ -1164,39 +1247,7 @@ export function LegacyTableView({ ctx }: { ctx: ViewCtx }) {
                 )}
                 {!hiddenCols.includes("assignee") && (
                   <div className="w-[150px] py-3 shrink-0" onClick={(e) => e.stopPropagation()}>
-                    {(() => {
-                      const assigneeName = task.assignee?.name || ctx.users.find((u) => u.id === task.assigneeId)?.name;
-                      const avatarUrl =
-                        task.assignee?.avatarUrl || ctx.users.find((u) => u.id === task.assigneeId)?.avatarUrl;
-                      return (
-                        <div className="group relative inline-flex items-center gap-1.5 rounded-lg px-1.5 py-0.5 transition-colors hover:bg-raised cursor-pointer max-w-full">
-                          <Avatar src={avatarUrl} name={assigneeName} size={20} />
-                          <span className="truncate text-[11.5px] font-medium text-ink-soft group-hover:text-ink">
-                            {assigneeName ? assigneeName.split(" ")[0] : ctx.t("غير محدد", "Unassigned")}
-                          </span>
-                          <select
-                            name="auto-field-clqbiye"
-                            value={task.assigneeId || ""}
-                            disabled={!ctx.can("tasks.update")}
-                            onChange={(e) =>
-                              ctx.updateTask(
-                                task.id,
-                                e.target.value ? { assigneeId: e.target.value } : { assigneeId: null, assigneeIds: [] },
-                              )
-                            }
-                            className="absolute inset-0 cursor-pointer opacity-0"
-                            aria-label={ctx.t("تعيين مسؤول", "Assign task")}
-                          >
-                            <option value="">{ctx.t("غير محدد", "Unassigned")}</option>
-                            {ctx.users.map((u) => (
-                              <option key={u.id} value={u.id}>
-                                {u.name.split(" ")[0]}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                      );
-                    })()}
+                    <TaskAssignmentControl task={task} ctx={ctx} size={20} maxVisible={3} showLabel={false} />
                   </div>
                 )}
                 {!hiddenCols.includes("points") && (
@@ -1256,19 +1307,68 @@ export function LegacyTableView({ ctx }: { ctx: ViewCtx }) {
               ))}
             </select>
 
+            {/* Bulk Set Lead Select */}
             <select
-              name="auto-field-lmlotin"
-              onChange={(e) => {
-                if (e.target.value !== undefined) bulkAssignChange(e.target.value);
+              name="bulk-legacy-set-lead-select"
+              defaultValue=""
+              onChange={(event) => {
+                if (event.target.value) {
+                  void bulkSetLead(event.target.value);
+                  event.target.value = "";
+                }
               }}
               className="h-8 rounded-xl border border-line bg-raised/80 px-2.5 text-[11.5px] font-semibold text-ink outline-none cursor-pointer hover:bg-surface transition shrink-0 max-w-[130px] truncate"
-              aria-label={ctx.t("تعيين مسؤول لجميع المهام المحددة", "Bulk assign user")}
+              aria-label={ctx.t("تعيين مسؤول رئيسي للمهام المحددة", "Set Lead for selected tasks")}
             >
-              <option value="">👤 {ctx.t("تعيين لـ…", "Assign to…")}</option>
-              <option value="">{ctx.t("غير محدد (إلغاء التعيين)", "Unassigned")}</option>
-              {ctx.users.map((u) => (
-                <option key={u.id} value={u.id}>
-                  {u.name}
+              <option value="">★ {ctx.t("تعيين رئيسي…", "Set Lead…")}</option>
+              {candidateUsers.map((user) => (
+                <option key={user.id} value={user.id}>
+                  {user.name}
+                </option>
+              ))}
+            </select>
+
+            {/* Bulk Add Assignee Select */}
+            <select
+              name="bulk-legacy-add-assignee-select"
+              defaultValue=""
+              onChange={(event) => {
+                if (event.target.value) {
+                  void bulkAddAssignee(event.target.value);
+                  event.target.value = "";
+                }
+              }}
+              className="h-8 rounded-xl border border-line bg-raised/80 px-2.5 text-[11.5px] font-semibold text-ink outline-none cursor-pointer hover:bg-surface transition shrink-0 max-w-[130px] truncate"
+              aria-label={ctx.t("إضافة مشارك للمهام المحددة", "Add assignee to selected tasks")}
+            >
+              <option value="">+ {ctx.t("إضافة مشارك…", "Add assignee…")}</option>
+              {candidateUsers.map((user) => (
+                <option key={user.id} value={user.id}>
+                  {user.name}
+                </option>
+              ))}
+            </select>
+
+            {/* Bulk Remove Assignee / Clear */}
+            <select
+              name="bulk-legacy-remove-assignee-select"
+              defaultValue=""
+              onChange={(event) => {
+                if (event.target.value === "__clear_all__") {
+                  void bulkClearAssignees();
+                } else if (event.target.value) {
+                  void bulkRemoveAssignee(event.target.value);
+                }
+                event.target.value = "";
+              }}
+              className="h-8 rounded-xl border border-line bg-raised/80 px-2.5 text-[11.5px] font-semibold text-ink outline-none cursor-pointer hover:bg-surface transition shrink-0 max-w-[130px] truncate"
+              aria-label={ctx.t("إزالة تعيين من المهام المحددة", "Remove assignee from selected tasks")}
+            >
+              <option value="">- {ctx.t("إزالة…", "Remove…")}</option>
+              <option value="__clear_all__">{ctx.t("إلغاء تعيين الكل", "Clear all assignees")}</option>
+              {candidateUsers.map((user) => (
+                <option key={user.id} value={user.id}>
+                  {user.name}
                 </option>
               ))}
             </select>
@@ -1763,9 +1863,18 @@ export function MyWorkView({ ctx }: { ctx: ViewCtx }) {
                       >
                         {task.title}
                       </div>
-                      <div className="mt-0.5 flex items-center gap-2 text-[11px] text-ink-faint">
+                      <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[11px] text-ink-faint">
                         <span className="mono">{task.serial}</span>
                         {task.dueDate && <span>• {fmtDate(task.dueDate, ctx.locale)}</span>}
+                        {isTaskLead(task, ctx.currentUser?.id) ? (
+                          <span className="inline-flex items-center gap-0.5 rounded bg-amber-500/10 border border-amber-500/30 px-1.5 py-0.2 text-[9.5px] font-bold text-amber-700 dark:text-amber-300">
+                            ★ {ctx.t("رئيسي", "Lead")}
+                          </span>
+                        ) : isTaskContributor(task, ctx.currentUser?.id) ? (
+                          <span className="inline-flex items-center rounded bg-slate-500/10 border border-slate-500/20 px-1.5 py-0.2 text-[9.5px] font-medium text-ink-soft">
+                            {ctx.t("مشارك", "Contributor")}
+                          </span>
+                        ) : null}
                       </div>
                     </div>
                     <Badge tone={pr?.tone}>{pr?.[ctx.locale === "ar" ? "ar" : "en"]}</Badge>

@@ -6,6 +6,8 @@ import { PRIORITY_CONFIG, STATUS_CONFIG, fmtNumber } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Btn, Field, Modal, areaCls, inputCls, selectCls } from "@/components/ui";
 import { IconBolt, IconDoc, IconPlus, IconRocket, IconSave, IconTarget, IconUsers } from "@/components/icons";
+import { TaskAssigneeStack } from "@/features/tasks/task-assignee-stack";
+import { TaskAssigneePicker } from "@/features/tasks/task-assignee-picker";
 import {
   createAutomationFromForm,
   createDocumentFromForm,
@@ -230,20 +232,36 @@ export function NewTaskModal({
   open,
   onClose,
   users,
+  members,
   t,
+  locale = "en",
+  canEdit = true,
   onCreate,
 }: {
   open: boolean;
   onClose: () => void;
   users: User[];
+  members?: Member[];
   t: (a: string, e: string) => string;
+  locale?: "ar" | "en";
+  canEdit?: boolean;
   onCreate: (d: Partial<Task> & { title: string }) => boolean | Promise<boolean>;
 }) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [draftLeadId, setDraftLeadId] = useState<string | null>(null);
+  const [draftAssigneeIds, setDraftAssigneeIds] = useState<string[]>([]);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const pickerAnchorRef = useRef<HTMLDivElement>(null);
+  const [pickerAnchorRect, setPickerAnchorRect] = useState<DOMRect | null>(null);
 
   useEffect(() => {
-    if (open) setError(null);
+    if (open) {
+      setError(null);
+      setDraftLeadId(null);
+      setDraftAssigneeIds([]);
+      setPickerOpen(false);
+    }
   }, [open]);
 
   return (
@@ -266,7 +284,8 @@ export function NewTaskModal({
               description: fd.get("description") as string,
               priority: fd.get("priority") as string,
               status: fd.get("status") as string,
-              assigneeId: (fd.get("assignee") as string) || null,
+              assigneeId: draftLeadId,
+              assigneeIds: draftAssigneeIds,
               dueDate: (fd.get("dueDate") as string) || undefined,
             });
             if (!created) {
@@ -308,15 +327,58 @@ export function NewTaskModal({
           className={areaCls}
         />
         <div className="grid grid-cols-2 gap-3">
-          <Field label={t("المسؤول", "Assignee")}>
-            <select name="assignee" disabled={submitting} className={selectCls}>
-              <option value="">{t("غير معيّن", "Unassigned")}</option>
-              {users.map((u) => (
-                <option key={u.id} value={u.id}>
-                  {u.name}
-                </option>
-              ))}
-            </select>
+          <Field label={t("المسؤولون والمشاركون", "People & Assignment")}>
+            <div
+              ref={pickerAnchorRef}
+              className="flex items-center justify-between gap-2 rounded-xl border border-line bg-surface px-3 py-1.5 min-h-10"
+            >
+              <TaskAssigneeStack
+                task={{ assigneeId: draftLeadId, assigneeIds: draftAssigneeIds }}
+                users={users}
+                members={members}
+                size={22}
+                t={t}
+                locale={locale}
+                showLabel={draftAssigneeIds.length === 1}
+              />
+              <button
+                type="button"
+                disabled={!canEdit || submitting}
+                aria-label={
+                  draftAssigneeIds.length > 0
+                    ? t("تعديل التعيينات", "Edit assignments")
+                    : t("تعيين المسؤولين والمشاركين", "Assign people")
+                }
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (pickerAnchorRef.current) {
+                    setPickerAnchorRect(pickerAnchorRef.current.getBoundingClientRect());
+                  }
+                  setPickerOpen(true);
+                }}
+                className="inline-flex items-center gap-1 rounded-lg border border-line bg-raised px-2.5 py-1 text-[11px] font-semibold text-ink-soft hover:text-ink hover:border-accent/40 transition disabled:opacity-50"
+              >
+                <IconPlus size={11} />
+                {draftAssigneeIds.length > 0 ? t("تعديل", "Edit") : t("تعيين", "Assign")}
+              </button>
+            </div>
+            {pickerOpen && (
+              <TaskAssigneePicker
+                assigneeId={draftLeadId}
+                assigneeIds={draftAssigneeIds}
+                users={users}
+                members={members}
+                canEdit={canEdit}
+                anchorRect={pickerAnchorRect}
+                onChange={(res) => {
+                  setDraftLeadId(res.assigneeId);
+                  setDraftAssigneeIds(res.assigneeIds);
+                }}
+                onClose={() => setPickerOpen(false)}
+                t={t}
+                locale={locale}
+              />
+            )}
           </Field>
           <Field label={t("الاستحقاق", "Due date")}>
             <input name="dueDate" type="date" disabled={submitting} className={inputCls} />

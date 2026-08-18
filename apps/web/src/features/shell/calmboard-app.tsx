@@ -1601,7 +1601,10 @@ export function CalmBoardApp() {
         open={showAddTask}
         onClose={() => setShowAddTask(false)}
         users={users}
+        members={members}
         t={t}
+        locale={locale}
+        canEdit={ctx.can("tasks.create")}
         onCreate={ctx.createTask}
       />
       <NewProjectModal

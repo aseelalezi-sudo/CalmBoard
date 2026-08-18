@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import type { Comment, Task, User, ViewCtx, Workspace } from "@/lib/types";
 import { PRIORITY_CONFIG, STATUS_CONFIG } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -18,9 +18,17 @@ import {
   IconSparkle,
   IconSubtask,
   IconTrash,
+  IconUsers,
   IconX,
 } from "@/components/icons";
 import { useMentionUsers } from "@/features/comments/use-mention-users";
+import { TaskAssigneePicker } from "./task-assignee-picker";
+import {
+  buildClearAllAssigneesMutation,
+  buildRemoveAssigneeMutation,
+  buildSetLeadMutation,
+  resolveTaskPeople,
+} from "./assignment-domain";
 
 /* ================= Task Drawer ================= */
 export function TaskDrawer({
@@ -61,6 +69,71 @@ export function TaskDrawer({
   const [activeSection, setActiveSection] = useState<"details" | "work" | "activity">("details");
   const [draftTitle, setDraftTitle] = useState(task?.title ?? "");
   const [draftProgress, setDraftProgress] = useState(task?.progress ?? 0);
+  const [assigneePickerOpen, setAssigneePickerOpen] = useState(false);
+  const [isAssigning, setIsAssigning] = useState(false);
+  const peopleCardRef = useRef<HTMLDivElement>(null);
+  const [assigneePickerAnchorRect, setAssigneePickerAnchorRect] = useState<DOMRect | null>(null);
+
+  const people = resolveTaskPeople(task, ctx.users, ctx.members);
+  const leadPerson = people.find((p) => p.isLead);
+  const contributorPeople = people.filter((p) => p.isContributor);
+
+  const handleSetLead = async (userId: string) => {
+    if (!task || isAssigning) return;
+    setIsAssigning(true);
+    try {
+      const payload = buildSetLeadMutation(task, userId);
+      await ctx.updateTask(task.id, {
+        expectedVersion: task.version,
+        ...payload,
+      });
+    } finally {
+      setIsAssigning(false);
+    }
+  };
+
+  const handleRemoveAssignee = async (userId: string) => {
+    if (!task || isAssigning) return;
+    setIsAssigning(true);
+    try {
+      const payload = buildRemoveAssigneeMutation(task, userId);
+      await ctx.updateTask(task.id, {
+        expectedVersion: task.version,
+        ...payload,
+      });
+    } finally {
+      setIsAssigning(false);
+    }
+  };
+
+  const handleClearAssignees = async () => {
+    if (!task || isAssigning) return;
+    setIsAssigning(true);
+    try {
+      const payload = buildClearAllAssigneesMutation();
+      await ctx.updateTask(task.id, {
+        expectedVersion: task.version,
+        ...payload,
+      });
+    } finally {
+      setIsAssigning(false);
+    }
+  };
+
+  const handlePickerSave = async (result: { assigneeId: string | null; assigneeIds: string[] }) => {
+    if (!task || isAssigning) return;
+    setIsAssigning(true);
+    try {
+      await ctx.updateTask(task.id, {
+        expectedVersion: task.version,
+        assigneeId: result.assigneeId,
+        assigneeIds: result.assigneeIds,
+      });
+      setAssigneePickerOpen(false);
+    } finally {
+      setIsAssigning(false);
+    }
+  };
 
   const mentionMatch = /(?:^|\s)@([^\s@]*)$/.exec(comment);
   const mentionQuery = mentionMatch?.[1] ?? "";
@@ -317,33 +390,146 @@ export function TaskDrawer({
             {activeSection === "details" && (
               <div className="space-y-6 animate-fade">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <Field label={ctx.t("المسؤول", "Assignee")}>
-                    <div className="flex items-center gap-2 rounded-xl border border-line bg-surface px-2.5 h-10 shadow-xs focus-within:border-accent">
-                      <Avatar
-                        src={task.assignee?.avatarUrl || ctx.users.find((u) => u.id === task.assigneeId)?.avatarUrl}
-                        name={task.assignee?.name}
-                        size={22}
-                      />
-                      <select
-                        name="auto-field-g5c5r17"
-                        value={task.assigneeId || ""}
-                        onChange={(e) =>
-                          ctx.updateTask(
-                            task.id,
-                            e.target.value ? { assigneeId: e.target.value } : { assigneeId: null, assigneeIds: [] },
-                          )
-                        }
-                        className="flex-1 bg-transparent text-[12.5px] text-ink outline-none [&>option]:bg-surface"
-                      >
-                        <option value="">{ctx.t("غير معيّن", "Unassigned")}</option>
-                        {ctx.users.map((u) => (
-                          <option key={u.id} value={u.id}>
-                            {u.name}
-                          </option>
-                        ))}
-                      </select>
+                  {/* People & Assignment Section */}
+                  <div
+                    ref={peopleCardRef}
+                    className="sm:col-span-2 rounded-2xl border border-line bg-raised/20 p-4 space-y-3.5"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <IconUsers size={15} className="text-accent" />
+                        <span className="text-[13px] font-bold text-ink">
+                          {ctx.t("المسؤولون والمشاركون", "People & Assignment")}
+                        </span>
+                      </div>
+                      {ctx.can("tasks.update") && (
+                        <div className="flex items-center gap-1.5">
+                          {people.length > 0 && (
+                            <button
+                              type="button"
+                              disabled={isAssigning}
+                              onClick={() => void handleClearAssignees()}
+                              className="text-[11px] font-medium text-rose-600 dark:text-rose-400 hover:underline px-1.5 py-0.5 disabled:opacity-50"
+                            >
+                              {ctx.t("إلغاء الكل", "Clear all")}
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            disabled={isAssigning}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (peopleCardRef.current) {
+                                setAssigneePickerAnchorRect(peopleCardRef.current.getBoundingClientRect());
+                              }
+                              setAssigneePickerOpen(true);
+                            }}
+                            className="inline-flex items-center gap-1 rounded-lg border border-line bg-raised px-2.5 py-1 text-[11px] font-semibold text-ink-soft hover:text-ink hover:border-accent/40 transition disabled:opacity-50"
+                          >
+                            <IconPlus size={11} />
+                            {people.length > 0 ? ctx.t("إدارة", "Manage") : ctx.t("تعيين", "Assign")}
+                          </button>
+                        </div>
+                      )}
                     </div>
-                  </Field>
+
+                    {/* Lead Display */}
+                    <div className="space-y-1.5">
+                      <div className="text-[10.5px] font-bold uppercase tracking-wider text-ink-faint flex items-center gap-1">
+                        <span className="text-amber-500">★</span>
+                        {ctx.t("المسؤول الرئيسي (Lead)", "Lead Assignee")}
+                      </div>
+                      {leadPerson ? (
+                        <div className="flex items-center justify-between rounded-xl border border-amber-500/20 bg-amber-500/5 px-3 py-2">
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <Avatar src={leadPerson.user.avatarUrl} name={leadPerson.user.name} size={26} />
+                            <div className="min-w-0">
+                              <div className="text-[12.5px] font-semibold text-ink truncate">
+                                {leadPerson.user.name}
+                              </div>
+                              {leadPerson.user.email && (
+                                <div className="text-[10.5px] text-ink-faint truncate">{leadPerson.user.email}</div>
+                              )}
+                            </div>
+                          </div>
+                          <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 border border-amber-500/30 px-2 py-0.5 text-[10px] font-bold text-amber-700 dark:text-amber-300 shrink-0">
+                            ★ {ctx.t("رئيسي", "Lead")}
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="text-[11.5px] italic text-ink-faint px-1">
+                          {ctx.t("لا يوجد مسؤول رئيسي معيّن", "No lead assignee")}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Contributors Display */}
+                    <div className="space-y-1.5 pt-0.5">
+                      <div className="text-[10.5px] font-bold uppercase tracking-wider text-ink-faint">
+                        {ctx.t("المشاركون في التنفيذ (Contributors)", "Contributors")} ({contributorPeople.length})
+                      </div>
+                      {contributorPeople.length > 0 ? (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          {contributorPeople.map((cp) => (
+                            <div
+                              key={cp.user.id}
+                              className="flex items-center justify-between gap-2 rounded-xl border border-line bg-surface/80 px-2.5 py-1.5"
+                            >
+                              <div className="flex items-center gap-2 min-w-0">
+                                <Avatar src={cp.user.avatarUrl} name={cp.user.name} size={22} />
+                                <span className="text-[12px] font-medium text-ink truncate">{cp.user.name}</span>
+                              </div>
+                              {ctx.can("tasks.update") && (
+                                <div className="flex items-center gap-1 shrink-0">
+                                  <button
+                                    type="button"
+                                    disabled={isAssigning}
+                                    title={ctx.t("تعيين كمسؤول رئيسي", "Set as Lead")}
+                                    aria-label={ctx.t(
+                                      `تعيين ${cp.user.name} كمسؤول رئيسي`,
+                                      `Set ${cp.user.name} as Lead`,
+                                    )}
+                                    onClick={() => void handleSetLead(cp.user.id)}
+                                    className="rounded px-1.5 py-0.5 text-[10px] font-medium text-ink-faint hover:text-amber-600 dark:hover:text-amber-400 hover:bg-raised transition disabled:opacity-50"
+                                  >
+                                    ★ {ctx.t("رئيسي", "Lead")}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={isAssigning}
+                                    title={ctx.t("إزالة من المهمة", "Remove")}
+                                    onClick={() => void handleRemoveAssignee(cp.user.id)}
+                                    className="rounded p-1 text-ink-faint hover:text-rose-600 hover:bg-rose-500/10 transition disabled:opacity-50"
+                                  >
+                                    <IconX size={12} />
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="text-[11.5px] italic text-ink-faint px-1">
+                          {ctx.t("لا يوجد مشاركون إضافيون", "No contributors")}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Assignee Picker Popover */}
+                    {assigneePickerOpen && (
+                      <TaskAssigneePicker
+                        task={task}
+                        users={ctx.users}
+                        members={ctx.members}
+                        canEdit={ctx.can("tasks.update")}
+                        anchorRect={assigneePickerAnchorRect}
+                        onSave={handlePickerSave}
+                        onClose={() => setAssigneePickerOpen(false)}
+                        t={ctx.t}
+                        locale={ctx.locale}
+                      />
+                    )}
+                  </div>
 
                   <Field label={ctx.t("تاريخ الاستحقاق", "Due date")}>
                     <input

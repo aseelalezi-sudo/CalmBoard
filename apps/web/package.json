@@ -36,11 +36,13 @@
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.12.1",
+    "@calmboard/database": "workspace:*",
     "@playwright/test": "1.62.0",
     "@tailwindcss/postcss": "4.1.17",
     "@types/node": "22.19.15",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
+    "drizzle-orm": "0.45.2",
     "eslint": "9.39.4",
     "eslint-config-next": "16.2.11",
     "playwright": "1.62.0",

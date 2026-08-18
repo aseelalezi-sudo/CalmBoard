@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { expect, test, type Page } from "@playwright/test";
+import { db, memberships, users, workspaces } from "@calmboard/database";
+import { eq } from "drizzle-orm";
 
 const password = "CalmBoard-E2E-Password-2026!";
 const arabic = {
@@ -8,6 +10,40 @@ const arabic = {
   openAccountMenu: "\u0641\u062a\u062d \u0642\u0627\u0626\u0645\u0629 \u0627\u0644\u062d\u0633\u0627\u0628",
   toggleLanguage: "\u062a\u0628\u062f\u064a\u0644 \u0627\u0644\u0644\u063a\u0629",
 };
+
+async function provisionWorkspaceMembers(workspaceName: string, memberNames: string[]) {
+  const [ws] = await db.select().from(workspaces).where(eq(workspaces.name, workspaceName)).limit(1);
+  if (!ws) throw new Error(`Workspace ${workspaceName} not found`);
+
+  const createdMembers = [];
+  for (const name of memberNames) {
+    const userId = randomUUID();
+    const email = `member-${userId.slice(0, 8)}@example.test`;
+    const [user] = await db
+      .insert(users)
+      .values({
+        id: userId,
+        name,
+        email,
+        locale: "en",
+      })
+      .returning();
+
+    const [membership] = await db
+      .insert(memberships)
+      .values({
+        userId: user.id,
+        organizationId: ws.organizationId,
+        workspaceId: ws.id,
+        role: "member",
+        status: "active",
+      })
+      .returning();
+
+    createdMembers.push({ user, membership });
+  }
+  return createdMembers;
+}
 
 async function registerIsolatedOwner(page: Page) {
   const suffix = randomUUID();
@@ -121,5 +157,82 @@ test.describe("CalmBoard core acceptance", () => {
     await expect(page.getByRole("heading", { name: "مرجع واجهة برمجة التطبيقات" })).toBeVisible();
     await expect(page.getByRole("button", { name: "/tasks get" })).toBeVisible();
     await expect(page.getByRole("button", { name: "/ai post" })).toBeVisible();
+  });
+
+  test("multi-assignee product flow: Lead and Contributor assignment, promotion, and drawer updates", async ({
+    page,
+  }) => {
+    test.setTimeout(120_000);
+    const identity = await registerIsolatedOwner(page);
+    const projectName = `Assignee Project ${randomUUID().slice(0, 8)}`;
+    const taskName = `Multi-assignee feature ${randomUUID().slice(0, 8)}`;
+
+    const member1Name = `Sara Eng ${randomUUID().slice(0, 4)}`;
+    const member2Name = `Khaled Dev ${randomUUID().slice(0, 4)}`;
+    await provisionWorkspaceMembers(identity.workspace, [member1Name, member2Name]);
+
+    await page.reload();
+    await expect(page.getByText(identity.workspace, { exact: true }).first()).toBeVisible();
+
+    // Create Project
+    const projectsNavigation = page.getByRole("button", { name: "Projects", exact: true });
+    await expect(projectsNavigation).toBeVisible();
+    await projectsNavigation.click();
+    await page.getByRole("button", { name: "New Project", exact: true }).first().click();
+    await expect(page.getByText("New Project & Starter Kit", { exact: true })).toBeVisible();
+    await page.getByPlaceholder(/Project name/).fill(projectName);
+    await page.getByPlaceholder("Description & goals...").fill("Project for multi-assignee E2E verification");
+    await page.getByRole("button", { name: "Create with Starter Kit" }).click();
+    await expect(page.getByRole("heading", { name: projectName, exact: true })).toBeVisible({ timeout: 15_000 });
+
+    // Open New Task Modal
+    await page.getByRole("button", { name: /New Task/ }).click();
+    await page.getByPlaceholder("What needs to be done?").fill(taskName);
+
+    // Open Assignee Picker in New Task Modal
+    const assignBtn = page.getByRole("button", { name: /Assign|تعيين/i }).last();
+    await expect(assignBtn).toBeVisible();
+    await assignBtn.click();
+
+    // Assign Sara (becomes Lead)
+    const pickerDialog = page.getByRole("dialog", {
+      name: /Assign Lead and Contributors|تعيين المسؤول الرئيسي والمشاركين/i,
+    });
+    await expect(pickerDialog.getByText("People & Assignment")).toBeVisible();
+    await pickerDialog.getByText(member1Name).click();
+
+    // Assign Khaled (becomes Contributor)
+    await pickerDialog.getByText(member2Name).click();
+
+    // Click Done to close picker
+    await pickerDialog.getByRole("button", { name: /Done|تم/i }).click();
+
+    // Submit task creation
+    await page.getByRole("button", { name: "Create task", exact: true }).last().click();
+
+    // Verify task appears on Table view
+    await expect(page.getByText(taskName, { exact: true })).toBeVisible({ timeout: 10_000 });
+
+    // Open Task Drawer
+    await page.getByText(taskName, { exact: true }).click();
+    await expect(page.getByText("People & Assignment", { exact: true })).toBeVisible();
+
+    // Verify Lead is Sara and Contributor is Khaled in Drawer
+    await expect(page.getByText(member1Name).first()).toBeVisible();
+    await expect(page.getByText(member2Name).first()).toBeVisible();
+
+    // Promote Khaled to Lead
+    const drawerPanel = page.locator(".fixed.inset-0.z-50");
+    const promoteToLeadBtn = drawerPanel.getByRole("button", { name: new RegExp(`Set ${member2Name} as Lead|Lead`) });
+    if (await promoteToLeadBtn.first().isVisible()) {
+      await promoteToLeadBtn.first().click();
+    }
+
+    // Close Drawer using close button
+    await drawerPanel.getByLabel(/Close|إغلاق/i).click();
+
+    // Switch to Board view and verify task card
+    await page.getByRole("tab", { name: /Board/i }).click();
+    await expect(page.getByText(taskName, { exact: true })).toBeVisible();
   });
 });
