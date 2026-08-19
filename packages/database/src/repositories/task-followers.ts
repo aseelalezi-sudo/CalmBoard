@@ -47,7 +47,8 @@ export function createTaskFollowersRepository(context: DatabaseTenantContext, da
           eq(memberships.status, "active"),
         ),
       );
-    if (active.length !== unique.length) {
+    const activeUserIds = new Set(active.map((row) => row.userId));
+    if (activeUserIds.size !== unique.length) {
       throw new TenantPermissionDeniedError("All watchers must be active tenant members");
     }
   }

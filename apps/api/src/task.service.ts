@@ -16,6 +16,12 @@ import {
 import { logActivity } from "./automation-engine.js";
 import { createAttachmentService } from "./attachment.service.js";
 
+function instantValue(value: Date | string | null | undefined): number | null {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.getTime();
+}
+
 export function createTaskService(context: DatabaseTenantContext) {
   const tasksRepository = createTasksRepository(context);
   const workflowsRepository = createTaskWorkflowsRepository(context);
@@ -48,18 +54,18 @@ export function createTaskService(context: DatabaseTenantContext) {
           entityId: task.id,
           newValues: {
             title: task.title,
+            serial: task.serial,
             status: task.status,
             priority: task.priority,
             assigneeId: task.assigneeId,
             assigneeIds: task.assigneeIds,
-            projectId: task.projectId,
           },
         });
       }
-      const assigneesToNotify =
+      const assignees =
         task.assigneeIds && task.assigneeIds.length > 0 ? task.assigneeIds : task.assigneeId ? [task.assigneeId] : [];
-      if (assigneesToNotify.length > 0) {
-        await tasksRepository.createAssignmentNotifications(task, assigneesToNotify, actorId);
+      if (assignees.length > 0) {
+        await tasksRepository.createAssignmentNotifications(task, assignees, actorId);
       }
       return task;
     },
@@ -125,11 +131,14 @@ export function createTaskService(context: DatabaseTenantContext) {
       const statusChanged = task.status !== before.status;
       const priorityChanged = task.priority !== before.priority;
       const scheduleChanged =
-        (task.startDate ?? null) !== (before.startDate ?? null) || (task.dueDate ?? null) !== (before.dueDate ?? null);
-      const assigneesChanged =
+        instantValue(task.startDate) !== instantValue(before.startDate) ||
+        instantValue(task.dueDate) !== instantValue(before.dueDate);
+      const primaryChanged = (before.assigneeId ?? null) !== (task.assigneeId ?? null);
+      const executionAssigneesChanged =
         beforeAssignees.length !== afterAssignees.length ||
         beforeAssignees.some((id) => !afterAssignees.includes(id)) ||
         afterAssignees.some((id) => !beforeAssignees.includes(id));
+      const assigneesChanged = primaryChanged || executionAssigneesChanged;
 
       if (statusChanged || priorityChanged || scheduleChanged || assigneesChanged) {
         let event = "task_updated";
@@ -148,16 +157,20 @@ export function createTaskService(context: DatabaseTenantContext) {
           body = `تم تحديث المكلفين بالمهمة ${task.serial}`;
         }
 
-        await dispatchWatcherNotifications(context, {
-          taskId: task.id,
-          actorId,
-          excludedUserIds: addedAssigneeIds,
-          type: "task_watch_update",
-          title: `تحديث في المهمة ${task.serial}`,
-          body,
-          deduplicationKeyTemplate: (watcherId) => `task-watch/${task.id}/${event}/v${task.version}/${watcherId}`,
-          actionPath: `/?taskId=${encodeURIComponent(task.id)}`,
-        });
+        try {
+          await dispatchWatcherNotifications(context, {
+            taskId: task.id,
+            actorId,
+            excludedUserIds: addedAssigneeIds,
+            type: "task_watch_update",
+            title: `تحديث في المهمة ${task.serial}`,
+            body,
+            deduplicationKeyTemplate: (watcherId) => `task-watch/${task.id}/${event}/v${task.version}/${watcherId}`,
+            actionPath: `/?taskId=${encodeURIComponent(task.id)}`,
+          });
+        } catch (error) {
+          console.error("Failed to dispatch task update watcher notifications:", error);
+        }
       }
 
       return task;
@@ -177,15 +190,20 @@ export function createTaskService(context: DatabaseTenantContext) {
         });
       }
       if (task.status !== before.status) {
-        await dispatchWatcherNotifications(context, {
-          taskId: task.id,
-          actorId: context.actorId,
-          type: "task_watch_update",
-          title: `تحديث في المهمة ${task.serial}`,
-          body: `تم تغيير حالة المهمة إلى ${task.status}`,
-          deduplicationKeyTemplate: (watcherId) => `task-watch/${task.id}/status_changed/v${task.version}/${watcherId}`,
-          actionPath: `/?taskId=${encodeURIComponent(task.id)}`,
-        });
+        try {
+          await dispatchWatcherNotifications(context, {
+            taskId: task.id,
+            actorId: context.actorId,
+            type: "task_watch_update",
+            title: `تحديث في المهمة ${task.serial}`,
+            body: `تم تغيير حالة المهمة إلى ${task.status}`,
+            deduplicationKeyTemplate: (watcherId) =>
+              `task-watch/${task.id}/status_changed/v${task.version}/${watcherId}`,
+            actionPath: `/?taskId=${encodeURIComponent(task.id)}`,
+          });
+        } catch (error) {
+          console.error("Failed to dispatch task move watcher notifications:", error);
+        }
       }
       return task;
     },

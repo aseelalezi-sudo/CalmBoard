@@ -3,10 +3,15 @@ import { randomUUID } from "node:crypto";
 import { after, describe, it } from "node:test";
 import { and, eq, isNotNull, isNull } from "drizzle-orm";
 import {
+  createCommentsRepository,
   createTaskFollowersRepository,
   createTasksRepository,
   db,
+  dispatchWatcherNotifications,
   memberships,
+  notificationEmailOutbox,
+  notificationPreferences,
+  notifications,
   organizations,
   pool,
   projects,
@@ -14,6 +19,7 @@ import {
   tasks,
   TenantPermissionDeniedError,
   TenantResourceNotFoundError,
+  usageLimits,
   users,
   workspaces,
 } from "../src/index";
@@ -36,6 +42,12 @@ describe("task followers (watchers) domain and repository", () => {
     const userD = randomUUID();
     const userInactive = randomUUID();
     const userCrossTenant = randomUUID();
+    const userDual = randomUUID();
+    const userDeactivated = randomUUID();
+    const userNoInApp = randomUUID();
+    const userNoEmail = randomUUID();
+    const userNoDelivery = randomUUID();
+    const userDedup = randomUUID();
 
     try {
       await db.insert(users).values([
@@ -46,6 +58,12 @@ describe("task followers (watchers) domain and repository", () => {
         { id: userD, email: `${userD}@example.test`, name: "User D" },
         { id: userInactive, email: `${userInactive}@example.test`, name: "Inactive User" },
         { id: userCrossTenant, email: `${userCrossTenant}@example.test`, name: "Cross Tenant User" },
+        { id: userDual, email: `${userDual}@example.test`, name: "Dual Member" },
+        { id: userDeactivated, email: `${userDeactivated}@example.test`, name: "Deactivated User" },
+        { id: userNoInApp, email: `${userNoInApp}@example.test`, name: "No In-App" },
+        { id: userNoEmail, email: `${userNoEmail}@example.test`, name: "No Email" },
+        { id: userNoDelivery, email: `${userNoDelivery}@example.test`, name: "No Delivery" },
+        { id: userDedup, email: `${userDedup}@example.test`, name: "Dedup User" },
       ]);
 
       await db.insert(organizations).values([
@@ -62,6 +80,8 @@ describe("task followers (watchers) domain and repository", () => {
           ownerId: userCrossTenant,
         },
       ]);
+
+      await db.update(usageLimits).set({ maxSeats: 100 }).where(eq(usageLimits.organizationId, organizationId));
 
       await db.insert(workspaces).values([
         {
@@ -301,7 +321,205 @@ describe("task followers (watchers) domain and repository", () => {
       });
       const watchersAfterReassigningB = await followersRepo.activeWatcherIds(taskRoleChange.id);
       assert.ok(watchersAfterReassigningB.includes(userB));
+
+      // Scenario 20: Dual membership (active org-wide AND active workspace-specific) succeeds for watch and ensureWatchers
+      await db.insert(memberships).values([
+        { organizationId, workspaceId: null, userId: userDual, status: "active" },
+        { organizationId, workspaceId, userId: userDual, status: "active" },
+      ]);
+      const taskDual = await tasksRepo.create({
+        projectId,
+        title: "Dual membership task",
+        assigneeId: actorId,
+      });
+      await followersRepo.watch(taskDual.id, userDual);
+      const watchersDual = await followersRepo.activeWatcherIds(taskDual.id);
+      assert.ok(watchersDual.includes(userDual));
+      await followersRepo.ensureWatchers(taskDual.id, [userDual]);
+
+      // Scenario 21: Inactive historical Watcher does not break comment creation or task notifications and receives no notifications
+      const [deactivatedMembership] = await db
+        .insert(memberships)
+        .values({
+          organizationId,
+          workspaceId,
+          userId: userDeactivated,
+          status: "active",
+        })
+        .returning();
+      const taskDeactivated = await tasksRepo.create({
+        projectId,
+        title: "Deactivation test task",
+        assigneeId: actorId,
+      });
+      await followersRepo.watch(taskDeactivated.id, userDeactivated);
+      assert.ok((await followersRepo.activeWatcherIds(taskDeactivated.id)).includes(userDeactivated));
+
+      // Deactivate user's membership
+      await db.update(memberships).set({ status: "inactive" }).where(eq(memberships.id, deactivatedMembership.id));
+
+      // Comment create succeeds and deactivated watcher is safely skipped (receives NO notification)
+      const commentsRepo = createCommentsRepository({ organizationId, workspaceId, actorId });
+      const createdComment = await commentsRepo.create({
+        taskId: taskDeactivated.id,
+        userId: actorId,
+        content: "Testing comment with inactive watcher",
+      });
+      assert.ok(createdComment.id);
+
+      const deactivatedNotifs = await db
+        .select()
+        .from(notifications)
+        .where(and(eq(notifications.organizationId, organizationId), eq(notifications.userId, userDeactivated)));
+      assert.equal(deactivatedNotifs.length, 0);
+
+      // Task status update notification dispatch succeeds and deactivated watcher is skipped
+      const dispatchResult = await dispatchWatcherNotifications(
+        { organizationId, workspaceId, actorId },
+        {
+          taskId: taskDeactivated.id,
+          actorId,
+          type: "task_watch_update",
+          title: "Status update",
+          body: "Status changed to in_progress",
+          deduplicationKeyTemplate: (uid) => `task-watch/${taskDeactivated.id}/status_changed/v2/${uid}`,
+        },
+      );
+      assert.ok(!dispatchResult.notifiedUserIds.includes(userDeactivated));
+
+      // Scenario 22: Real delivery preferences respected (inAppEnabled=false, emailEnabled=false, both false)
+      await db.insert(memberships).values([
+        { organizationId, workspaceId, userId: userNoInApp, status: "active" },
+        { organizationId, workspaceId, userId: userNoEmail, status: "active" },
+        { organizationId, workspaceId, userId: userNoDelivery, status: "active" },
+      ]);
+      await db.insert(notificationPreferences).values([
+        { userId: userNoInApp, inAppEnabled: false, emailEnabled: true },
+        { userId: userNoEmail, inAppEnabled: true, emailEnabled: false },
+        { userId: userNoDelivery, inAppEnabled: false, emailEnabled: false },
+      ]);
+
+      const taskPref = await tasksRepo.create({
+        projectId,
+        title: "Preference task",
+        assigneeId: actorId,
+      });
+      await followersRepo.ensureWatchers(taskPref.id, [userNoInApp, userNoEmail, userNoDelivery]);
+
+      await dispatchWatcherNotifications(
+        { organizationId, workspaceId, actorId },
+        {
+          taskId: taskPref.id,
+          actorId,
+          type: "task_watch_update",
+          title: "Preference update",
+          body: "Testing delivery preferences",
+          deduplicationKeyTemplate: (uid) => `task-watch/${taskPref.id}/pref/v1/${uid}`,
+        },
+      );
+
+      // userNoInApp: No row in notifications table, but has row in notification_email_outbox
+      const inAppRowsForNoInApp = await db.select().from(notifications).where(eq(notifications.userId, userNoInApp));
+      const emailRowsForNoInApp = await db
+        .select()
+        .from(notificationEmailOutbox)
+        .where(eq(notificationEmailOutbox.userId, userNoInApp));
+      assert.equal(inAppRowsForNoInApp.length, 0);
+      assert.equal(emailRowsForNoInApp.length, 1);
+
+      // userNoEmail: Has row in notifications table, but NO row in notification_email_outbox
+      const inAppRowsForNoEmail = await db.select().from(notifications).where(eq(notifications.userId, userNoEmail));
+      const emailRowsForNoEmail = await db
+        .select()
+        .from(notificationEmailOutbox)
+        .where(eq(notificationEmailOutbox.userId, userNoEmail));
+      assert.equal(inAppRowsForNoEmail.length, 1);
+      assert.equal(emailRowsForNoEmail.length, 0);
+
+      // userNoDelivery: No rows in either table
+      const inAppRowsForNoDelivery = await db
+        .select()
+        .from(notifications)
+        .where(eq(notifications.userId, userNoDelivery));
+      const emailRowsForNoDelivery = await db
+        .select()
+        .from(notificationEmailOutbox)
+        .where(eq(notificationEmailOutbox.userId, userNoDelivery));
+      assert.equal(inAppRowsForNoDelivery.length, 0);
+      assert.equal(emailRowsForNoDelivery.length, 0);
+
+      // Scenario 23: Real deduplication on exact retry vs new notification on later task version
+      await db.insert(memberships).values({ organizationId, workspaceId, userId: userDedup, status: "active" });
+      const taskDedup = await tasksRepo.create({
+        projectId,
+        title: "Dedup task",
+        assigneeId: actorId,
+      });
+      await followersRepo.watch(taskDedup.id, userDedup);
+
+      // First dispatch for v1
+      await dispatchWatcherNotifications(
+        { organizationId, workspaceId, actorId },
+        {
+          taskId: taskDedup.id,
+          actorId,
+          type: "task_watch_update",
+          title: "Version 1 update",
+          body: "Task v1 updated",
+          deduplicationKeyTemplate: (uid) => `task-watch/${taskDedup.id}/status_changed/v1/${uid}`,
+        },
+      );
+      // Exact retry for v1 (same key)
+      await dispatchWatcherNotifications(
+        { organizationId, workspaceId, actorId },
+        {
+          taskId: taskDedup.id,
+          actorId,
+          type: "task_watch_update",
+          title: "Version 1 update retry",
+          body: "Task v1 updated retry",
+          deduplicationKeyTemplate: (uid) => `task-watch/${taskDedup.id}/status_changed/v1/${uid}`,
+        },
+      );
+
+      // Must have exactly 1 in-app and 1 email outbox for userDedup so far
+      const v1InApp = await db.select().from(notifications).where(eq(notifications.userId, userDedup));
+      const v1Email = await db
+        .select()
+        .from(notificationEmailOutbox)
+        .where(eq(notificationEmailOutbox.userId, userDedup));
+      assert.equal(v1InApp.length, 1);
+      assert.equal(v1Email.length, 1);
+
+      // Now dispatch for v2 (new deduplication key)
+      await dispatchWatcherNotifications(
+        { organizationId, workspaceId, actorId },
+        {
+          taskId: taskDedup.id,
+          actorId,
+          type: "task_watch_update",
+          title: "Version 2 update",
+          body: "Task v2 updated",
+          deduplicationKeyTemplate: (uid) => `task-watch/${taskDedup.id}/status_changed/v2/${uid}`,
+        },
+      );
+
+      const v2InApp = await db.select().from(notifications).where(eq(notifications.userId, userDedup));
+      const v2Email = await db
+        .select()
+        .from(notificationEmailOutbox)
+        .where(eq(notificationEmailOutbox.userId, userDedup));
+      assert.equal(v2InApp.length, 2);
+      assert.equal(v2Email.length, 2);
     } finally {
+      await db
+        .delete(notificationEmailOutbox)
+        .where(eq(notificationEmailOutbox.organizationId, organizationId))
+        .catch(() => undefined);
+      await db
+        .delete(notifications)
+        .where(eq(notifications.organizationId, organizationId))
+        .catch(() => undefined);
       await db
         .delete(taskFollowers)
         .where(eq(taskFollowers.organizationId, organizationId))
@@ -338,11 +556,25 @@ describe("task followers (watchers) domain and repository", () => {
         .delete(organizations)
         .where(eq(organizations.id, otherOrgId))
         .catch(() => undefined);
-      await db
-        .delete(users)
-        .where(and(eq(users.id, actorId)))
-        .catch(() => undefined);
-      for (const uid of [userA, userB, userC, userD, userInactive, userCrossTenant]) {
+      for (const uid of [
+        actorId,
+        userA,
+        userB,
+        userC,
+        userD,
+        userInactive,
+        userCrossTenant,
+        userDual,
+        userDeactivated,
+        userNoInApp,
+        userNoEmail,
+        userNoDelivery,
+        userDedup,
+      ]) {
+        await db
+          .delete(notificationPreferences)
+          .where(eq(notificationPreferences.userId, uid))
+          .catch(() => undefined);
         await db
           .delete(users)
           .where(eq(users.id, uid))

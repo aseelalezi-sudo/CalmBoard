@@ -31,6 +31,88 @@ const requestScope = {
   trustedProjectId: async () => undefined,
 } as unknown as RequestScopeService;
 
+function createMockDb(
+  activeWatchers: string[],
+  preferencesMap: Record<string, { inApp?: boolean; email?: boolean }> = {},
+) {
+  const createdNotifications: Array<{ userId: string; type: string; deduplicationKey: string }> = [];
+  const createdEmails: Array<{ userId: string; idempotencyKey: string }> = [];
+
+  const mockDb = {
+    createdNotifications,
+    createdEmails,
+    select: () => ({
+      from: () => ({
+        where: () => {
+          const rows = activeWatchers.map((userId) => ({
+            id: `row-${userId}`,
+            userId,
+            email: `${userId}@example.test`,
+            name: `User ${userId}`,
+            inAppEnabled: preferencesMap[userId]?.inApp ?? true,
+            emailEnabled: preferencesMap[userId]?.email ?? true,
+            projectId: "proj-1",
+          }));
+          const promise = Promise.resolve(rows);
+          return Object.assign(promise, {
+            limit: async () => [
+              {
+                id: "task-100",
+                projectId: "proj-1",
+                userId: "user-1",
+                email: "user@test.local",
+                inAppEnabled: true,
+                emailEnabled: true,
+              },
+            ],
+            orderBy: async () => rows,
+          });
+        },
+      }),
+    }),
+    insert: () => ({
+      values: (val: any) => ({
+        onConflictDoNothing: () => ({
+          returning: async () => {
+            if (val.deduplicationKey && val.subject === undefined) {
+              createdNotifications.push({
+                userId: val.userId,
+                type: val.type,
+                deduplicationKey: val.deduplicationKey,
+              });
+            } else if (val.subject !== undefined) {
+              createdEmails.push({
+                userId: val.userId,
+                idempotencyKey: val.idempotencyKey,
+              });
+            }
+            return [{ id: `notif-${val.userId}` }];
+          },
+        }),
+        returning: async () => {
+          if (val.deduplicationKey && val.subject === undefined) {
+            createdNotifications.push({
+              userId: val.userId,
+              type: val.type,
+              deduplicationKey: val.deduplicationKey,
+            });
+          }
+          return [{ id: `notif-${val.userId}` }];
+        },
+      }),
+    }),
+    update: () => ({
+      set: () => ({
+        where: () => ({
+          returning: async () => [{ id: "updated" }],
+        }),
+      }),
+    }),
+  };
+
+  return mockDb;
+}
+
 describe("task watcher API, service, and notification engine", () => {
   describe("API authorization and identity enforcement", () => {
     it("allows authenticated tenant members to self-watch without tasks.update permission", async () => {
@@ -149,7 +231,7 @@ describe("task watcher API, service, and notification engine", () => {
 
     it("notifies active watchers while excluding actor and users with specific notifications", async () => {
       const activeWatchers = ["user-actor", "user-assignee", "user-watcher-1", "user-watcher-2"];
-      const createdNotifications: Array<{ userId: string; type: string; deduplicationKey: string }> = [];
+      const mockDb = createMockDb(activeWatchers);
 
       const result = await dispatchWatcherNotifications(
         context,
@@ -162,59 +244,21 @@ describe("task watcher API, service, and notification engine", () => {
           body: "تم تغيير حالة المهمة إلى in_progress",
           deduplicationKeyTemplate: (uid) => `task-watch/task-100/status_changed/v2/${uid}`,
         },
-        {
-          select: ((...args: unknown[]) => ({
-            from: () => ({
-              where: () => ({
-                limit: async () => [{ id: "task-100", projectId: "proj-1" }],
-                orderBy: async () => activeWatchers.map((userId) => ({ userId })),
-              }),
-            }),
-          })) as never,
-          insert: ((...args: unknown[]) => ({
-            values: (val: any) => ({
-              onConflictDoNothing: () => ({
-                returning: async () => {
-                  createdNotifications.push({
-                    userId: val.userId,
-                    type: val.type,
-                    deduplicationKey: val.deduplicationKey,
-                  });
-                  return [{ id: `notif-${val.userId}` }];
-                },
-              }),
-              returning: async () => {
-                createdNotifications.push({
-                  userId: val.userId,
-                  type: val.type,
-                  deduplicationKey: val.deduplicationKey,
-                });
-                return [{ id: `notif-${val.userId}` }];
-              },
-            }),
-          })) as never,
-          update: (() => ({
-            set: () => ({
-              where: () => ({
-                returning: async () => [{ id: "updated" }],
-              }),
-            }),
-          })) as never,
-        },
+        mockDb as never,
       );
 
       // Notified watchers must be watcher-1 and watcher-2 (actor and assignee excluded)
       assert.deepEqual(result.notifiedUserIds.sort(), ["user-watcher-1", "user-watcher-2"].sort());
-      assert.equal(createdNotifications.length, 2);
+      assert.equal(mockDb.createdNotifications.length, 2);
       assert.equal(
-        createdNotifications.find((n) => n.userId === "user-watcher-1")?.deduplicationKey,
+        mockDb.createdNotifications.find((n) => n.userId === "user-watcher-1")?.deduplicationKey,
         "task-watch/task-100/status_changed/v2/user-watcher-1",
       );
     });
 
     it("respects delivery preferences and deduplicates retries", async () => {
       const activeWatchers = ["user-1"];
-      const createdNotifications: string[] = [];
+      const mockDb = createMockDb(activeWatchers);
 
       const result = await dispatchWatcherNotifications(
         context,
@@ -226,40 +270,184 @@ describe("task watcher API, service, and notification engine", () => {
           body: "Due date updated",
           deduplicationKeyTemplate: (uid) => `task-watch/task-100/schedule_changed/v3/${uid}`,
         },
-        {
-          select: ((...args: unknown[]) => ({
-            from: () => ({
-              where: () => ({
-                limit: async () => [{ id: "task-100", projectId: "proj-1" }],
-                orderBy: async () => activeWatchers.map((userId) => ({ userId })),
-              }),
-            }),
-          })) as never,
-          insert: ((...args: unknown[]) => ({
-            values: (val: any) => ({
-              onConflictDoNothing: () => ({
-                returning: async () => {
-                  createdNotifications.push(val.userId);
-                  return [{ id: `notif-${val.userId}` }];
-                },
-              }),
-              returning: async () => {
-                createdNotifications.push(val.userId);
-                return [{ id: `notif-${val.userId}` }];
-              },
-            }),
-          })) as never,
-          update: (() => ({
-            set: () => ({
-              where: () => ({
-                returning: async () => [{ id: "updated" }],
-              }),
-            }),
-          })) as never,
-        },
+        mockDb as never,
       );
 
       assert.deepEqual(result.notifiedUserIds, ["user-1"]);
+    });
+  });
+
+  describe("Schedule and Assignment change detection invariants", () => {
+    function instantValue(value: Date | string | null | undefined): number | null {
+      if (!value) return null;
+      const date = value instanceof Date ? value : new Date(value);
+      return Number.isNaN(date.getTime()) ? null : date.getTime();
+    }
+
+    function checkChanges(
+      before: {
+        status: string;
+        priority: string;
+        assigneeId: string | null;
+        assigneeIds: string[];
+        startDate: Date | null;
+        dueDate: Date | null;
+      },
+      after: {
+        status: string;
+        priority: string;
+        assigneeId: string | null;
+        assigneeIds: string[];
+        startDate: Date | null;
+        dueDate: Date | null;
+      },
+    ) {
+      const statusChanged = after.status !== before.status;
+      const priorityChanged = after.priority !== before.priority;
+      const scheduleChanged =
+        instantValue(after.startDate) !== instantValue(before.startDate) ||
+        instantValue(after.dueDate) !== instantValue(before.dueDate);
+
+      const beforeAssignees =
+        before.assigneeIds && before.assigneeIds.length > 0
+          ? before.assigneeIds
+          : before.assigneeId
+            ? [before.assigneeId]
+            : [];
+      const afterAssignees =
+        after.assigneeIds && after.assigneeIds.length > 0
+          ? after.assigneeIds
+          : after.assigneeId
+            ? [after.assigneeId]
+            : [];
+
+      const primaryChanged = (before.assigneeId ?? null) !== (after.assigneeId ?? null);
+      const executionAssigneesChanged =
+        beforeAssignees.length !== afterAssignees.length ||
+        beforeAssignees.some((id) => !afterAssignees.includes(id)) ||
+        afterAssignees.some((id) => !beforeAssignees.includes(id));
+      const assigneesChanged = primaryChanged || executionAssigneesChanged;
+
+      return { statusChanged, priorityChanged, scheduleChanged, assigneesChanged };
+    }
+
+    it("title-only update on scheduled task produces NO schedule or status change", () => {
+      const date1 = new Date("2026-08-01T10:00:00Z");
+      const date2 = new Date("2026-08-15T18:00:00Z");
+      // Even if Date object references are different instances with same timestamp
+      const date1Copy = new Date("2026-08-01T10:00:00Z");
+      const date2Copy = new Date("2026-08-15T18:00:00Z");
+
+      const before = {
+        status: "todo",
+        priority: "medium",
+        assigneeId: "user-1",
+        assigneeIds: ["user-1"],
+        startDate: date1,
+        dueDate: date2,
+      };
+      const after = {
+        status: "todo",
+        priority: "medium",
+        assigneeId: "user-1",
+        assigneeIds: ["user-1"],
+        startDate: date1Copy,
+        dueDate: date2Copy,
+      };
+
+      const changes = checkChanges(before, after);
+      assert.equal(changes.scheduleChanged, false);
+      assert.equal(changes.statusChanged, false);
+      assert.equal(changes.priorityChanged, false);
+      assert.equal(changes.assigneesChanged, false);
+    });
+
+    it("actual startDate change produces scheduleChanged = true", () => {
+      const before = {
+        status: "todo",
+        priority: "medium",
+        assigneeId: "user-1",
+        assigneeIds: ["user-1"],
+        startDate: new Date("2026-08-01T10:00:00Z"),
+        dueDate: new Date("2026-08-15T18:00:00Z"),
+      };
+      const after = {
+        status: "todo",
+        priority: "medium",
+        assigneeId: "user-1",
+        assigneeIds: ["user-1"],
+        startDate: new Date("2026-08-05T10:00:00Z"),
+        dueDate: new Date("2026-08-15T18:00:00Z"),
+      };
+
+      const changes = checkChanges(before, after);
+      assert.equal(changes.scheduleChanged, true);
+    });
+
+    it("actual dueDate change produces scheduleChanged = true", () => {
+      const before = {
+        status: "todo",
+        priority: "medium",
+        assigneeId: "user-1",
+        assigneeIds: ["user-1"],
+        startDate: new Date("2026-08-01T10:00:00Z"),
+        dueDate: new Date("2026-08-15T18:00:00Z"),
+      };
+      const after = {
+        status: "todo",
+        priority: "medium",
+        assigneeId: "user-1",
+        assigneeIds: ["user-1"],
+        startDate: new Date("2026-08-01T10:00:00Z"),
+        dueDate: new Date("2026-08-20T18:00:00Z"),
+      };
+
+      const changes = checkChanges(before, after);
+      assert.equal(changes.scheduleChanged, true);
+    });
+
+    it("clearing dueDate (set to null) produces scheduleChanged = true", () => {
+      const before = {
+        status: "todo",
+        priority: "medium",
+        assigneeId: "user-1",
+        assigneeIds: ["user-1"],
+        startDate: new Date("2026-08-01T10:00:00Z"),
+        dueDate: new Date("2026-08-15T18:00:00Z"),
+      };
+      const after = {
+        status: "todo",
+        priority: "medium",
+        assigneeId: "user-1",
+        assigneeIds: ["user-1"],
+        startDate: new Date("2026-08-01T10:00:00Z"),
+        dueDate: null,
+      };
+
+      const changes = checkChanges(before, after);
+      assert.equal(changes.scheduleChanged, true);
+    });
+
+    it("lead swap with identical assignee set produces assigneesChanged = true", () => {
+      const before = {
+        status: "todo",
+        priority: "medium",
+        assigneeId: "user-A",
+        assigneeIds: ["user-A", "user-B"],
+        startDate: null,
+        dueDate: null,
+      };
+      const after = {
+        status: "todo",
+        priority: "medium",
+        assigneeId: "user-B",
+        assigneeIds: ["user-A", "user-B"],
+        startDate: null,
+        dueDate: null,
+      };
+
+      const changes = checkChanges(before, after);
+      assert.equal(changes.assigneesChanged, true);
     });
   });
 });
