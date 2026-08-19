@@ -1590,8 +1590,19 @@ export function createTasksRepository(context: DatabaseTenantContext) {
           if (followerIds !== undefined) {
             const desiredWatcherIds = [...new Set([...followerIds, ...addedAssigneeIds])];
             await followersRepo.replaceWatchersDelta(taskId, desiredWatcherIds);
-          } else if (addedAssigneeIds.length > 0) {
-            await followersRepo.ensureWatchers(taskId, addedAssigneeIds);
+          } else {
+            if (addedAssigneeIds.length > 0) {
+              await followersRepo.ensureWatchers(taskId, addedAssigneeIds);
+            }
+            const shouldNeutralizeTriggerAutoWatch =
+              primaryBefore !== finalAssigneeId &&
+              finalAssigneeId !== null &&
+              beforeAssigneeIds.includes(finalAssigneeId) &&
+              !(before.followerIds ?? []).includes(finalAssigneeId);
+
+            if (shouldNeutralizeTriggerAutoWatch && finalAssigneeId !== null) {
+              await followersRepo.unwatch(taskId, finalAssigneeId);
+            }
           }
           if (dependencySerials !== undefined) {
             await transaction

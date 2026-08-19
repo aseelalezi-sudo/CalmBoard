@@ -511,6 +511,74 @@ describe("task followers (watchers) domain and repository", () => {
         .where(eq(notificationEmailOutbox.userId, userDedup));
       assert.equal(v2InApp.length, 2);
       assert.equal(v2Email.length, 2);
+
+      // Scenario 24: Role-only promotion preserves manual Unwatch (B was Contributor, unwatched, promoted to Lead)
+      const taskPromotion = await tasksRepo.create({
+        projectId,
+        title: "Role promotion task",
+        assigneeId: userA,
+        assigneeIds: [userA, userB],
+      });
+      // Both userA and userB auto-watch initially
+      assert.ok((await followersRepo.activeWatcherIds(taskPromotion.id)).includes(userA));
+      assert.ok((await followersRepo.activeWatcherIds(taskPromotion.id)).includes(userB));
+
+      // userB manually unwatches
+      await followersRepo.unwatch(taskPromotion.id, userB);
+      assert.ok(!(await followersRepo.activeWatcherIds(taskPromotion.id)).includes(userB));
+
+      // Promote userB to Lead while preserving userA as contributor
+      const { task: taskAfterPromotion } = await tasksRepo.update(taskPromotion.id, {
+        expectedVersion: 1,
+        assigneeId: userB,
+        assigneeIds: [userB, userA],
+      });
+      assert.equal(taskAfterPromotion.assigneeId, userB);
+      assert.deepEqual(taskAfterPromotion.assigneeIds?.sort(), [userA, userB].sort());
+
+      // Assert B remains NOT watching (manual unwatch preserved), A remains watching
+      const watchersAfterPromotion = await followersRepo.activeWatcherIds(taskPromotion.id);
+      assert.ok(
+        !watchersAfterPromotion.includes(userB),
+        "Promoted Lead B must remain NOT watching if previously manually unwatched",
+      );
+      assert.ok(watchersAfterPromotion.includes(userA), "Contributor A must remain watching");
+
+      // Verify B's historical follower rows are closed (unfollowed_at is not null) and no active row remains
+      const bFollowerRows = await db
+        .select()
+        .from(taskFollowers)
+        .where(and(eq(taskFollowers.taskId, taskPromotion.id), eq(taskFollowers.userId, userB)));
+      assert.ok(bFollowerRows.length > 0);
+      assert.ok(
+        bFollowerRows.every((row) => row.unfollowedAt !== null),
+        "All follower rows for B must be closed",
+      );
+      const bActiveRows = bFollowerRows.filter((row) => row.unfollowedAt === null);
+      assert.equal(bActiveRows.length, 0, "No fresh active Watch row is left by the DB trigger");
+
+      // Scenario 25: New Lead (not previously assigned) auto-watches vs Role-Only Lead (previously assigned, unwatched)
+      const taskNewLead = await tasksRepo.create({
+        projectId,
+        title: "New Lead test task",
+        assigneeId: userA,
+        assigneeIds: [userA, userB],
+      });
+      await followersRepo.unwatch(taskNewLead.id, userB);
+      assert.ok(!(await followersRepo.activeWatcherIds(taskNewLead.id)).includes(userB));
+
+      // Assign userC (who was NOT assigned) as new Lead
+      const { task: taskWithCAsLead } = await tasksRepo.update(taskNewLead.id, {
+        expectedVersion: 1,
+        assigneeId: userC,
+        assigneeIds: [userC, userA, userB],
+      });
+      assert.equal(taskWithCAsLead.assigneeId, userC);
+
+      const watchersWithC = await followersRepo.activeWatcherIds(taskNewLead.id);
+      assert.ok(watchersWithC.includes(userC), "Brand new Lead C must auto-watch");
+      assert.ok(!watchersWithC.includes(userB), "Existing contributor B must stay unwatched");
+      assert.ok(watchersWithC.includes(userA), "Existing contributor A must stay watching");
     } finally {
       await db
         .delete(notificationEmailOutbox)

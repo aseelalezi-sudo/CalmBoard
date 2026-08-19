@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import { ForbiddenException, type ExecutionContext } from "@nestjs/common";
 import { dispatchWatcherNotifications, type DatabaseTenantContext } from "@calmboard/database";
 import { createTaskWatcherService } from "./task-watcher.service.js";
+import { deriveWatcherRelevantTaskChanges } from "./task.service.js";
 import {
   AUTHORIZATION_POLICY,
   PermissionGuard,
@@ -215,14 +216,62 @@ describe("task watcher API, service, and notification engine", () => {
     });
   });
 
-  describe("Task Watcher Service operations", () => {
-    it("performs selfWatch and selfUnwatch correctly", async () => {
+  describe("Task Watcher Service operations and idempotent activity logging", () => {
+    it("proves actual selfWatch, repeat selfWatch, selfUnwatch, repeat selfUnwatch and managed watchers", async () => {
+      const watchingState = new Set<string>();
+
+      const mockFollowersRepo = {
+        async watch(taskId: string, userId: string) {
+          if (watchingState.has(userId)) {
+            return { changed: false };
+          }
+          watchingState.add(userId);
+          return { changed: true };
+        },
+        async unwatch(taskId: string, userId: string) {
+          if (!watchingState.has(userId)) {
+            return { changed: false };
+          }
+          watchingState.delete(userId);
+          return { changed: true };
+        },
+      };
+
       const context: DatabaseTenantContext = { organizationId: "org-1", workspaceId: "ws-1", actorId: "user-1" };
-      const service = createTaskWatcherService(context);
-      assert.ok(typeof service.selfWatch === "function");
-      assert.ok(typeof service.selfUnwatch === "function");
-      assert.ok(typeof service.addWatcher === "function");
-      assert.ok(typeof service.removeWatcher === "function");
+      const service = createTaskWatcherService(context, mockFollowersRepo as never);
+
+      // 1. Initial selfWatch -> relation created, changed = true
+      const watchRes1 = await service.selfWatch("task-100", "user-1");
+      assert.deepEqual(watchRes1, { ok: true, watching: true, changed: true });
+      assert.ok(watchingState.has("user-1"));
+
+      // 2. Repeat selfWatch -> changed = false (no duplicate, no activity logged)
+      const watchRes2 = await service.selfWatch("task-100", "user-1");
+      assert.deepEqual(watchRes2, { ok: true, watching: true, changed: false });
+
+      // 3. Initial selfUnwatch -> relation closed, changed = true
+      const unwatchRes1 = await service.selfUnwatch("task-100", "user-1");
+      assert.deepEqual(unwatchRes1, { ok: true, watching: false, changed: true });
+      assert.ok(!watchingState.has("user-1"));
+
+      // 4. Repeat selfUnwatch -> changed = false (no duplicate, no activity logged)
+      const unwatchRes2 = await service.selfUnwatch("task-100", "user-1");
+      assert.deepEqual(unwatchRes2, { ok: true, watching: false, changed: false });
+
+      // 5. Managed addWatcher and removeWatcher
+      const addRes1 = await service.addWatcher("task-100", "user-2", "user-1");
+      assert.deepEqual(addRes1, { ok: true, watching: true, changed: true });
+      assert.ok(watchingState.has("user-2"));
+
+      const addRes2 = await service.addWatcher("task-100", "user-2", "user-1");
+      assert.deepEqual(addRes2, { ok: true, watching: true, changed: false });
+
+      const removeRes1 = await service.removeWatcher("task-100", "user-2", "user-1");
+      assert.deepEqual(removeRes1, { ok: true, watching: false, changed: true });
+      assert.ok(!watchingState.has("user-2"));
+
+      const removeRes2 = await service.removeWatcher("task-100", "user-2", "user-1");
+      assert.deepEqual(removeRes2, { ok: true, watching: false, changed: false });
     });
   });
 
@@ -275,62 +324,48 @@ describe("task watcher API, service, and notification engine", () => {
 
       assert.deepEqual(result.notifiedUserIds, ["user-1"]);
     });
+
+    it("promoted Lead B receives specific assignment recipient status and is excluded from generic watcher update", async () => {
+      // User B was a contributor, now promoted to Lead
+      const before = {
+        assigneeId: "user-A",
+        assigneeIds: ["user-A", "user-B"],
+      };
+      const after = {
+        assigneeId: "user-B",
+        assigneeIds: ["user-A", "user-B"],
+        serial: "T-100",
+      };
+
+      const changes = deriveWatcherRelevantTaskChanges(before, after);
+      assert.deepEqual(changes.specificAssignmentRecipientIds, ["user-B"]);
+
+      // Watchers of the task: user-A, user-B (if user-B was watching), user-watcher-1
+      const activeWatchers = ["user-A", "user-B", "user-watcher-1"];
+      const mockDb = createMockDb(activeWatchers);
+
+      const result = await dispatchWatcherNotifications(
+        context,
+        {
+          taskId: "task-100",
+          actorId: "user-actor",
+          excludedUserIds: changes.specificAssignmentRecipientIds, // user-B excluded from generic watcher notification
+          type: "task_watch_update",
+          title: "تحديث في المهمة T-100",
+          body: changes.body,
+          deduplicationKeyTemplate: (uid) => `task-watch/task-100/${changes.event}/v2/${uid}`,
+        },
+        mockDb as never,
+      );
+
+      // user-B must NOT receive generic watcher notification
+      assert.ok(!result.notifiedUserIds.includes("user-B"), "Promoted Lead B must NOT receive generic watcher update");
+      assert.ok(result.notifiedUserIds.includes("user-A"));
+      assert.ok(result.notifiedUserIds.includes("user-watcher-1"));
+    });
   });
 
-  describe("Schedule and Assignment change detection invariants", () => {
-    function instantValue(value: Date | string | null | undefined): number | null {
-      if (!value) return null;
-      const date = value instanceof Date ? value : new Date(value);
-      return Number.isNaN(date.getTime()) ? null : date.getTime();
-    }
-
-    function checkChanges(
-      before: {
-        status: string;
-        priority: string;
-        assigneeId: string | null;
-        assigneeIds: string[];
-        startDate: Date | null;
-        dueDate: Date | null;
-      },
-      after: {
-        status: string;
-        priority: string;
-        assigneeId: string | null;
-        assigneeIds: string[];
-        startDate: Date | null;
-        dueDate: Date | null;
-      },
-    ) {
-      const statusChanged = after.status !== before.status;
-      const priorityChanged = after.priority !== before.priority;
-      const scheduleChanged =
-        instantValue(after.startDate) !== instantValue(before.startDate) ||
-        instantValue(after.dueDate) !== instantValue(before.dueDate);
-
-      const beforeAssignees =
-        before.assigneeIds && before.assigneeIds.length > 0
-          ? before.assigneeIds
-          : before.assigneeId
-            ? [before.assigneeId]
-            : [];
-      const afterAssignees =
-        after.assigneeIds && after.assigneeIds.length > 0
-          ? after.assigneeIds
-          : after.assigneeId
-            ? [after.assigneeId]
-            : [];
-
-      const primaryChanged = (before.assigneeId ?? null) !== (after.assigneeId ?? null);
-      const executionAssigneesChanged =
-        beforeAssignees.length !== afterAssignees.length ||
-        beforeAssignees.some((id) => !afterAssignees.includes(id)) ||
-        afterAssignees.some((id) => !beforeAssignees.includes(id));
-      const assigneesChanged = primaryChanged || executionAssigneesChanged;
-
-      return { statusChanged, priorityChanged, scheduleChanged, assigneesChanged };
-    }
-
+  describe("Schedule and Assignment change detection invariants using production helper", () => {
     it("title-only update on scheduled task produces NO schedule or status change", () => {
       const date1 = new Date("2026-08-01T10:00:00Z");
       const date2 = new Date("2026-08-15T18:00:00Z");
@@ -353,16 +388,19 @@ describe("task watcher API, service, and notification engine", () => {
         assigneeIds: ["user-1"],
         startDate: date1Copy,
         dueDate: date2Copy,
+        serial: "T-1",
       };
 
-      const changes = checkChanges(before, after);
+      const changes = deriveWatcherRelevantTaskChanges(before, after);
       assert.equal(changes.scheduleChanged, false);
       assert.equal(changes.statusChanged, false);
       assert.equal(changes.priorityChanged, false);
       assert.equal(changes.assigneesChanged, false);
+      assert.equal(changes.hasChanges, false);
+      assert.deepEqual(changes.specificAssignmentRecipientIds, []);
     });
 
-    it("actual startDate change produces scheduleChanged = true", () => {
+    it("actual startDate change produces scheduleChanged = true and event = schedule_changed", () => {
       const before = {
         status: "todo",
         priority: "medium",
@@ -378,13 +416,16 @@ describe("task watcher API, service, and notification engine", () => {
         assigneeIds: ["user-1"],
         startDate: new Date("2026-08-05T10:00:00Z"),
         dueDate: new Date("2026-08-15T18:00:00Z"),
+        serial: "T-1",
       };
 
-      const changes = checkChanges(before, after);
+      const changes = deriveWatcherRelevantTaskChanges(before, after);
       assert.equal(changes.scheduleChanged, true);
+      assert.equal(changes.event, "schedule_changed");
+      assert.equal(changes.hasChanges, true);
     });
 
-    it("actual dueDate change produces scheduleChanged = true", () => {
+    it("actual dueDate change produces scheduleChanged = true and event = schedule_changed", () => {
       const before = {
         status: "todo",
         priority: "medium",
@@ -400,13 +441,16 @@ describe("task watcher API, service, and notification engine", () => {
         assigneeIds: ["user-1"],
         startDate: new Date("2026-08-01T10:00:00Z"),
         dueDate: new Date("2026-08-20T18:00:00Z"),
+        serial: "T-1",
       };
 
-      const changes = checkChanges(before, after);
+      const changes = deriveWatcherRelevantTaskChanges(before, after);
       assert.equal(changes.scheduleChanged, true);
+      assert.equal(changes.event, "schedule_changed");
+      assert.equal(changes.hasChanges, true);
     });
 
-    it("clearing dueDate (set to null) produces scheduleChanged = true", () => {
+    it("clearing dueDate (set to null) produces scheduleChanged = true and event = schedule_changed", () => {
       const before = {
         status: "todo",
         priority: "medium",
@@ -422,13 +466,16 @@ describe("task watcher API, service, and notification engine", () => {
         assigneeIds: ["user-1"],
         startDate: new Date("2026-08-01T10:00:00Z"),
         dueDate: null,
+        serial: "T-1",
       };
 
-      const changes = checkChanges(before, after);
+      const changes = deriveWatcherRelevantTaskChanges(before, after);
       assert.equal(changes.scheduleChanged, true);
+      assert.equal(changes.event, "schedule_changed");
+      assert.equal(changes.hasChanges, true);
     });
 
-    it("lead swap with identical assignee set produces assigneesChanged = true", () => {
+    it("lead swap with identical assignee set produces assigneesChanged = true and specific recipient", () => {
       const before = {
         status: "todo",
         priority: "medium",
@@ -444,10 +491,43 @@ describe("task watcher API, service, and notification engine", () => {
         assigneeIds: ["user-A", "user-B"],
         startDate: null,
         dueDate: null,
+        serial: "T-1",
       };
 
-      const changes = checkChanges(before, after);
+      const changes = deriveWatcherRelevantTaskChanges(before, after);
+      assert.equal(changes.primaryChanged, true);
+      assert.equal(changes.executionAssigneesChanged, false);
       assert.equal(changes.assigneesChanged, true);
+      assert.deepEqual(changes.addedAssigneeIds, []);
+      assert.deepEqual(changes.specificAssignmentRecipientIds, ["user-B"]);
+      assert.equal(changes.event, "assignees_changed");
+    });
+
+    it("unchanged assignment produces assigneesChanged = false and empty specificAssignmentRecipientIds", () => {
+      const before = {
+        status: "todo",
+        priority: "medium",
+        assigneeId: "user-A",
+        assigneeIds: ["user-A", "user-B"],
+        startDate: null,
+        dueDate: null,
+      };
+      const after = {
+        status: "todo",
+        priority: "medium",
+        assigneeId: "user-A",
+        assigneeIds: ["user-A", "user-B"],
+        startDate: null,
+        dueDate: null,
+        serial: "T-1",
+      };
+
+      const changes = deriveWatcherRelevantTaskChanges(before, after);
+      assert.equal(changes.primaryChanged, false);
+      assert.equal(changes.executionAssigneesChanged, false);
+      assert.equal(changes.assigneesChanged, false);
+      assert.deepEqual(changes.specificAssignmentRecipientIds, []);
+      assert.equal(changes.hasChanges, false);
     });
   });
 });

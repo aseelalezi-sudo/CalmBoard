@@ -1,8 +1,11 @@
 import { createTaskFollowersRepository, type DatabaseTenantContext } from "@calmboard/database";
 import { logActivity } from "./automation-engine.js";
 
-export function createTaskWatcherService(context: DatabaseTenantContext) {
-  const followersRepo = createTaskFollowersRepository(context);
+export function createTaskWatcherService(
+  context: DatabaseTenantContext,
+  repository?: ReturnType<typeof createTaskFollowersRepository>,
+) {
+  const followersRepo = repository ?? createTaskFollowersRepository(context);
 
   return {
     async selfWatch(taskId: string, authenticatedUserId: string) {

@@ -16,10 +16,98 @@ import {
 import { logActivity } from "./automation-engine.js";
 import { createAttachmentService } from "./attachment.service.js";
 
-function instantValue(value: Date | string | null | undefined): number | null {
+export function instantValue(value: Date | string | null | undefined): number | null {
   if (!value) return null;
   const date = value instanceof Date ? value : new Date(value);
   return Number.isNaN(date.getTime()) ? null : date.getTime();
+}
+
+export type TaskChangeSnapshot = {
+  status?: string | null;
+  priority?: string | null;
+  startDate?: Date | string | null;
+  dueDate?: Date | string | null;
+  assigneeId?: string | null;
+  assigneeIds?: string[] | null;
+};
+
+export type WatcherRelevantChanges = {
+  statusChanged: boolean;
+  priorityChanged: boolean;
+  scheduleChanged: boolean;
+  primaryChanged: boolean;
+  executionAssigneesChanged: boolean;
+  assigneesChanged: boolean;
+  addedAssigneeIds: string[];
+  specificAssignmentRecipientIds: string[];
+  hasChanges: boolean;
+  event: "status_changed" | "priority_changed" | "schedule_changed" | "assignees_changed" | "task_updated";
+  body: string;
+};
+
+export function deriveWatcherRelevantTaskChanges(
+  before: TaskChangeSnapshot,
+  task: TaskChangeSnapshot & { serial?: string },
+): WatcherRelevantChanges {
+  const beforeAssignees =
+    before.assigneeIds && before.assigneeIds.length > 0
+      ? before.assigneeIds
+      : before.assigneeId
+        ? [before.assigneeId]
+        : [];
+  const afterAssignees =
+    task.assigneeIds && task.assigneeIds.length > 0 ? task.assigneeIds : task.assigneeId ? [task.assigneeId] : [];
+
+  const addedAssigneeIds = afterAssignees.filter((id) => !beforeAssignees.includes(id));
+  const primaryChanged = (before.assigneeId ?? null) !== (task.assigneeId ?? null);
+  const executionAssigneesChanged =
+    beforeAssignees.length !== afterAssignees.length ||
+    beforeAssignees.some((id) => !afterAssignees.includes(id)) ||
+    afterAssignees.some((id) => !beforeAssignees.includes(id));
+  const assigneesChanged = primaryChanged || executionAssigneesChanged;
+
+  const specificAssignmentRecipientIds = [
+    ...new Set([...addedAssigneeIds, ...(primaryChanged && task.assigneeId ? [task.assigneeId] : [])]),
+  ];
+
+  const statusChanged = task.status !== before.status;
+  const priorityChanged = task.priority !== before.priority;
+  const scheduleChanged =
+    instantValue(task.startDate) !== instantValue(before.startDate) ||
+    instantValue(task.dueDate) !== instantValue(before.dueDate);
+
+  const hasChanges = statusChanged || priorityChanged || scheduleChanged || assigneesChanged;
+
+  let event: WatcherRelevantChanges["event"] = "task_updated";
+  const taskSerial = task.serial ?? "المهمة";
+  let body = `تم تحديث المهمة ${taskSerial}`;
+  if (statusChanged) {
+    event = "status_changed";
+    body = `تم تغيير حالة المهمة إلى ${task.status}`;
+  } else if (priorityChanged) {
+    event = "priority_changed";
+    body = `تم تغيير أولوية المهمة إلى ${task.priority}`;
+  } else if (scheduleChanged) {
+    event = "schedule_changed";
+    body = `تم تحديث الموعد للمهمة ${taskSerial}`;
+  } else if (assigneesChanged) {
+    event = "assignees_changed";
+    body = `تم تحديث المكلفين بالمهمة ${taskSerial}`;
+  }
+
+  return {
+    statusChanged,
+    priorityChanged,
+    scheduleChanged,
+    primaryChanged,
+    executionAssigneesChanged,
+    assigneesChanged,
+    addedAssigneeIds,
+    specificAssignmentRecipientIds,
+    hasChanges,
+    event,
+    body,
+  };
 }
 
 export function createTaskService(context: DatabaseTenantContext) {
@@ -72,10 +160,24 @@ export function createTaskService(context: DatabaseTenantContext) {
     async importTasks(inputs: CreateTaskInput[]) {
       const createTask = async (input: CreateTaskInput) => {
         const task = await tasksRepository.create(input);
-        const assigneesToNotify =
-          task.assigneeIds && task.assigneeIds.length > 0 ? task.assigneeIds : task.assigneeId ? [task.assigneeId] : [];
-        if (assigneesToNotify.length > 0) {
-          await tasksRepository.createAssignmentNotifications(task, assigneesToNotify, context.actorId);
+        const actorId = context.actorId ?? input.reporterId ?? undefined;
+        if (actorId) {
+          await logActivity({
+            organizationId: task.organizationId,
+            workspaceId: task.workspaceId,
+            actorId,
+            action: "task.created",
+            entityType: "task",
+            entityId: task.id,
+            newValues: {
+              title: task.title,
+              serial: task.serial,
+              status: task.status,
+              priority: task.priority,
+              assigneeId: task.assigneeId,
+              assigneeIds: task.assigneeIds,
+            },
+          });
         }
         return task;
       };
@@ -115,57 +217,24 @@ export function createTaskService(context: DatabaseTenantContext) {
           },
         });
       }
-      const beforeAssignees =
-        before.assigneeIds && before.assigneeIds.length > 0
-          ? before.assigneeIds
-          : before.assigneeId
-            ? [before.assigneeId]
-            : [];
-      const afterAssignees =
-        task.assigneeIds && task.assigneeIds.length > 0 ? task.assigneeIds : task.assigneeId ? [task.assigneeId] : [];
-      const addedAssigneeIds = afterAssignees.filter((id) => !beforeAssignees.includes(id));
-      if (addedAssigneeIds.length > 0) {
-        await tasksRepository.createAssignmentNotifications(task, addedAssigneeIds, actorId);
+
+      const changes = deriveWatcherRelevantTaskChanges(before, task);
+
+      if (changes.specificAssignmentRecipientIds.length > 0) {
+        await tasksRepository.createAssignmentNotifications(task, changes.specificAssignmentRecipientIds, actorId);
       }
 
-      const statusChanged = task.status !== before.status;
-      const priorityChanged = task.priority !== before.priority;
-      const scheduleChanged =
-        instantValue(task.startDate) !== instantValue(before.startDate) ||
-        instantValue(task.dueDate) !== instantValue(before.dueDate);
-      const primaryChanged = (before.assigneeId ?? null) !== (task.assigneeId ?? null);
-      const executionAssigneesChanged =
-        beforeAssignees.length !== afterAssignees.length ||
-        beforeAssignees.some((id) => !afterAssignees.includes(id)) ||
-        afterAssignees.some((id) => !beforeAssignees.includes(id));
-      const assigneesChanged = primaryChanged || executionAssigneesChanged;
-
-      if (statusChanged || priorityChanged || scheduleChanged || assigneesChanged) {
-        let event = "task_updated";
-        let body = `تم تحديث المهمة ${task.serial}`;
-        if (statusChanged) {
-          event = "status_changed";
-          body = `تم تغيير حالة المهمة إلى ${task.status}`;
-        } else if (priorityChanged) {
-          event = "priority_changed";
-          body = `تم تغيير أولوية المهمة إلى ${task.priority}`;
-        } else if (scheduleChanged) {
-          event = "schedule_changed";
-          body = `تم تحديث الموعد للمهمة ${task.serial}`;
-        } else if (assigneesChanged) {
-          event = "assignees_changed";
-          body = `تم تحديث المكلفين بالمهمة ${task.serial}`;
-        }
-
+      if (changes.hasChanges) {
         try {
           await dispatchWatcherNotifications(context, {
             taskId: task.id,
             actorId,
-            excludedUserIds: addedAssigneeIds,
+            excludedUserIds: changes.specificAssignmentRecipientIds,
             type: "task_watch_update",
             title: `تحديث في المهمة ${task.serial}`,
-            body,
-            deduplicationKeyTemplate: (watcherId) => `task-watch/${task.id}/${event}/v${task.version}/${watcherId}`,
+            body: changes.body,
+            deduplicationKeyTemplate: (watcherId) =>
+              `task-watch/${task.id}/${changes.event}/v${task.version}/${watcherId}`,
             actionPath: `/?taskId=${encodeURIComponent(task.id)}`,
           });
         } catch (error) {
