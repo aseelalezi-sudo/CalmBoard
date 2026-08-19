@@ -179,6 +179,11 @@ export function createTaskService(context: DatabaseTenantContext) {
             },
           });
         }
+        const assignees =
+          task.assigneeIds && task.assigneeIds.length > 0 ? task.assigneeIds : task.assigneeId ? [task.assigneeId] : [];
+        if (assignees.length > 0) {
+          await tasksRepository.createAssignmentNotifications(task, assignees, actorId);
+        }
         return task;
       };
       const imported = [];

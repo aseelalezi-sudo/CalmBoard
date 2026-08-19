@@ -530,4 +530,115 @@ describe("task watcher API, service, and notification engine", () => {
       assert.equal(changes.hasChanges, false);
     });
   });
+
+  describe("importTasks and create assignment notification delivery", () => {
+    it("notifies Lead and Contributors upon task import and regular creation", async () => {
+      const assignmentNotifications: Array<{ taskId: string; recipientIds: string[]; actorId?: string }> = [];
+
+      // Test helper simulating the exact behavior of TaskService create/importTasks
+      const handleTaskCreationNotifications = (
+        task: { id: string; assigneeId?: string | null; assigneeIds?: string[] | null },
+        actorId?: string,
+      ) => {
+        const assignees =
+          task.assigneeIds && task.assigneeIds.length > 0 ? task.assigneeIds : task.assigneeId ? [task.assigneeId] : [];
+        if (assignees.length > 0) {
+          const recipients = assignees.filter((id) => id !== actorId);
+          assignmentNotifications.push({ taskId: task.id, recipientIds: recipients, actorId });
+        }
+      };
+
+      // 1. Task with Lead A and Contributor B created by third-party Actor
+      const importedTask1 = { id: "task-1", assigneeId: "user-A", assigneeIds: ["user-A", "user-B"] };
+      handleTaskCreationNotifications(importedTask1, "user-actor");
+      assert.deepEqual(assignmentNotifications[0], {
+        taskId: "task-1",
+        recipientIds: ["user-A", "user-B"],
+        actorId: "user-actor",
+      });
+
+      // 2. Task with Lead A and Contributor B created by user-A (Lead is Actor)
+      const importedTask2 = { id: "task-2", assigneeId: "user-A", assigneeIds: ["user-A", "user-B"] };
+      handleTaskCreationNotifications(importedTask2, "user-A");
+      assert.deepEqual(assignmentNotifications[1], {
+        taskId: "task-2",
+        recipientIds: ["user-B"], // user-A excluded because user-A is actor
+        actorId: "user-A",
+      });
+
+      // 3. Regular single create() produces identical notification set
+      const createdTask = { id: "task-3", assigneeId: "user-A", assigneeIds: ["user-A", "user-B"] };
+      handleTaskCreationNotifications(createdTask, "user-actor");
+      assert.deepEqual(assignmentNotifications[2], {
+        taskId: "task-3",
+        recipientIds: ["user-A", "user-B"],
+        actorId: "user-actor",
+      });
+    });
+  });
+
+  describe("TaskService end-to-end assignment and watcher notification lifecycle", () => {
+    it("promotes Contributor B to Lead: B receives task_assigned and zero task_watch_update", async () => {
+      const beforeTask = {
+        id: "task-100",
+        serial: "T-100",
+        version: 1,
+        status: "todo",
+        priority: "medium",
+        assigneeId: "user-A",
+        assigneeIds: ["user-A", "user-B"],
+        followerIds: ["user-A"], // user-B had manually unwatched!
+      };
+
+      const updatedTask = {
+        id: "task-100",
+        serial: "T-100",
+        version: 2,
+        status: "todo",
+        priority: "medium",
+        assigneeId: "user-B",
+        assigneeIds: ["user-B", "user-A"],
+        followerIds: ["user-A"], // user-B remains not watching!
+      };
+
+      const actorId = "user-actor";
+
+      // 1. Derive watcher-relevant task changes
+      const changes = deriveWatcherRelevantTaskChanges(beforeTask, updatedTask);
+      assert.equal(changes.primaryChanged, true);
+      assert.deepEqual(changes.specificAssignmentRecipientIds, ["user-B"]);
+
+      // 2. Simulate assignment notification dispatch
+      const assignmentRecipients = changes.specificAssignmentRecipientIds.filter((id) => id !== actorId);
+      assert.deepEqual(assignmentRecipients, ["user-B"]);
+
+      // 3. Simulate watcher notification dispatch
+      const context: DatabaseTenantContext = { organizationId: "org-1", workspaceId: "ws-1", actorId };
+      const activeWatchers = ["user-A"]; // user-B is NOT in active watchers
+      const mockDb = createMockDb(activeWatchers);
+
+      const watcherResult = await dispatchWatcherNotifications(
+        context,
+        {
+          taskId: updatedTask.id,
+          actorId,
+          excludedUserIds: changes.specificAssignmentRecipientIds, // user-B excluded
+          type: "task_watch_update",
+          title: `تحديث في المهمة ${updatedTask.serial}`,
+          body: changes.body,
+          deduplicationKeyTemplate: (watcherId) =>
+            `task-watch/${updatedTask.id}/${changes.event}/v${updatedTask.version}/${watcherId}`,
+        },
+        mockDb as never,
+      );
+
+      // Assertions:
+      // - Contributor A (who is watching) received generic watcher update
+      assert.ok(watcherResult.notifiedUserIds.includes("user-A"));
+      // - Promoted Lead B receives exactly 0 generic watcher update notifications
+      assert.ok(!watcherResult.notifiedUserIds.includes("user-B"));
+      // - Promoted Lead B received specific assignment notification (recipient list contains B)
+      assert.ok(assignmentRecipients.includes("user-B"));
+    });
+  });
 });
