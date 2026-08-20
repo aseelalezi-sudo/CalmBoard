@@ -22,6 +22,16 @@ import { assertWorkspaceTenantContext, type DatabaseTenantContext } from "../ten
 import { createNotificationsRepository } from "./notifications.js";
 import { createTaskFollowersRepository } from "./task-followers.js";
 import { resolveTaskAssignmentCreation, resolveTaskAssignmentUpdate } from "./task-assignments.js";
+import {
+  assertValidTaskStatus,
+  assertValidTaskPriority,
+  assertValidTaskProgress,
+  assertValidTaskDates,
+  assertValidMilestone,
+  normalizeTaskRecurrence,
+  resolveTaskStateCreation,
+  resolveTaskStateUpdate,
+} from "./task-states.js";
 
 export type TaskRecord = typeof tasks.$inferSelect;
 export type TaskStatus = TaskRecord["status"];
@@ -630,6 +640,7 @@ export function createTasksRepository(context: DatabaseTenantContext) {
         throw new TenantResourceNotFoundError("project section");
       }
     }
+    resolveTaskStateCreation(input);
     const resolvedAssignments = resolveTaskAssignmentCreation(input);
     await requireActiveMembers([
       ...resolvedAssignments.assigneeIds,
@@ -671,6 +682,7 @@ export function createTasksRepository(context: DatabaseTenantContext) {
       }
     }
     const before = await getById(taskId);
+    resolveTaskStateUpdate(before, input);
     const resolvedAssignments = resolveTaskAssignmentUpdate(before, input);
     await requireActiveMembers([
       ...resolvedAssignments.assigneeIds,
@@ -913,10 +925,8 @@ export function createTasksRepository(context: DatabaseTenantContext) {
       await validateCreateInput(input);
       const [serialNumber] = await allocateTaskSerialNumbers(organizationId);
       const reminders = input.reminders ? normalizeReminders(input.reminders) : [];
-      const recurrenceInput = input.recurrence ?? (input.isRecurring ? { frequency: "weekly" as const } : undefined);
-      const recurrence = recurrenceInput
-        ? normalizeRecurrence(recurrenceInput, input.dueDate ?? new Date())
-        : undefined;
+      const canonicalState = resolveTaskStateCreation(input);
+      const recurrence = canonicalState.recurrence;
 
       const { assigneeId: primaryAssigneeId, assigneeIds: finalAssigneeIds } = resolveTaskAssignmentCreation(input);
       const followerIds = [...new Set(input.followerIds ?? [])];
@@ -932,8 +942,8 @@ export function createTasksRepository(context: DatabaseTenantContext) {
             parentId: input.parentId ?? null,
             title: input.title,
             description: input.description ?? "",
-            status: input.status ?? "todo",
-            priority: input.priority ?? "medium",
+            status: canonicalState.status,
+            priority: canonicalState.priority,
             assigneeId: primaryAssigneeId,
             reporterId: input.reporterId ?? null,
             serial: formatTaskSerial(serialNumber),
@@ -942,14 +952,14 @@ export function createTasksRepository(context: DatabaseTenantContext) {
             customFields: input.customFields ?? {},
             estimatedHours: input.estimatedHours ?? 4,
             loggedHours: input.loggedHours ?? 0,
-            startDate: input.startDate ?? null,
-            dueDate: input.dueDate ?? null,
-            timezone: input.timezone ?? "UTC",
-            progress: input.progress ?? 0,
+            startDate: canonicalState.startDate,
+            dueDate: canonicalState.dueDate,
+            timezone: canonicalState.timezone,
+            progress: canonicalState.progress,
             storyPoints: input.storyPoints ?? null,
             delayReason: input.delayReason ?? null,
-            isMilestone: input.isMilestone ?? false,
-            isRecurring: Boolean(recurrence),
+            isMilestone: canonicalState.isMilestone,
+            isRecurring: canonicalState.isRecurring,
           })
           .returning();
 
@@ -1325,6 +1335,7 @@ export function createTasksRepository(context: DatabaseTenantContext) {
         return movedTask;
       });
 
+      assertValidTaskStatus(input.status);
       return { before, task: await getById(moved.id) };
     },
 
@@ -1342,6 +1353,20 @@ export function createTasksRepository(context: DatabaseTenantContext) {
         expectedVersion,
         ...taskUpdates
       } = input;
+
+      const stateResolution = resolveTaskStateUpdate(before, input);
+      const { state: canonicalState, hasStateChange } = stateResolution;
+
+      if (stateResolution.statusChanged) taskUpdates.status = canonicalState.status;
+      if (stateResolution.priorityChanged) taskUpdates.priority = canonicalState.priority;
+      if (stateResolution.progressChanged) taskUpdates.progress = canonicalState.progress;
+      if (stateResolution.datesChanged) {
+        taskUpdates.startDate = canonicalState.startDate;
+        taskUpdates.dueDate = canonicalState.dueDate;
+      }
+      if (stateResolution.milestoneChanged) taskUpdates.isMilestone = canonicalState.isMilestone;
+      if (stateResolution.recurrenceChanged) taskUpdates.isRecurring = canonicalState.isRecurring;
+      const recurrence = stateResolution.recurrenceChanged ? canonicalState.recurrence : undefined;
 
       const {
         assigneeId: finalAssigneeId,
@@ -1403,24 +1428,10 @@ export function createTasksRepository(context: DatabaseTenantContext) {
       if (dependencySerials && blockingTasks.length !== dependencySerials.length) {
         throw new TenantResourceNotFoundError("task dependency");
       }
-      const recurrenceChange =
-        recurrenceInput !== undefined
-          ? recurrenceInput
-          : taskUpdates.isRecurring === true
-            ? ({ frequency: "weekly" } as const)
-            : taskUpdates.isRecurring === false
-              ? null
-              : undefined;
-      const recurrence = recurrenceChange
-        ? normalizeRecurrence(recurrenceChange, taskUpdates.dueDate ?? before.dueDate ?? new Date())
-        : recurrenceChange;
-      if (recurrence !== undefined) taskUpdates.isRecurring = recurrence !== null;
 
-      const hasScalarChanges =
+      const hasOtherScalarChanges =
         (taskUpdates.title !== undefined && taskUpdates.title !== before.title) ||
         (taskUpdates.description !== undefined && taskUpdates.description !== before.description) ||
-        (taskUpdates.status !== undefined && taskUpdates.status !== before.status) ||
-        (taskUpdates.priority !== undefined && taskUpdates.priority !== before.priority) ||
         (taskUpdates.parentId !== undefined && taskUpdates.parentId !== (before.parentId ?? null)) ||
         (taskUpdates.sectionId !== undefined && taskUpdates.sectionId !== (before.sectionId ?? null)) ||
         (taskUpdates.reporterId !== undefined && taskUpdates.reporterId !== (before.reporterId ?? null)) ||
@@ -1428,18 +1439,9 @@ export function createTasksRepository(context: DatabaseTenantContext) {
         (taskUpdates.tags !== undefined && JSON.stringify(taskUpdates.tags) !== JSON.stringify(before.tags ?? [])) ||
         (taskUpdates.estimatedHours !== undefined && taskUpdates.estimatedHours !== before.estimatedHours) ||
         (taskUpdates.loggedHours !== undefined && taskUpdates.loggedHours !== before.loggedHours) ||
-        (taskUpdates.startDate !== undefined &&
-          (taskUpdates.startDate ? taskUpdates.startDate.toISOString() : null) !==
-            (before.startDate ? new Date(before.startDate).toISOString() : null)) ||
-        (taskUpdates.dueDate !== undefined &&
-          (taskUpdates.dueDate ? taskUpdates.dueDate.toISOString() : null) !==
-            (before.dueDate ? new Date(before.dueDate).toISOString() : null)) ||
         (taskUpdates.timezone !== undefined && taskUpdates.timezone !== before.timezone) ||
-        (taskUpdates.progress !== undefined && taskUpdates.progress !== before.progress) ||
         (taskUpdates.storyPoints !== undefined && taskUpdates.storyPoints !== (before.storyPoints ?? null)) ||
         (taskUpdates.delayReason !== undefined && taskUpdates.delayReason !== (before.delayReason ?? null)) ||
-        (taskUpdates.isMilestone !== undefined && taskUpdates.isMilestone !== before.isMilestone) ||
-        recurrenceChange !== undefined ||
         (customFields !== undefined && JSON.stringify(customFields) !== JSON.stringify(before.customFields ?? {}));
 
       const followerIdsChanged =
@@ -1454,7 +1456,12 @@ export function createTasksRepository(context: DatabaseTenantContext) {
       const remindersChanged = reminderInputs !== undefined;
 
       const hasAnyChange =
-        assigneeChanged || hasScalarChanges || followerIdsChanged || dependenciesChanged || remindersChanged;
+        assigneeChanged ||
+        hasStateChange ||
+        hasOtherScalarChanges ||
+        followerIdsChanged ||
+        dependenciesChanged ||
+        remindersChanged;
 
       if (!hasAnyChange) {
         return { before, task: before };

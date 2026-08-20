@@ -38,6 +38,7 @@ type TaskState = {
   serial: string;
   status: string;
   priority: string;
+  progress: number;
   project_id: string;
   assignee_id: string | null;
   reporter_id: string | null;
@@ -283,6 +284,7 @@ async function executeRule(pool: Pool, event: AutomationEventCandidate, ruleId: 
 
     const nextStatus = setStatus ?? row.task.status;
     const nextPriority = setPriority ?? row.task.priority;
+    const nextProgress = nextStatus === "done" ? 100 : row.task.progress;
     const nextAssignee = assignTo ?? row.task.assignee_id;
     const nextTags = addTag ? [...new Set([...row.task.tags, addTag])] : row.task.tags;
     const changedTriggers: string[] = [];
@@ -290,20 +292,22 @@ async function executeRule(pool: Pool, event: AutomationEventCandidate, ruleId: 
     if (nextPriority !== row.task.priority) changedTriggers.push("task_priority_changed");
     if (nextAssignee !== row.task.assignee_id) changedTriggers.push("task_assignee_changed");
     const tagsChanged = JSON.stringify(nextTags) !== JSON.stringify(row.task.tags);
+    const progressChanged = nextProgress !== row.task.progress;
 
     let nextVersion = row.task.version;
-    if (changedTriggers.length || tagsChanged) {
+    if (changedTriggers.length || tagsChanged || progressChanged) {
       const updated = await client.query<{ version: number }>(
         `update tasks
          set status = $2,
              priority = $3,
-             assignee_id = $4,
-             tags = $5::jsonb,
+             progress = $4,
+             assignee_id = $5,
+             tags = $6::jsonb,
              version = version + 1,
              updated_at = now()
          where id = $1
          returning version`,
-        [event.taskId, nextStatus, nextPriority, nextAssignee, JSON.stringify(nextTags)],
+        [event.taskId, nextStatus, nextPriority, nextProgress, nextAssignee, JSON.stringify(nextTags)],
       );
       nextVersion = updated.rows[0]!.version;
       if (event.depth < 5) {

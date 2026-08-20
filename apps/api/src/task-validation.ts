@@ -322,7 +322,7 @@ export function parseCreateTaskInput(body: JsonObject): CreateTaskInput {
   }
   if (body.loggedHours !== undefined) input.loggedHours = readNumber(body.loggedHours, "loggedHours");
   if (body.dueDate !== undefined) input.dueDate = readDate(body.dueDate, "dueDate");
-  if (body.progress !== undefined) input.progress = readNumber(body.progress, "progress");
+  if (body.progress !== undefined) input.progress = readOptionalInteger(body.progress, "progress", 0, 100);
   if (body.customFields !== undefined) {
     if (!isJsonObject(body.customFields)) throw new BadRequestException("customFields must be an object");
     input.customFields = body.customFields;
@@ -346,6 +346,9 @@ export function parseCreateTaskInput(body: JsonObject): CreateTaskInput {
   if (body.isMilestone !== undefined) {
     if (typeof body.isMilestone !== "boolean") throw new BadRequestException("isMilestone must be a boolean");
     input.isMilestone = body.isMilestone;
+  }
+  if (input.startDate && input.dueDate && input.startDate.getTime() > input.dueDate.getTime()) {
+    throw new BadRequestException("Task startDate cannot be after dueDate");
   }
   if (
     input.isMilestone &&
@@ -395,7 +398,7 @@ export function parseUpdateTaskInput(body: JsonObject): UpdateTaskInput {
   if (body.loggedHours !== undefined) {
     input.loggedHours = readNumber(body.loggedHours, "loggedHours");
   }
-  if (body.progress !== undefined) input.progress = readNumber(body.progress, "progress");
+  if (body.progress !== undefined) input.progress = readOptionalInteger(body.progress, "progress", 0, 100);
   if (body.order !== undefined) input.order = readNumber(body.order, "order");
   if (body.tags !== undefined) input.tags = readStringArray(body.tags, "tags");
   if (body.customFields !== undefined) {
@@ -405,6 +408,9 @@ export function parseUpdateTaskInput(body: JsonObject): UpdateTaskInput {
   if (body.isRecurring !== undefined) {
     if (typeof body.isRecurring !== "boolean") throw new BadRequestException("isRecurring must be a boolean");
     input.isRecurring = body.isRecurring;
+  }
+  if (input.startDate && input.dueDate && input.startDate.getTime() > input.dueDate.getTime()) {
+    throw new BadRequestException("Task startDate cannot be after dueDate");
   }
   if (body.isMilestone !== undefined) {
     if (typeof body.isMilestone !== "boolean") throw new BadRequestException("isMilestone must be a boolean");
