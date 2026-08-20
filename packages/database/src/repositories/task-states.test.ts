@@ -8,9 +8,11 @@ import {
   assertValidTaskPriority,
   assertValidTaskProgress,
   assertValidTaskStatus,
+  assertValidTimezone,
   normalizeTaskRecurrence,
   resolveTaskStateCreation,
   resolveTaskStateUpdate,
+  VALID_RECURRENCE_STATUSES,
   VALID_TASK_PRIORITIES,
   VALID_TASK_STATUSES,
 } from "./task-states.js";
@@ -96,6 +98,26 @@ describe("canonical task state domain contract (backend)", () => {
       );
     });
 
+    it("accepts valid IANA timezones and rejects invalid or overly long timezones", () => {
+      assert.doesNotThrow(() => assertValidTimezone("UTC"));
+      assert.doesNotThrow(() => assertValidTimezone("Asia/Riyadh"));
+      assert.doesNotThrow(() => assertValidTimezone("America/New_York"));
+      assert.doesNotThrow(() => assertValidTimezone("Europe/London"));
+
+      assert.throws(
+        () => assertValidTimezone("Invalid/Timezone", "timezone"),
+        (err: unknown) => err instanceof TenantConflictError && /must be a valid IANA timezone/.test(err.message),
+      );
+      assert.throws(
+        () => assertValidTimezone("", "timezone"),
+        (err: unknown) => err instanceof TenantConflictError && /must be a non-empty string/.test(err.message),
+      );
+      assert.throws(
+        () => assertValidTimezone("A".repeat(101), "timezone"),
+        (err: unknown) => err instanceof TenantConflictError && /is too long/.test(err.message),
+      );
+    });
+
     it("accepts valid milestone when startDate and dueDate are identical", () => {
       const date = new Date("2026-08-21T12:00:00Z");
       assert.doesNotThrow(() => assertValidMilestone(true, date, date));
@@ -122,7 +144,7 @@ describe("canonical task state domain contract (backend)", () => {
       );
     });
 
-    it("normalizes and validates recurrence rule correctly", () => {
+    it("normalizes and validates recurrence rule correctly with IANA timezone and status", () => {
       const start = new Date("2026-08-21T10:00:00Z");
       const normalized = normalizeTaskRecurrence(
         {
@@ -130,6 +152,7 @@ describe("canonical task state domain contract (backend)", () => {
           interval: 2,
           weekdays: [1, 3, 5],
           timezone: "Asia/Riyadh",
+          status: "active",
         },
         start,
       );
@@ -138,9 +161,25 @@ describe("canonical task state domain contract (backend)", () => {
       assert.deepEqual(normalized.weekdays, [1, 3, 5]);
       assert.equal(normalized.timezone, "Asia/Riyadh");
       assert.equal(normalized.status, "active");
+
+      // Default timezone to UTC when omitted or empty
+      const defaultTz = normalizeTaskRecurrence({ frequency: "daily" }, start);
+      assert.equal(defaultTz.timezone, "UTC");
+      assert.equal(defaultTz.status, "active");
+
+      const emptyTz = normalizeTaskRecurrence({ frequency: "daily", timezone: "   " }, start);
+      assert.equal(emptyTz.timezone, "UTC");
     });
 
-    it("rejects invalid recurrence parameters", () => {
+    it("accepts paused and completed recurrence status", () => {
+      const start = new Date("2026-08-21T10:00:00Z");
+      for (const status of VALID_RECURRENCE_STATUSES) {
+        const res = normalizeTaskRecurrence({ frequency: "monthly", monthDay: 15, status }, start);
+        assert.equal(res.status, status);
+      }
+    });
+
+    it("rejects invalid recurrence parameters including invalid timezone and duplicate weekdays", () => {
       const start = new Date("2026-08-21T10:00:00Z");
       assert.throws(
         () => normalizeTaskRecurrence({ frequency: "minutely" as never }, start),
@@ -155,8 +194,22 @@ describe("canonical task state domain contract (backend)", () => {
         (err: unknown) => err instanceof TenantConflictError && /weekdays must be between 0 and 6/.test(err.message),
       );
       assert.throws(
+        () => normalizeTaskRecurrence({ frequency: "weekly", weekdays: [1, 1, 3] }, start),
+        (err: unknown) =>
+          err instanceof TenantConflictError && /weekdays cannot contain duplicate days/.test(err.message),
+      );
+      assert.throws(
+        () => normalizeTaskRecurrence({ frequency: "weekly", timezone: "Invalid/Zone" }, start),
+        (err: unknown) =>
+          err instanceof TenantConflictError && /recurrence timezone must be a valid IANA timezone/.test(err.message),
+      );
+      assert.throws(
         () => normalizeTaskRecurrence({ frequency: "monthly", monthDay: 32 }, start),
         (err: unknown) => err instanceof TenantConflictError && /month day must be between 1 and 31/.test(err.message),
+      );
+      assert.throws(
+        () => normalizeTaskRecurrence({ frequency: "daily", status: "disabled" as never }, start),
+        (err: unknown) => err instanceof TenantConflictError && /status is invalid/.test(err.message),
       );
       assert.throws(
         () =>
@@ -167,10 +220,48 @@ describe("canonical task state domain contract (backend)", () => {
         (err: unknown) => err instanceof TenantConflictError && /end must be after its start/.test(err.message),
       );
     });
+
+    it("validates canonical task state with active, paused, or completed recurrence", () => {
+      const base = {
+        status: "todo" as const,
+        priority: "medium" as const,
+        progress: 0,
+        startDate: null,
+        dueDate: null,
+        timezone: "UTC",
+        isMilestone: false,
+        isRecurring: true,
+      };
+
+      for (const status of VALID_RECURRENCE_STATUSES) {
+        assert.doesNotThrow(() =>
+          assertCanonicalTaskState({
+            ...base,
+            recurrence: {
+              frequency: "weekly",
+              interval: 1,
+              timezone: "UTC",
+              weekdays: [1],
+              monthDay: null,
+              startsAt: new Date(),
+              endsAt: null,
+              maxOccurrences: null,
+              nextOccurrenceAt: new Date(),
+              status,
+            },
+          }),
+        );
+      }
+
+      assert.throws(
+        () => assertCanonicalTaskState({ ...base, recurrence: null }),
+        (err: unknown) => err instanceof TenantConflictError && /requires a recurrence configuration/.test(err.message),
+      );
+    });
   });
 
   describe("resolveTaskStateCreation", () => {
-    it("creates task with default canonical state (todo, medium, progress 0)", () => {
+    it("creates task with default canonical state (todo, medium, progress 0, timezone UTC)", () => {
       const res = resolveTaskStateCreation({});
       assert.equal(res.status, "todo");
       assert.equal(res.priority, "medium");
@@ -180,6 +271,17 @@ describe("canonical task state domain contract (backend)", () => {
       assert.equal(res.isMilestone, false);
       assert.equal(res.isRecurring, false);
       assert.equal(res.timezone, "UTC");
+    });
+
+    it("creates task with valid custom timezone and rejects invalid timezone", () => {
+      const res = resolveTaskStateCreation({ timezone: "Asia/Riyadh" });
+      assert.equal(res.timezone, "Asia/Riyadh");
+
+      assert.throws(
+        () => resolveTaskStateCreation({ timezone: "Mars/Olympus" }),
+        (err: unknown) =>
+          err instanceof TenantConflictError && /Task timezone must be a valid IANA timezone/.test(err.message),
+      );
     });
 
     it("enforces progress = 100 when status is done on creation", () => {
@@ -225,6 +327,20 @@ describe("canonical task state domain contract (backend)", () => {
       );
     });
 
+    it("creates recurring task with active, paused, or completed recurrence", () => {
+      const res = resolveTaskStateCreation({
+        recurrence: {
+          frequency: "weekly",
+          weekdays: [2, 4],
+          timezone: "Asia/Riyadh",
+          status: "paused",
+        },
+      });
+      assert.equal(res.isRecurring, true);
+      assert.equal(res.recurrence?.status, "paused");
+      assert.equal(res.recurrence?.timezone, "Asia/Riyadh");
+    });
+
     it("rejects creation with isRecurring = false and recurrence provided", () => {
       assert.throws(
         () =>
@@ -250,6 +366,18 @@ describe("canonical task state domain contract (backend)", () => {
       isMilestone: false,
       isRecurring: false,
     };
+
+    it("updates task timezone with valid IANA timezone and rejects invalid timezone", () => {
+      const res = resolveTaskStateUpdate(current, { timezone: "Europe/Paris" });
+      assert.equal(res.state.timezone, "Europe/Paris");
+      assert.equal(res.hasStateChange, true);
+
+      assert.throws(
+        () => resolveTaskStateUpdate(current, { timezone: "Invalid/TZ" }),
+        (err: unknown) =>
+          err instanceof TenantConflictError && /Task timezone must be a valid IANA timezone/.test(err.message),
+      );
+    });
 
     it("transitions status to done and automatically sets progress = 100", () => {
       const res = resolveTaskStateUpdate(current, { status: "done" });
@@ -317,6 +445,25 @@ describe("canonical task state domain contract (backend)", () => {
       );
     });
 
+    it("updates recurrence to paused or completed status and rejects invalid recurrence timezone", () => {
+      const recurringCurrent = { ...current, isRecurring: true };
+      const pausedRes = resolveTaskStateUpdate(recurringCurrent, {
+        recurrence: { frequency: "monthly", monthDay: 1, timezone: "Asia/Dubai", status: "paused" },
+      });
+      assert.equal(pausedRes.state.isRecurring, true);
+      assert.equal(pausedRes.state.recurrence?.status, "paused");
+      assert.equal(pausedRes.state.recurrence?.timezone, "Asia/Dubai");
+
+      assert.throws(
+        () =>
+          resolveTaskStateUpdate(recurringCurrent, {
+            recurrence: { frequency: "monthly", monthDay: 1, timezone: "Invalid/Zone" },
+          }),
+        (err: unknown) =>
+          err instanceof TenantConflictError && /recurrence timezone must be a valid IANA timezone/.test(err.message),
+      );
+    });
+
     it("rejects update with startDate > dueDate", () => {
       assert.throws(
         () =>
@@ -347,6 +494,9 @@ describe("canonical task state domain contract (backend)", () => {
         dueDate: new Date("2026-08-25T18:00:00Z"),
       });
       assert.equal(noopDates.hasStateChange, false);
+
+      const noopTz = resolveTaskStateUpdate(current, { timezone: "UTC" });
+      assert.equal(noopTz.hasStateChange, false);
     });
   });
 });

@@ -121,6 +121,21 @@ export function assertValidTaskDates(startDate: Date | null | undefined, dueDate
   }
 }
 
+export function assertValidTimezone(timezone: unknown, field = "timezone"): asserts timezone is string {
+  if (typeof timezone !== "string" || !timezone.trim()) {
+    throw new TenantConflictError(`Task ${field} must be a non-empty string`);
+  }
+  const normalized = timezone.trim();
+  if (normalized.length > 100) {
+    throw new TenantConflictError(`Task ${field} is too long`);
+  }
+  try {
+    new Intl.DateTimeFormat("en", { timeZone: normalized }).format();
+  } catch {
+    throw new TenantConflictError(`Task ${field} must be a valid IANA timezone`);
+  }
+}
+
 export function assertValidMilestone(
   isMilestone: boolean | undefined,
   startDate: Date | null | undefined,
@@ -146,14 +161,32 @@ export function normalizeTaskRecurrence(input: TaskRecurrenceInput, fallbackStar
     throw new TenantConflictError("Task recurrence frequency is invalid");
   }
   const interval = input.interval ?? 1;
-  const timezone = input.timezone?.trim() || "UTC";
-  const weekdays = [...new Set(input.weekdays ?? [])].sort((left, right) => left - right);
+  let timezone = "UTC";
+  if (input.timezone !== undefined && input.timezone !== null) {
+    const trimmed = input.timezone.trim();
+    if (trimmed) {
+      assertValidTimezone(trimmed, "recurrence timezone");
+      timezone = trimmed;
+    }
+  }
+
+  let weekdays: number[] = [];
+  if (input.weekdays !== undefined && input.weekdays !== null) {
+    if (!Array.isArray(input.weekdays)) {
+      throw new TenantConflictError("Task recurrence weekdays must be an array");
+    }
+    if (new Set(input.weekdays).size !== input.weekdays.length) {
+      throw new TenantConflictError("Task recurrence weekdays cannot contain duplicate days");
+    }
+    if (input.weekdays.some((day) => !Number.isInteger(day) || day < 0 || day > 6)) {
+      throw new TenantConflictError("Task recurrence weekdays must be between 0 and 6");
+    }
+    weekdays = [...input.weekdays].sort((left, right) => left - right);
+  }
+
   const startsAt = input.startsAt ?? fallbackStart;
   if (!Number.isInteger(interval) || interval < 1) {
     throw new TenantConflictError("Task recurrence interval must be a positive integer");
-  }
-  if (weekdays.some((day) => !Number.isInteger(day) || day < 0 || day > 6)) {
-    throw new TenantConflictError("Task recurrence weekdays must be between 0 and 6");
   }
   if (
     input.monthDay !== undefined &&
@@ -169,7 +202,7 @@ export function normalizeTaskRecurrence(input: TaskRecurrenceInput, fallbackStar
   ) {
     throw new TenantConflictError("Task recurrence maximum must be a positive integer");
   }
-  if (input.status !== undefined && !VALID_RECURRENCE_STATUSES.has(input.status)) {
+  if (input.status !== undefined && input.status !== null && !VALID_RECURRENCE_STATUSES.has(input.status)) {
     throw new TenantConflictError("Task recurrence status is invalid");
   }
   if (input.endsAt && input.endsAt <= startsAt) {
@@ -195,11 +228,20 @@ export function assertCanonicalTaskState(state: CanonicalTaskState): void {
   assertValidTaskProgress(state.progress);
   assertValidTaskDates(state.startDate, state.dueDate);
   assertValidMilestone(state.isMilestone, state.startDate, state.dueDate);
+  if (state.timezone) {
+    assertValidTimezone(state.timezone, "timezone");
+  }
   if (state.status === "done" && state.progress !== 100) {
     throw new TenantConflictError("Completed task must have 100% progress");
   }
-  if (state.isRecurring && !state.recurrence) {
-    throw new TenantConflictError("Recurring task requires an active recurrence configuration");
+  if (state.isRecurring) {
+    if (!state.recurrence) {
+      throw new TenantConflictError("Recurring task requires a recurrence configuration");
+    }
+    if (!VALID_RECURRENCE_STATUSES.has(state.recurrence.status)) {
+      throw new TenantConflictError("Task recurrence status is invalid");
+    }
+    assertValidTimezone(state.recurrence.timezone, "recurrence timezone");
   }
 }
 
@@ -220,7 +262,15 @@ export function resolveTaskStateCreation(input: TaskStateInput): CanonicalTaskSt
   const dueDate: Date | null = input.dueDate ?? null;
   assertValidTaskDates(startDate, dueDate);
 
-  const timezone: string = input.timezone?.trim() || "UTC";
+  let timezone = "UTC";
+  if (input.timezone !== undefined && input.timezone !== null) {
+    const trimmed = input.timezone.trim();
+    if (trimmed) {
+      assertValidTimezone(trimmed, "timezone");
+      timezone = trimmed;
+    }
+  }
+
   const isMilestone: boolean = input.isMilestone ?? false;
   assertValidMilestone(isMilestone, startDate, dueDate);
 
@@ -267,9 +317,16 @@ export function resolveTaskStateUpdate(current: TaskStateCurrent, input: TaskSta
 
   const startDate: Date | null = input.startDate !== undefined ? input.startDate : current.startDate;
   const dueDate: Date | null = input.dueDate !== undefined ? input.dueDate : current.dueDate;
-  assertValidTaskDates(startDate, dueDate);
-
-  const timezone: string = input.timezone !== undefined ? input.timezone?.trim() || "UTC" : current.timezone;
+  let timezone: string = current.timezone;
+  if (input.timezone !== undefined) {
+    if (input.timezone === null || input.timezone.trim() === "") {
+      timezone = "UTC";
+    } else {
+      const trimmed = input.timezone.trim();
+      assertValidTimezone(trimmed, "timezone");
+      timezone = trimmed;
+    }
+  }
 
   const isMilestone: boolean =
     input.isMilestone !== undefined ? Boolean(input.isMilestone) : Boolean(current.isMilestone);

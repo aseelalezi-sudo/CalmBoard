@@ -171,6 +171,65 @@ describe("task state domain contract (integration)", () => {
         /isRecurring cannot be false when recurrence is provided/.test(err.message),
     );
 
+    // Invalid task timezone rejected at repository layer
+    await assert.rejects(
+      async () =>
+        repository.create({
+          projectId,
+          title: "Invalid timezone task",
+          timezone: "Invalid/Timezone",
+        }),
+      (err: unknown) =>
+        err instanceof TenantConflictError && /Task timezone must be a valid IANA timezone/.test(err.message),
+    );
+
+    // Invalid recurrence timezone rejected at repository layer
+    await assert.rejects(
+      async () =>
+        repository.create({
+          projectId,
+          title: "Invalid recurrence timezone",
+          recurrence: {
+            frequency: "weekly",
+            timezone: "Atlantis/Poseidon",
+          },
+        }),
+      (err: unknown) =>
+        err instanceof TenantConflictError &&
+        /Task recurrence timezone must be a valid IANA timezone/.test(err.message),
+    );
+
+    // Duplicate recurrence weekdays rejected at repository layer
+    await assert.rejects(
+      async () =>
+        repository.create({
+          projectId,
+          title: "Duplicate weekdays recurrence",
+          recurrence: {
+            frequency: "weekly",
+            weekdays: [1, 2, 1],
+          },
+        }),
+      (err: unknown) =>
+        err instanceof TenantConflictError && /weekdays cannot contain duplicate days/.test(err.message),
+    );
+
+    // Valid recurrence with paused status and IANA timezone
+    const pausedRecurrenceTask = await repository.create({
+      projectId,
+      title: "Paused Recurrence Task",
+      recurrence: {
+        frequency: "weekly",
+        weekdays: [0, 2, 4],
+        timezone: "Asia/Riyadh",
+        status: "paused",
+      },
+    });
+    assert.equal(pausedRecurrenceTask.isRecurring, true);
+    assert.equal(pausedRecurrenceTask.recurrence?.status, "paused");
+    assert.equal(pausedRecurrenceTask.recurrence?.timezone, "Asia/Riyadh");
+    assert.deepEqual(pausedRecurrenceTask.recurrence?.weekdays, [0, 2, 4]);
+
     // 2. Update Invariants & State Transitions
     // A. Transitioning to done sets progress = 100
     const normalTask = await repository.create({
@@ -238,6 +297,62 @@ describe("task state domain contract (integration)", () => {
     });
     assert.equal(convertMilestone.task.isMilestone, false);
     assert.equal(new Date(convertMilestone.task.dueDate!).getTime(), new Date("2026-09-08T10:00:00Z").getTime());
+
+    // E. Task timezone and Recurrence update invariants
+    // Reject invalid task timezone on update
+    await assert.rejects(
+      async () =>
+        repository.update(normalTask.id, {
+          expectedVersion: updateToDone.task.version,
+          timezone: "Invalid/TZ_Region",
+        }),
+      (err: unknown) =>
+        err instanceof TenantConflictError && /Task timezone must be a valid IANA timezone/.test(err.message),
+    );
+
+    // Reject invalid recurrence timezone on update
+    await assert.rejects(
+      async () =>
+        repository.update(pausedRecurrenceTask.id, {
+          expectedVersion: pausedRecurrenceTask.version,
+          recurrence: {
+            frequency: "monthly",
+            monthDay: 15,
+            timezone: "Narnia/Aslan",
+          },
+        }),
+      (err: unknown) =>
+        err instanceof TenantConflictError &&
+        /Task recurrence timezone must be a valid IANA timezone/.test(err.message),
+    );
+
+    // Reject duplicate weekdays on recurrence update
+    await assert.rejects(
+      async () =>
+        repository.update(pausedRecurrenceTask.id, {
+          expectedVersion: pausedRecurrenceTask.version,
+          recurrence: {
+            frequency: "weekly",
+            weekdays: [2, 2, 4],
+          },
+        }),
+      (err: unknown) =>
+        err instanceof TenantConflictError && /weekdays cannot contain duplicate days/.test(err.message),
+    );
+
+    // Update recurrence to completed status with valid IANA timezone
+    const completedRecurrenceRes = await repository.update(pausedRecurrenceTask.id, {
+      expectedVersion: pausedRecurrenceTask.version,
+      recurrence: {
+        frequency: "monthly",
+        monthDay: 15,
+        timezone: "America/New_York",
+        status: "completed",
+      },
+    });
+    assert.equal(completedRecurrenceRes.task.isRecurring, true);
+    assert.equal(completedRecurrenceRes.task.recurrence?.status, "completed");
+    assert.equal(completedRecurrenceRes.task.recurrence?.timezone, "America/New_York");
 
     // 3. Move & Cross-Path Parity
     // Move to done sets progress = 100
