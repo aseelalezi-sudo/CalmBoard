@@ -42,6 +42,7 @@ export * from "./repositories/search.js";
 export * from "./repositories/security-diagnostics.js";
 export * from "./repositories/security-events.js";
 export * from "./repositories/tasks.js";
+export * from "./repositories/task-assignments.js";
 export * from "./repositories/task-followers.js";
 export * from "./repositories/task-workflows.js";
 export * from "./repositories/time-logs.js";

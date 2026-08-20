@@ -21,6 +21,7 @@ import { allocateTaskSerialNumbers, FIRST_TASK_SERIAL_NUMBER, formatTaskSerial }
 import { assertWorkspaceTenantContext, type DatabaseTenantContext } from "../tenant-context.js";
 import { createNotificationsRepository } from "./notifications.js";
 import { createTaskFollowersRepository } from "./task-followers.js";
+import { resolveTaskAssignmentCreation, resolveTaskAssignmentUpdate } from "./task-assignments.js";
 
 export type TaskRecord = typeof tasks.$inferSelect;
 export type TaskStatus = TaskRecord["status"];
@@ -629,13 +630,10 @@ export function createTasksRepository(context: DatabaseTenantContext) {
         throw new TenantResourceNotFoundError("project section");
       }
     }
-    if (input.assigneeId === null && input.assigneeIds && input.assigneeIds.length > 0) {
-      throw new TenantConflictError("Task cannot have assignees without a Lead");
-    }
+    const resolvedAssignments = resolveTaskAssignmentCreation(input);
     await requireActiveMembers([
-      ...(input.assigneeIds ?? []),
+      ...resolvedAssignments.assigneeIds,
       ...(input.followerIds ?? []),
-      ...(input.assigneeId ? [input.assigneeId] : []),
       ...(input.reporterId ? [input.reporterId] : []),
     ]);
   }
@@ -672,13 +670,11 @@ export function createTasksRepository(context: DatabaseTenantContext) {
         throw new TenantResourceNotFoundError("project section");
       }
     }
-    if (input.assigneeId === null && input.assigneeIds && input.assigneeIds.length > 0) {
-      throw new TenantConflictError("Task cannot have assignees without a Lead");
-    }
+    const before = await getById(taskId);
+    const resolvedAssignments = resolveTaskAssignmentUpdate(before, input);
     await requireActiveMembers([
-      ...(input.assigneeIds ?? []),
+      ...resolvedAssignments.assigneeIds,
       ...(input.followerIds ?? []),
-      ...(input.assigneeId ? [input.assigneeId] : []),
       ...(input.reporterId ? [input.reporterId] : []),
     ]);
   }
@@ -922,19 +918,7 @@ export function createTasksRepository(context: DatabaseTenantContext) {
         ? normalizeRecurrence(recurrenceInput, input.dueDate ?? new Date())
         : undefined;
 
-      let primaryAssigneeId: string | null = null;
-      let finalAssigneeIds: string[] = [];
-
-      if (input.assigneeId !== undefined && input.assigneeId !== null) {
-        primaryAssigneeId = input.assigneeId;
-        finalAssigneeIds = [...new Set([input.assigneeId, ...(input.assigneeIds ?? [])])];
-      } else if (input.assigneeId === null) {
-        primaryAssigneeId = null;
-        finalAssigneeIds = [];
-      } else if (input.assigneeIds !== undefined && input.assigneeIds.length > 0) {
-        finalAssigneeIds = [...new Set(input.assigneeIds)];
-        primaryAssigneeId = finalAssigneeIds[0] ?? null;
-      }
+      const { assigneeId: primaryAssigneeId, assigneeIds: finalAssigneeIds } = resolveTaskAssignmentCreation(input);
       const followerIds = [...new Set(input.followerIds ?? [])];
 
       const task = await db.transaction(async (transaction) => {
@@ -1359,71 +1343,25 @@ export function createTasksRepository(context: DatabaseTenantContext) {
         ...taskUpdates
       } = input;
 
-      const hasAssigneeId = "assigneeId" in input && input.assigneeId !== undefined;
-      const hasAssigneeIds = "assigneeIds" in input && input.assigneeIds !== undefined;
+      const {
+        assigneeId: finalAssigneeId,
+        assigneeIds: finalAssigneeIds,
+        addedAssigneeIds,
+        removedAssigneeIds,
+        primaryChanged,
+        changed: assigneeChanged,
+        hasAssigneeMutation,
+      } = resolveTaskAssignmentUpdate(before, input);
+      const primaryBefore = before.assigneeId ?? null;
+      const primaryAfter = finalAssigneeId;
       const beforeAssigneeIds =
         before.assigneeIds && before.assigneeIds.length > 0
           ? before.assigneeIds
           : before.assigneeId
             ? [before.assigneeId]
             : [];
-      const beforeAssigneeId = before.assigneeId ?? null;
 
-      let finalAssigneeId = beforeAssigneeId;
-      let finalAssigneeIds = beforeAssigneeIds;
-
-      if (hasAssigneeId && hasAssigneeIds) {
-        if (input.assigneeId === null && input.assigneeIds && input.assigneeIds.length > 0) {
-          throw new TenantConflictError("Task cannot have assignees without a Lead");
-        }
-        if (input.assigneeId !== null && input.assigneeId !== undefined) {
-          finalAssigneeId = input.assigneeId;
-          finalAssigneeIds = [...new Set([input.assigneeId, ...(input.assigneeIds ?? [])])];
-        } else {
-          finalAssigneeId = null;
-          finalAssigneeIds = [];
-        }
-      } else if (hasAssigneeId) {
-        if (input.assigneeId !== null && input.assigneeId !== undefined) {
-          const newLead = input.assigneeId;
-          const contributors = beforeAssigneeIds.filter((id) => id !== beforeAssigneeId && id !== newLead);
-          finalAssigneeId = newLead;
-          finalAssigneeIds = [newLead, ...contributors];
-        } else {
-          const remaining = beforeAssigneeIds.filter((id) => id !== beforeAssigneeId);
-          if (remaining.length > 0) {
-            finalAssigneeId = remaining[0]!;
-            finalAssigneeIds = remaining;
-          } else {
-            finalAssigneeId = null;
-            finalAssigneeIds = [];
-          }
-        }
-      } else if (hasAssigneeIds) {
-        const uniqueIds = [...new Set(input.assigneeIds ?? [])];
-        if (uniqueIds.length === 0) {
-          finalAssigneeId = null;
-          finalAssigneeIds = [];
-        } else {
-          if (beforeAssigneeId && uniqueIds.includes(beforeAssigneeId)) {
-            finalAssigneeId = beforeAssigneeId;
-            finalAssigneeIds = [beforeAssigneeId, ...uniqueIds.filter((id) => id !== beforeAssigneeId)];
-          } else {
-            finalAssigneeId = uniqueIds[0]!;
-            finalAssigneeIds = uniqueIds;
-          }
-        }
-      }
-
-      const addedAssigneeIds = finalAssigneeIds.filter((id) => !beforeAssigneeIds.includes(id));
-      const removedAssigneeIds = beforeAssigneeIds.filter((id) => !finalAssigneeIds.includes(id));
-      const primaryBefore = beforeAssigneeId;
-      const primaryAfter = finalAssigneeId;
-      const assigneeChanged =
-        (hasAssigneeId || hasAssigneeIds) &&
-        (primaryBefore !== primaryAfter || addedAssigneeIds.length > 0 || removedAssigneeIds.length > 0);
-
-      if (hasAssigneeId || hasAssigneeIds) {
+      if (hasAssigneeMutation) {
         taskUpdates.assigneeId = finalAssigneeId;
       }
       const dependencySerials =
@@ -1481,7 +1419,7 @@ export function createTasksRepository(context: DatabaseTenantContext) {
       let task: TaskRecord | undefined;
       try {
         task = await db.transaction(async (transaction) => {
-          if (hasAssigneeId || hasAssigneeIds) {
+          if (hasAssigneeMutation) {
             // A. If Primary changes, demote current active Primary only BEFORE update(tasks)
             // (preventing the tasks table trigger from closing the old primary when retained as contributor)
             if (primaryBefore && primaryBefore !== finalAssigneeId) {
@@ -1514,7 +1452,7 @@ export function createTasksRepository(context: DatabaseTenantContext) {
           if (!updated) {
             throw new TenantConflictError("Task was modified by another request; reload it and retry");
           }
-          if (hasAssigneeId || hasAssigneeIds) {
+          if (hasAssigneeMutation) {
             const now = new Date();
 
             // B. Mark removed assignees as unassignedAt = now, isPrimary = false

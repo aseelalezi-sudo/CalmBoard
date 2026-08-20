@@ -643,4 +643,153 @@ describe("task assignment domain contract", () => {
       // Cleanup
     }
   });
+
+  it("enforces canonical assignment invariants during task import and bulk operations", async () => {
+    const organizationId = randomUUID();
+    const workspaceId = randomUUID();
+    const otherOrgId = randomUUID();
+    const otherWorkspaceId = randomUUID();
+    const projectId = randomUUID();
+    const actorId = randomUUID();
+    const userA = randomUUID();
+    const userB = randomUUID();
+    const userC = randomUUID();
+    const userInactive = randomUUID();
+    const userCrossTenant = randomUUID();
+
+    try {
+      await db.insert(users).values([
+        { id: actorId, email: `${actorId}@example.test`, name: "Actor" },
+        { id: userA, email: `${userA}@example.test`, name: "User A" },
+        { id: userB, email: `${userB}@example.test`, name: "User B" },
+        { id: userC, email: `${userC}@example.test`, name: "User C" },
+        { id: userInactive, email: `${userInactive}@example.test`, name: "Inactive User" },
+        { id: userCrossTenant, email: `${userCrossTenant}@example.test`, name: "Cross Tenant User" },
+      ]);
+      await db.insert(organizations).values([
+        { id: organizationId, name: "Import Bulk Org", slug: `import-bulk-${organizationId}`, ownerId: actorId },
+        { id: otherOrgId, name: "Other Org", slug: `other-org-${otherOrgId}`, ownerId: userCrossTenant },
+      ]);
+      await db.insert(workspaces).values([
+        { id: workspaceId, organizationId, name: "Import Bulk Ws", slug: `import-bulk-ws-${workspaceId}` },
+        { id: otherWorkspaceId, organizationId: otherOrgId, name: "Other Ws", slug: `other-ws-${otherWorkspaceId}` },
+      ]);
+      await db.insert(memberships).values([
+        { organizationId, workspaceId, userId: actorId, status: "active" },
+        { organizationId, workspaceId, userId: userA, status: "active" },
+        { organizationId, workspaceId, userId: userB, status: "active" },
+        { organizationId, workspaceId, userId: userC, status: "active" },
+        { organizationId, workspaceId, userId: userInactive, status: "inactive" },
+        { organizationId: otherOrgId, workspaceId: otherWorkspaceId, userId: userCrossTenant, status: "active" },
+      ]);
+      await db.insert(projects).values({ id: projectId, organizationId, workspaceId, name: "Import Bulk Project" });
+
+      const repository = createTasksRepository({ organizationId, workspaceId, actorId });
+
+      // 1. Task Import: Valid task shapes
+      const importedUnassigned = await repository.create({
+        projectId,
+        title: "Import Task 1 - Unassigned",
+        assigneeId: null,
+      });
+      assert.equal(importedUnassigned.assigneeId, null);
+      assert.deepEqual(importedUnassigned.assigneeIds, []);
+
+      const importedLeadOnly = await repository.create({
+        projectId,
+        title: "Import Task 2 - Lead Only",
+        assigneeId: userA,
+      });
+      assert.equal(importedLeadOnly.assigneeId, userA);
+      assert.deepEqual(importedLeadOnly.assigneeIds, [userA]);
+
+      const importedMulti = await repository.create({
+        projectId,
+        title: "Import Task 3 - Multi Assignees",
+        assigneeId: userA,
+        assigneeIds: [userA, userB, userC],
+      });
+      assert.equal(importedMulti.assigneeId, userA);
+      assert.deepEqual(
+        importedMulti.assigneeIds,
+        [userA, userB, userC].sort((x, y) => (x === userA ? -1 : y === userA ? 1 : x.localeCompare(y))),
+      );
+
+      // 2. Task Import: Rejections for invalid users
+      await assert.rejects(
+        () => repository.create({ projectId, title: "Import Cross-Tenant", assigneeId: userCrossTenant }),
+        (err: unknown) => err instanceof TenantResourceNotFoundError,
+      );
+      await assert.rejects(
+        () => repository.create({ projectId, title: "Import Inactive", assigneeId: userInactive }),
+        (err: unknown) => err instanceof TenantResourceNotFoundError,
+      );
+      await assert.rejects(
+        () => repository.create({ projectId, title: "Import Unknown", assigneeId: randomUUID() }),
+        (err: unknown) => err instanceof TenantResourceNotFoundError,
+      );
+      await assert.rejects(
+        () => repository.create({ projectId, title: "Import Invalid Comb", assigneeId: null, assigneeIds: [userA] }),
+        (err: unknown) => err instanceof TenantConflictError,
+      );
+
+      // 3. Bulk Operations Simulation on multiple tasks
+      const task1 = await repository.create({ projectId, title: "Bulk Task 1", assigneeId: userA });
+      const task2 = await repository.create({ projectId, title: "Bulk Task 2", assigneeId: userB });
+
+      // Bulk Add Assignee userC to both tasks
+      const bulkAdd1 = await repository.update(task1.id, {
+        expectedVersion: task1.version,
+        assigneeIds: [...task1.assigneeIds, userC],
+      });
+      const bulkAdd2 = await repository.update(task2.id, {
+        expectedVersion: task2.version,
+        assigneeIds: [...task2.assigneeIds, userC],
+      });
+      assert.equal(bulkAdd1.task.assigneeId, userA);
+      assert.deepEqual(bulkAdd1.task.assigneeIds, [userA, userC]);
+      assert.equal(bulkAdd2.task.assigneeId, userB);
+      assert.deepEqual(bulkAdd2.task.assigneeIds, [userB, userC]);
+
+      // Bulk Set Lead to userC on both tasks (preserving previous assignees)
+      const bulkLead1 = await repository.update(task1.id, {
+        expectedVersion: bulkAdd1.task.version,
+        assigneeId: userC,
+        assigneeIds: [userC, userA],
+      });
+      const bulkLead2 = await repository.update(task2.id, {
+        expectedVersion: bulkAdd2.task.version,
+        assigneeId: userC,
+        assigneeIds: [userC, userB],
+      });
+      assert.equal(bulkLead1.task.assigneeId, userC);
+      assert.deepEqual(bulkLead1.task.assigneeIds, [userC, userA]);
+      assert.equal(bulkLead2.task.assigneeId, userC);
+      assert.deepEqual(bulkLead2.task.assigneeIds, [userC, userB]);
+
+      // Bulk Clear All Assignees on both tasks
+      const bulkClear1 = await repository.update(task1.id, {
+        expectedVersion: bulkLead1.task.version,
+        assigneeIds: [],
+      });
+      const bulkClear2 = await repository.update(task2.id, {
+        expectedVersion: bulkLead2.task.version,
+        assigneeIds: [],
+      });
+      assert.equal(bulkClear1.task.assigneeId, null);
+      assert.deepEqual(bulkClear1.task.assigneeIds, []);
+      assert.equal(bulkClear2.task.assigneeId, null);
+      assert.deepEqual(bulkClear2.task.assigneeIds, []);
+
+      // No-op verification: clearing already cleared task
+      const noopClear1 = await repository.update(task1.id, {
+        expectedVersion: bulkClear1.task.version,
+        assigneeIds: [],
+      });
+      assert.equal(noopClear1.task.assigneeId, null);
+      assert.deepEqual(noopClear1.task.assigneeIds, []);
+    } finally {
+      // Cleanup
+    }
+  });
 });
