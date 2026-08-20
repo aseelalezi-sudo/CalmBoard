@@ -1361,7 +1361,7 @@ export function createTasksRepository(context: DatabaseTenantContext) {
             ? [before.assigneeId]
             : [];
 
-      if (hasAssigneeMutation) {
+      if (hasAssigneeMutation && primaryBefore !== finalAssigneeId) {
         taskUpdates.assigneeId = finalAssigneeId;
       }
       const dependencySerials =
@@ -1416,10 +1416,54 @@ export function createTasksRepository(context: DatabaseTenantContext) {
         : recurrenceChange;
       if (recurrence !== undefined) taskUpdates.isRecurring = recurrence !== null;
 
+      const hasScalarChanges =
+        (taskUpdates.title !== undefined && taskUpdates.title !== before.title) ||
+        (taskUpdates.description !== undefined && taskUpdates.description !== before.description) ||
+        (taskUpdates.status !== undefined && taskUpdates.status !== before.status) ||
+        (taskUpdates.priority !== undefined && taskUpdates.priority !== before.priority) ||
+        (taskUpdates.parentId !== undefined && taskUpdates.parentId !== (before.parentId ?? null)) ||
+        (taskUpdates.sectionId !== undefined && taskUpdates.sectionId !== (before.sectionId ?? null)) ||
+        (taskUpdates.reporterId !== undefined && taskUpdates.reporterId !== (before.reporterId ?? null)) ||
+        (taskUpdates.order !== undefined && taskUpdates.order !== before.order) ||
+        (taskUpdates.tags !== undefined && JSON.stringify(taskUpdates.tags) !== JSON.stringify(before.tags ?? [])) ||
+        (taskUpdates.estimatedHours !== undefined && taskUpdates.estimatedHours !== before.estimatedHours) ||
+        (taskUpdates.loggedHours !== undefined && taskUpdates.loggedHours !== before.loggedHours) ||
+        (taskUpdates.startDate !== undefined &&
+          (taskUpdates.startDate ? taskUpdates.startDate.toISOString() : null) !==
+            (before.startDate ? new Date(before.startDate).toISOString() : null)) ||
+        (taskUpdates.dueDate !== undefined &&
+          (taskUpdates.dueDate ? taskUpdates.dueDate.toISOString() : null) !==
+            (before.dueDate ? new Date(before.dueDate).toISOString() : null)) ||
+        (taskUpdates.timezone !== undefined && taskUpdates.timezone !== before.timezone) ||
+        (taskUpdates.progress !== undefined && taskUpdates.progress !== before.progress) ||
+        (taskUpdates.storyPoints !== undefined && taskUpdates.storyPoints !== (before.storyPoints ?? null)) ||
+        (taskUpdates.delayReason !== undefined && taskUpdates.delayReason !== (before.delayReason ?? null)) ||
+        (taskUpdates.isMilestone !== undefined && taskUpdates.isMilestone !== before.isMilestone) ||
+        recurrenceChange !== undefined ||
+        (customFields !== undefined && JSON.stringify(customFields) !== JSON.stringify(before.customFields ?? {}));
+
+      const followerIdsChanged =
+        followerIds !== undefined &&
+        JSON.stringify([...followerIds].sort()) !== JSON.stringify([...(before.followerIds ?? [])].sort());
+
+      const dependenciesChanged =
+        dependencySerials !== undefined &&
+        JSON.stringify([...dependencySerials].sort()) !==
+          JSON.stringify([...(before.customFields?.dependencies ?? [])].sort());
+
+      const remindersChanged = reminderInputs !== undefined;
+
+      const hasAnyChange =
+        assigneeChanged || hasScalarChanges || followerIdsChanged || dependenciesChanged || remindersChanged;
+
+      if (!hasAnyChange) {
+        return { before, task: before };
+      }
+
       let task: TaskRecord | undefined;
       try {
         task = await db.transaction(async (transaction) => {
-          if (hasAssigneeMutation) {
+          if (hasAssigneeMutation && assigneeChanged) {
             // A. If Primary changes, demote current active Primary only BEFORE update(tasks)
             // (preventing the tasks table trigger from closing the old primary when retained as contributor)
             if (primaryBefore && primaryBefore !== finalAssigneeId) {
@@ -1452,7 +1496,7 @@ export function createTasksRepository(context: DatabaseTenantContext) {
           if (!updated) {
             throw new TenantConflictError("Task was modified by another request; reload it and retry");
           }
-          if (hasAssigneeMutation) {
+          if (hasAssigneeMutation && assigneeChanged) {
             const now = new Date();
 
             // B. Mark removed assignees as unassignedAt = now, isPrimary = false

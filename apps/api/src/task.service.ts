@@ -192,6 +192,9 @@ export function createTaskService(context: DatabaseTenantContext) {
     },
     async update(taskId: string, input: UpdateTaskInput) {
       const { before, task } = await tasksRepository.update(taskId, input);
+      if (task.version === before.version) {
+        return task;
+      }
       const actorId = context.actorId;
       const followersChanged =
         input.followerIds !== undefined &&

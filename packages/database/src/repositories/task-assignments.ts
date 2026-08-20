@@ -64,6 +64,12 @@ export function resolveTaskAssignmentCreation(input: TaskAssignmentMutationInput
   const hasAssigneeId = "assigneeId" in input && input.assigneeId !== undefined;
   const hasAssigneeIds = "assigneeIds" in input && input.assigneeIds !== undefined;
 
+  if (hasAssigneeIds && input.assigneeIds !== null && input.assigneeIds !== undefined) {
+    if (new Set(input.assigneeIds).size !== input.assigneeIds.length) {
+      throw new TenantConflictError("Task assigneeIds must contain unique user IDs");
+    }
+  }
+
   let primaryAssigneeId: string | null = null;
   let finalAssigneeIds: string[] = [];
 
@@ -71,7 +77,7 @@ export function resolveTaskAssignmentCreation(input: TaskAssignmentMutationInput
     primaryAssigneeId = input.assigneeId;
     const provided = input.assigneeIds ?? [];
     const others = provided.filter((id): id is string => Boolean(id) && id !== primaryAssigneeId);
-    finalAssigneeIds = [input.assigneeId, ...new Set(others)];
+    finalAssigneeIds = [input.assigneeId, ...others];
   } else if (hasAssigneeId && input.assigneeId === null) {
     if (hasAssigneeIds && input.assigneeIds && input.assigneeIds.length > 0) {
       throw new TenantConflictError("Task cannot have assignees without a Lead");
@@ -79,10 +85,10 @@ export function resolveTaskAssignmentCreation(input: TaskAssignmentMutationInput
     primaryAssigneeId = null;
     finalAssigneeIds = [];
   } else if (hasAssigneeIds && input.assigneeIds && input.assigneeIds.length > 0) {
-    const uniqueIds = [...new Set(input.assigneeIds.filter((id): id is string => Boolean(id)))];
-    if (uniqueIds.length > 0) {
-      primaryAssigneeId = uniqueIds[0]!;
-      finalAssigneeIds = uniqueIds;
+    const validIds = input.assigneeIds.filter((id): id is string => Boolean(id));
+    if (validIds.length > 0) {
+      primaryAssigneeId = validIds[0]!;
+      finalAssigneeIds = validIds;
     } else {
       primaryAssigneeId = null;
       finalAssigneeIds = [];
@@ -109,9 +115,15 @@ export function resolveTaskAssignmentUpdate(
   const hasAssigneeIds = "assigneeIds" in input && input.assigneeIds !== undefined;
   const hasAssigneeMutation = hasAssigneeId || hasAssigneeIds;
 
+  if (hasAssigneeIds && input.assigneeIds !== null && input.assigneeIds !== undefined) {
+    if (new Set(input.assigneeIds).size !== input.assigneeIds.length) {
+      throw new TenantConflictError("Task assigneeIds must contain unique user IDs");
+    }
+  }
+
   const beforeAssigneeIds: string[] =
     current.assigneeIds && current.assigneeIds.length > 0
-      ? [...new Set(current.assigneeIds.filter((id): id is string => Boolean(id)))]
+      ? current.assigneeIds.filter((id): id is string => Boolean(id))
       : current.assigneeId
         ? [current.assigneeId]
         : [];
@@ -127,7 +139,7 @@ export function resolveTaskAssignmentUpdate(
     if (input.assigneeId !== null && input.assigneeId !== undefined) {
       finalAssigneeId = input.assigneeId;
       const others = (input.assigneeIds ?? []).filter((id): id is string => Boolean(id) && id !== finalAssigneeId);
-      finalAssigneeIds = [input.assigneeId, ...new Set(others)];
+      finalAssigneeIds = [input.assigneeId, ...others];
     } else {
       finalAssigneeId = null;
       finalAssigneeIds = [];
@@ -149,17 +161,17 @@ export function resolveTaskAssignmentUpdate(
       }
     }
   } else if (hasAssigneeIds) {
-    const uniqueIds = [...new Set((input.assigneeIds ?? []).filter((id): id is string => Boolean(id)))];
-    if (uniqueIds.length === 0) {
+    const validIds = (input.assigneeIds ?? []).filter((id): id is string => Boolean(id));
+    if (validIds.length === 0) {
       finalAssigneeId = null;
       finalAssigneeIds = [];
     } else {
-      if (beforeAssigneeId && uniqueIds.includes(beforeAssigneeId)) {
+      if (beforeAssigneeId && validIds.includes(beforeAssigneeId)) {
         finalAssigneeId = beforeAssigneeId;
-        finalAssigneeIds = [beforeAssigneeId, ...uniqueIds.filter((id) => id !== beforeAssigneeId)];
+        finalAssigneeIds = [beforeAssigneeId, ...validIds.filter((id) => id !== beforeAssigneeId)];
       } else {
-        finalAssigneeId = uniqueIds[0]!;
-        finalAssigneeIds = uniqueIds;
+        finalAssigneeId = validIds[0]!;
+        finalAssigneeIds = validIds;
       }
     }
   }

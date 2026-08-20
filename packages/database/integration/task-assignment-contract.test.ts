@@ -13,6 +13,7 @@ import {
   pool,
   projects,
   taskAssignees,
+  tasks,
   TenantConflictError,
   TenantResourceNotFoundError,
   users,
@@ -777,17 +778,132 @@ describe("task assignment domain contract", () => {
         assigneeIds: [],
       });
       assert.equal(bulkClear1.task.assigneeId, null);
-      assert.deepEqual(bulkClear1.task.assigneeIds, []);
-      assert.equal(bulkClear2.task.assigneeId, null);
-      assert.deepEqual(bulkClear2.task.assigneeIds, []);
+      // 4. True No-Op Semantics & Mutation Absence Verification
+      // Create fresh tasks for each specific case
+      const noopTaskA = await repository.create({
+        projectId,
+        title: "No-Op Task A",
+        assigneeId: userA,
+        assigneeIds: [userA, userB],
+      });
+      const noopTaskAUpdatedAt = noopTaskA.updatedAt;
+      const noopTaskAAssigneesBefore = await db
+        .select()
+        .from(taskAssignees)
+        .where(and(eq(taskAssignees.taskId, noopTaskA.id), isNull(taskAssignees.unassignedAt)));
 
-      // No-op verification: clearing already cleared task
-      const noopClear1 = await repository.update(task1.id, {
-        expectedVersion: bulkClear1.task.version,
+      // Case A: Assignment-only no-op (same assignees passed)
+      const resCaseA = await repository.update(noopTaskA.id, {
+        expectedVersion: noopTaskA.version,
+        assigneeIds: [userA, userB],
+      });
+      assert.equal(resCaseA.task.version, noopTaskA.version, "version must not increment on assignment no-op");
+      assert.equal(
+        new Date(resCaseA.task.updatedAt).getTime(),
+        new Date(noopTaskAUpdatedAt).getTime(),
+        "updatedAt must not change on assignment no-op",
+      );
+
+      // Verify DB row state directly
+      const [dbTaskA] = await db.select().from(tasks).where(eq(tasks.id, noopTaskA.id));
+      assert.equal(dbTaskA?.version, noopTaskA.version);
+      assert.equal(new Date(dbTaskA!.updatedAt).getTime(), new Date(noopTaskAUpdatedAt).getTime());
+
+      // Verify task_assignees rows directly in DB
+      const noopTaskAAssigneesAfter = await db
+        .select()
+        .from(taskAssignees)
+        .where(and(eq(taskAssignees.taskId, noopTaskA.id), isNull(taskAssignees.unassignedAt)));
+      assert.equal(noopTaskAAssigneesAfter.length, noopTaskAAssigneesBefore.length);
+      assert.deepEqual(
+        noopTaskAAssigneesAfter.map((r) => ({ userId: r.userId, isPrimary: r.isPrimary })),
+        noopTaskAAssigneesBefore.map((r) => ({ userId: r.userId, isPrimary: r.isPrimary })),
+      );
+
+      // Case B: Assignment no-op + other real task change (status change)
+      const resCaseB = await repository.update(noopTaskA.id, {
+        expectedVersion: noopTaskA.version,
+        assigneeIds: [userA, userB],
+        status: "in_progress",
+      });
+      assert.equal(resCaseB.task.version, noopTaskA.version + 1, "version increments on real status change");
+      assert.equal(resCaseB.task.status, "in_progress");
+      assert.deepEqual(resCaseB.task.assigneeIds, [userA, userB]);
+
+      // task_assignees rows must remain intact
+      const noopTaskAAssigneesAfterCaseB = await db
+        .select()
+        .from(taskAssignees)
+        .where(and(eq(taskAssignees.taskId, noopTaskA.id), isNull(taskAssignees.unassignedAt)));
+      assert.equal(noopTaskAAssigneesAfterCaseB.length, 2);
+
+      // Case D: Clear already-unassigned task
+      const unassignedTask = await repository.create({
+        projectId,
+        title: "Unassigned Task D",
+        assigneeId: null,
+      });
+      const unassignedUpdatedAt = unassignedTask.updatedAt;
+      const resCaseD = await repository.update(unassignedTask.id, {
+        expectedVersion: unassignedTask.version,
         assigneeIds: [],
       });
-      assert.equal(noopClear1.task.assigneeId, null);
-      assert.deepEqual(noopClear1.task.assigneeIds, []);
+      assert.equal(
+        resCaseD.task.version,
+        unassignedTask.version,
+        "version must not increment when clearing unassigned",
+      );
+      assert.equal(
+        new Date(resCaseD.task.updatedAt).getTime(),
+        new Date(unassignedUpdatedAt).getTime(),
+        "updatedAt must not change when clearing unassigned",
+      );
+
+      // Case E: Set existing Lead again
+      const leadOnlyTask = await repository.create({
+        projectId,
+        title: "Lead Only Task E",
+        assigneeId: userA,
+      });
+      const leadUpdatedAt = leadOnlyTask.updatedAt;
+      const resCaseE = await repository.update(leadOnlyTask.id, {
+        expectedVersion: leadOnlyTask.version,
+        assigneeId: userA,
+      });
+      assert.equal(resCaseE.task.version, leadOnlyTask.version, "version must not increment on setting same lead");
+      assert.equal(
+        new Date(resCaseE.task.updatedAt).getTime(),
+        new Date(leadUpdatedAt).getTime(),
+        "updatedAt must not change on setting same lead",
+      );
+
+      // Case F: Add already-assigned contributor
+      const resCaseF = await repository.update(noopTaskA.id, {
+        expectedVersion: resCaseB.task.version,
+        assigneeIds: [userA, userB],
+      });
+      assert.equal(
+        resCaseF.task.version,
+        resCaseB.task.version,
+        "version must not increment when adding already assigned",
+      );
+      assert.equal(
+        new Date(resCaseF.task.updatedAt).getTime(),
+        new Date(resCaseB.task.updatedAt).getTime(),
+        "updatedAt must not change when adding already assigned",
+      );
+
+      // Case G: Remove non-assigned contributor (passing same single assignee list)
+      const resCaseG = await repository.update(leadOnlyTask.id, {
+        expectedVersion: leadOnlyTask.version,
+        assigneeIds: [userA],
+      });
+      assert.equal(resCaseG.task.version, leadOnlyTask.version, "version must not increment on removing non-assigned");
+      assert.equal(
+        new Date(resCaseG.task.updatedAt).getTime(),
+        new Date(leadUpdatedAt).getTime(),
+        "updatedAt must not change on removing non-assigned",
+      );
     } finally {
       // Cleanup
     }

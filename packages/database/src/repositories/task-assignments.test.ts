@@ -98,15 +98,15 @@ describe("canonical task assignment domain contract (backend)", () => {
       });
     });
 
-    it("deduplicates duplicate IDs in input while placing Lead first", () => {
-      const res = resolveTaskAssignmentCreation({
-        assigneeId: "user-lead",
-        assigneeIds: ["user-lead", "user-contrib", "user-contrib", "user-lead"],
-      });
-      assert.deepEqual(res, {
-        assigneeId: "user-lead",
-        assigneeIds: ["user-lead", "user-contrib"],
-      });
+    it("rejects duplicate IDs in assigneeIds on creation", () => {
+      assert.throws(
+        () =>
+          resolveTaskAssignmentCreation({
+            assigneeId: "user-lead",
+            assigneeIds: ["user-lead", "user-contrib", "user-contrib"],
+          }),
+        (err: unknown) => err instanceof TenantConflictError && /unique user IDs/.test(err.message),
+      );
     });
 
     it("rejects creation when assigneeId is null but non-empty assigneeIds are passed", () => {
@@ -229,6 +229,16 @@ describe("canonical task assignment domain contract (backend)", () => {
       assert.throws(
         () => resolveTaskAssignmentUpdate(current, { assigneeId: null, assigneeIds: ["user-1"] }),
         (err: unknown) => err instanceof TenantConflictError && /without a Lead/.test(err.message),
+      );
+    });
+
+    it("rejects duplicate IDs in assigneeIds on update", () => {
+      assert.throws(
+        () =>
+          resolveTaskAssignmentUpdate(current, {
+            assigneeIds: ["user-lead", "user-contrib-1", "user-contrib-1"],
+          }),
+        (err: unknown) => err instanceof TenantConflictError && /unique user IDs/.test(err.message),
       );
     });
   });
