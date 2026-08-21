@@ -359,11 +359,20 @@ export function createProjectsRepository(context: DatabaseTenantContext) {
       }));
     },
 
-    async getById(projectId: string) {
+    async getById(projectId: string, includeDeleted = false) {
+      await requireWorkspace();
+      const conditions = [
+        eq(projects.id, projectId),
+        eq(projects.organizationId, organizationId),
+        eq(projects.workspaceId, workspaceId),
+      ];
+      if (!includeDeleted) {
+        conditions.push(isNull(projects.deletedAt));
+      }
       const [project] = await db
         .select()
         .from(projects)
-        .where(and(eq(projects.id, projectId), tenantScope))
+        .where(and(...conditions))
         .limit(1);
       if (!project) {
         throw new TenantResourceNotFoundError("project");

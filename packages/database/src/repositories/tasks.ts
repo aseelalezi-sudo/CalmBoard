@@ -6,6 +6,7 @@ import {
   projectSections,
   projectWipLimits,
   automationEvents,
+  customFields,
   memberships,
   taskAssignees,
   taskDependencies,
@@ -640,6 +641,7 @@ export function createTasksRepository(context: DatabaseTenantContext) {
         throw new TenantResourceNotFoundError("project section");
       }
     }
+    await validateCustomFields(input.projectId, input.customFields);
     resolveTaskStateCreation(input);
     const resolvedAssignments = resolveTaskAssignmentCreation(input);
     await requireActiveMembers([
@@ -647,6 +649,30 @@ export function createTasksRepository(context: DatabaseTenantContext) {
       ...(input.followerIds ?? []),
       ...(input.reporterId ? [input.reporterId] : []),
     ]);
+  }
+
+  async function validateCustomFields(projectId: string, customFieldsInput?: Record<string, unknown> | null) {
+    if (!customFieldsInput || typeof customFieldsInput !== "object") return;
+    const keys = Object.keys(customFieldsInput).filter((k) => !["dependencies", "reminders", "recurrence"].includes(k));
+    if (!keys.length) return;
+
+    const matchingFields = await db
+      .select({ key: customFields.key, projectId: customFields.projectId })
+      .from(customFields)
+      .where(
+        and(
+          eq(customFields.organizationId, organizationId),
+          eq(customFields.workspaceId, workspaceId),
+          inArray(customFields.key, keys),
+          isNull(customFields.deletedAt),
+        ),
+      );
+
+    for (const field of matchingFields) {
+      if (field.projectId !== null && field.projectId !== projectId) {
+        throw new TenantConflictError(`Custom field '${field.key}' belongs to another project`);
+      }
+    }
   }
 
   async function validateUpdateInput(taskId: string, projectId: string, input: UpdateTaskInput) {
@@ -681,6 +707,7 @@ export function createTasksRepository(context: DatabaseTenantContext) {
         throw new TenantResourceNotFoundError("project section");
       }
     }
+    await validateCustomFields(projectId, input.customFields);
     const before = await getById(taskId);
     resolveTaskStateUpdate(before, input);
     const resolvedAssignments = resolveTaskAssignmentUpdate(before, input);

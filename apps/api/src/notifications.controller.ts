@@ -10,24 +10,24 @@ export class NotificationsController {
   list(
     @Query("organizationId") organizationId: string,
     @Query("workspaceId") workspaceId: string,
-    @Query("userId") userId: string,
+    @Query("userId") userId?: string,
     @Query("actorId") actorId?: string,
   ) {
-    return createNotificationsRepository(tenantContext(organizationId, workspaceId, actorId)).listForUser(
-      requiredString(userId, "userId"),
-    );
+    const targetUserId = actorId || requiredString(userId, "userId");
+    return createNotificationsRepository(tenantContext(organizationId, workspaceId, actorId)).listForUser(targetUserId);
   }
 
   @Patch()
-  @RequirePermission("notifications.manage")
+  @TenantMember()
   async markRead(@Body() body: JsonObject) {
-    const userId = requiredString(body.userId, "userId");
+    const actorId = requiredString(body.actorId, "actorId");
+    const targetUserId = actorId;
     const repository = createNotificationsRepository(tenantContextFromBody(body));
     if (body.markAllRead === true) {
-      await repository.markAllRead(userId);
+      await repository.markAllRead(targetUserId);
       return { ok: true };
     }
-    if (body.id !== undefined) return repository.markRead(requiredString(body.id, "id"), userId);
+    if (body.id !== undefined) return repository.markRead(requiredString(body.id, "id"), targetUserId);
     throw new BadRequestException("markAllRead or notification id is required");
   }
 }

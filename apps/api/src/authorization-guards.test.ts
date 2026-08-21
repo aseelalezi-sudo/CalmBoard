@@ -149,4 +149,32 @@ describe("tenant and permission guards", () => {
       true,
     );
   });
+
+  it("sanitizes query parameters to prevent user ID spoofing", async () => {
+    const authorization = {
+      resolve: async () => ({
+        member: true,
+        allowed: true,
+        membershipId: "membership-1",
+        roles: ["member"],
+        permissions: ["tasks.read"],
+      }),
+    } as unknown as AuthorizationService;
+    const guard = new TenantGuard(reflector({ [PUBLIC_ROUTE]: false }), authorization, requestScope);
+    const request = {
+      url: "/notifications",
+      auth: { userId: "authenticated-user-id", sessionId: "session-1" },
+      body: {},
+      query: {
+        organizationId: "org-1",
+        workspaceId: "ws-1",
+        userId: "victim-user-id",
+        actorId: "victim-user-id",
+      },
+      params: {},
+    };
+    assert.equal(await guard.canActivate(executionContext(request)), true);
+    assert.equal(request.query.actorId, "authenticated-user-id");
+    assert.equal(request.query.userId, "authenticated-user-id");
+  });
 });
