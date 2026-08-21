@@ -783,7 +783,7 @@ export function TaskDrawer({
                               <input
                                 name="auto-field-7nsk28y"
                                 type="date"
-                                value={val}
+                                value={typeof val === "string" && val.includes("T") ? val.split("T")[0] : val}
                                 onChange={(e) =>
                                   ctx.updateTask(task.id, {
                                     customFields: { ...(task.customFields || {}), [cf.key]: e.target.value },

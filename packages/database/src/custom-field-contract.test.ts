@@ -346,9 +346,37 @@ describe("Custom Field Contract - Unit Tests", () => {
         /must be a finite number/,
       );
 
-      // date field with invalid string
+      // date field with invalid string or types
       assert.throws(
         () => validateAndNormalizeTaskCustomFields(ctx, { launch_date: "invalid-date" }, mockDefinitions),
+        /must be a valid date/,
+      );
+      assert.throws(
+        () => validateAndNormalizeTaskCustomFields(ctx, { launch_date: "October 1, 2026" }, mockDefinitions),
+        /must be a valid date/,
+      );
+      assert.throws(
+        () => validateAndNormalizeTaskCustomFields(ctx, { launch_date: "10/01/2026" }, mockDefinitions),
+        /must be a valid date/,
+      );
+      assert.throws(
+        () => validateAndNormalizeTaskCustomFields(ctx, { launch_date: "2026/10/01" }, mockDefinitions),
+        /must be a valid date/,
+      );
+      assert.throws(
+        () => validateAndNormalizeTaskCustomFields(ctx, { launch_date: "2026-02-30" }, mockDefinitions),
+        /must be a valid date/,
+      );
+      assert.throws(
+        () => validateAndNormalizeTaskCustomFields(ctx, { launch_date: "2026-13-01" }, mockDefinitions),
+        /must be a valid date/,
+      );
+      assert.throws(
+        () => validateAndNormalizeTaskCustomFields(ctx, { launch_date: 123456789 }, mockDefinitions),
+        /must be a valid date/,
+      );
+      assert.throws(
+        () => validateAndNormalizeTaskCustomFields(ctx, { launch_date: new Date("invalid") }, mockDefinitions),
         /must be a valid date/,
       );
 
@@ -444,6 +472,125 @@ describe("Custom Field Contract - Unit Tests", () => {
       assert.deepEqual(normalized.dependencies, ["TSK-1", "TSK-2"]);
       assert.equal(normalized.delayReason, "Waiting on client");
       assert.equal(normalized.client_name, "Test");
+    });
+  });
+
+  describe("Custom field date canonicalization contract", () => {
+    const dateDef: CustomFieldRecord = {
+      id: "cf-date",
+      organizationId: "org-1",
+      workspaceId: "ws-1",
+      projectId: null,
+      name: "Due Date",
+      key: "due_date",
+      type: "date",
+      description: null,
+      options: [],
+      required: false,
+      sensitive: false,
+      order: 1,
+      createdById: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      deletedAt: null,
+    };
+    const ctx = { organizationId: "org-1", workspaceId: "ws-1", projectId: "proj-1" };
+
+    it("accepts and normalizes valid ISO 8601 UTC datetimes", () => {
+      const res1 = validateAndNormalizeTaskCustomFields(ctx, { due_date: "2026-10-01T14:30:00.000Z" }, [dateDef]);
+      assert.equal(res1.due_date, "2026-10-01T14:30:00.000Z");
+
+      const res2 = validateAndNormalizeTaskCustomFields(ctx, { due_date: "2026-10-01T14:30:00Z" }, [dateDef]);
+      assert.equal(res2.due_date, "2026-10-01T14:30:00.000Z");
+
+      const res3 = validateAndNormalizeTaskCustomFields(ctx, { due_date: "2026-10-01T14:30Z" }, [dateDef]);
+      assert.equal(res3.due_date, "2026-10-01T14:30:00.000Z");
+    });
+
+    it("accepts and normalizes valid timezone-offset ISO 8601 datetimes", () => {
+      const res1 = validateAndNormalizeTaskCustomFields(ctx, { due_date: "2026-10-01T17:30:00+03:00" }, [dateDef]);
+      assert.equal(res1.due_date, "2026-10-01T14:30:00.000Z");
+
+      const res2 = validateAndNormalizeTaskCustomFields(ctx, { due_date: "2026-10-01T09:30:00-05:00" }, [dateDef]);
+      assert.equal(res2.due_date, "2026-10-01T14:30:00.000Z");
+    });
+
+    it("accepts and normalizes valid date-only YYYY-MM-DD strings", () => {
+      const res = validateAndNormalizeTaskCustomFields(ctx, { due_date: "2026-10-01" }, [dateDef]);
+      assert.equal(res.due_date, "2026-10-01T00:00:00.000Z");
+    });
+
+    it("accepts and normalizes valid Date instances", () => {
+      const dateObj = new Date("2026-10-01T14:30:00.000Z");
+      const res = validateAndNormalizeTaskCustomFields(ctx, { due_date: dateObj }, [dateDef]);
+      assert.equal(res.due_date, "2026-10-01T14:30:00.000Z");
+    });
+
+    it("rejects non-ISO and arbitrary locale date formats", () => {
+      const invalidStrings = [
+        "October 1, 2026",
+        "10/01/2026",
+        "01/10/2026",
+        "2026/10/01",
+        "01-10-2026",
+        "yesterday",
+        "tomorrow",
+        "next Monday",
+        "2026.10.01",
+        "2026-1-1",
+        "1234567890",
+      ];
+
+      for (const invalid of invalidStrings) {
+        assert.throws(
+          () => validateAndNormalizeTaskCustomFields(ctx, { due_date: invalid }, [dateDef]),
+          /must be a valid date/,
+          `Expected '${invalid}' to be rejected as an invalid date`,
+        );
+      }
+    });
+
+    it("rejects invalid calendar dates even if matching syntax", () => {
+      const invalidCalendarDates = [
+        "2026-02-29", // 2026 is not a leap year
+        "2026-02-30",
+        "2026-04-31",
+        "2026-13-01",
+        "2026-00-10",
+        "2026-10-32",
+        "2026-02-30T10:00:00Z",
+      ];
+
+      for (const invalid of invalidCalendarDates) {
+        assert.throws(
+          () => validateAndNormalizeTaskCustomFields(ctx, { due_date: invalid }, [dateDef]),
+          /must be a valid date/,
+          `Expected invalid calendar date '${invalid}' to be rejected`,
+        );
+      }
+    });
+
+    it("handles required vs optional date semantics correctly", () => {
+      const reqDateDef = { ...dateDef, required: true };
+
+      // Optional date cleared with null or empty string
+      const optCleared = validateAndNormalizeTaskCustomFields(ctx, { due_date: null }, [dateDef]);
+      assert.equal(optCleared.due_date, undefined);
+
+      const optEmpty = validateAndNormalizeTaskCustomFields(ctx, { due_date: "   " }, [dateDef]);
+      assert.equal(optEmpty.due_date, undefined);
+
+      // Required date missing
+      assert.throws(
+        () => validateAndNormalizeTaskCustomFields(ctx, {}, [reqDateDef], { isCreate: true }),
+        /Required custom field 'due_date' is missing/,
+      );
+
+      // Required date empty string
+      assert.throws(
+        () => validateAndNormalizeTaskCustomFields(ctx, { due_date: "   " }, [reqDateDef]),
+        /Required custom field 'due_date' cannot be empty/,
+      );
     });
   });
 });

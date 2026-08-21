@@ -111,20 +111,94 @@ export type ValidateTaskCustomFieldsOptions = {
   existingCustomFields?: Record<string, unknown> | null;
 };
 
+const ISO_DATE_ONLY_REGEX = /^(\d{4})-(\d{2})-(\d{2})$/;
+const ISO_DATETIME_REGEX =
+  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,9}))?)?(?:Z|([+-]\d{2}(?::?\d{2})?))$/i;
+
+function parseAndValidateIsoDate(trimmed: string): string | null {
+  const dateOnlyMatch = ISO_DATE_ONLY_REGEX.exec(trimmed);
+  if (dateOnlyMatch) {
+    const year = Number(dateOnlyMatch[1]);
+    const month = Number(dateOnlyMatch[2]);
+    const day = Number(dateOnlyMatch[3]);
+    if (month < 1 || month > 12 || day < 1 || day > 31) {
+      return null;
+    }
+    const parsed = new Date(`${dateOnlyMatch[1]}-${dateOnlyMatch[2]}-${dateOnlyMatch[3]}T00:00:00.000Z`);
+    if (
+      Number.isNaN(parsed.getTime()) ||
+      parsed.getUTCFullYear() !== year ||
+      parsed.getUTCMonth() + 1 !== month ||
+      parsed.getUTCDate() !== day
+    ) {
+      return null;
+    }
+    return parsed.toISOString();
+  }
+
+  const datetimeMatch = ISO_DATETIME_REGEX.exec(trimmed);
+  if (datetimeMatch) {
+    const year = Number(datetimeMatch[1]);
+    const month = Number(datetimeMatch[2]);
+    const day = Number(datetimeMatch[3]);
+    const hours = Number(datetimeMatch[4]);
+    const minutes = Number(datetimeMatch[5]);
+    const seconds = datetimeMatch[6] !== undefined ? Number(datetimeMatch[6]) : 0;
+    if (
+      month < 1 ||
+      month > 12 ||
+      day < 1 ||
+      day > 31 ||
+      hours < 0 ||
+      hours > 23 ||
+      minutes < 0 ||
+      minutes > 59 ||
+      seconds < 0 ||
+      seconds > 59
+    ) {
+      return null;
+    }
+    const calTest = new Date(`${datetimeMatch[1]}-${datetimeMatch[2]}-${datetimeMatch[3]}T00:00:00.000Z`);
+    if (
+      Number.isNaN(calTest.getTime()) ||
+      calTest.getUTCFullYear() !== year ||
+      calTest.getUTCMonth() + 1 !== month ||
+      calTest.getUTCDate() !== day
+    ) {
+      return null;
+    }
+    const parsed = new Date(trimmed);
+    if (Number.isNaN(parsed.getTime())) {
+      return null;
+    }
+    return parsed.toISOString();
+  }
+
+  return null;
+}
+
 function normalizeAndValidateFieldValue(def: CustomFieldRecord, value: unknown): unknown {
   const type = normalizeCustomFieldType(def.type);
+
+  if (value === undefined || value === null) {
+    if (def.required) {
+      throw new TenantConflictError(`Required custom field '${def.key}' is missing`);
+    }
+    return null;
+  }
 
   switch (type) {
     case "short_text": {
       if (typeof value !== "string") {
         throw new TenantConflictError(`Custom field '${def.key}' must be a string`);
       }
-      if (value.length > 10_000) {
-        throw new TenantConflictError(`Custom field '${def.key}' value cannot exceed 10000 characters`);
-      }
       const trimmed = value.trim();
-      if (def.required && trimmed.length === 0) {
-        throw new TenantConflictError(`Required custom field '${def.key}' cannot be empty`);
+      if (!trimmed) {
+        if (def.required) throw new TenantConflictError(`Required custom field '${def.key}' cannot be empty`);
+        return null;
+      }
+      if (trimmed.length > 10_000) {
+        throw new TenantConflictError(`Custom field '${def.key}' exceeds maximum length of 10,000 characters`);
       }
       return trimmed;
     }
@@ -149,11 +223,11 @@ function normalizeAndValidateFieldValue(def: CustomFieldRecord, value: unknown):
           if (def.required) throw new TenantConflictError(`Required custom field '${def.key}' cannot be empty`);
           return null;
         }
-        const parsed = new Date(trimmed);
-        if (Number.isNaN(parsed.getTime())) {
+        const iso = parseAndValidateIsoDate(trimmed);
+        if (!iso) {
           throw new TenantConflictError(`Custom field '${def.key}' must be a valid date`);
         }
-        return parsed.toISOString();
+        return iso;
       }
       throw new TenantConflictError(`Custom field '${def.key}' must be a valid date`);
     }
@@ -213,7 +287,7 @@ function isValidNonEmptyValue(def: CustomFieldRecord, val: unknown): boolean {
     return typeof val === "string" && val.trim().length > 0;
   }
   if (type === "date") {
-    if (typeof val === "string") return val.trim().length > 0 && !Number.isNaN(new Date(val).getTime());
+    if (typeof val === "string") return val.trim().length > 0 && parseAndValidateIsoDate(val.trim()) !== null;
     if (val instanceof Date) return !Number.isNaN(val.getTime());
     return false;
   }

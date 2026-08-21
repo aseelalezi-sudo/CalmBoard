@@ -283,12 +283,12 @@ describe("Custom Fields Domain & Integration Tests", () => {
         /must be a finite number/,
       );
 
-      // Date field with invalid string
+      // Date field with invalid string or arbitrary locale format
       await assert.rejects(
         () =>
           taskRepo.create({
             projectId: proj1Id,
-            title: "Task with invalid date",
+            title: "Task with invalid date string",
             customFields: {
               client_name: "Valid",
               launch_date: "not-a-real-date",
@@ -296,6 +296,54 @@ describe("Custom Fields Domain & Integration Tests", () => {
           }),
         /must be a valid date/,
       );
+
+      await assert.rejects(
+        () =>
+          taskRepo.create({
+            projectId: proj1Id,
+            title: "Task with locale date string",
+            customFields: {
+              client_name: "Valid",
+              launch_date: "October 1, 2026",
+            },
+          }),
+        /must be a valid date/,
+      );
+
+      await assert.rejects(
+        () =>
+          taskRepo.create({
+            projectId: proj1Id,
+            title: "Task with slash date string",
+            customFields: {
+              client_name: "Valid",
+              launch_date: "10/01/2026",
+            },
+          }),
+        /must be a valid date/,
+      );
+
+      // Date field accepts date-only YYYY-MM-DD and normalizes to UTC ISO string
+      const taskWithDateOnly = await taskRepo.create({
+        projectId: proj1Id,
+        title: "Task with date-only custom field",
+        customFields: {
+          client_name: "Valid",
+          launch_date: "2026-10-01",
+        },
+      });
+      assert.equal(taskWithDateOnly.customFields?.launch_date, "2026-10-01T00:00:00.000Z");
+
+      // Date field accepts timezone-offset ISO datetime and normalizes to UTC ISO string
+      const taskWithOffset = await taskRepo.create({
+        projectId: proj1Id,
+        title: "Task with timezone offset custom field",
+        customFields: {
+          client_name: "Valid",
+          launch_date: "2026-10-01T17:30:00+03:00",
+        },
+      });
+      assert.equal(taskWithOffset.customFields?.launch_date, "2026-10-01T14:30:00.000Z");
 
       // Single select with unconfigured option
       await assert.rejects(
