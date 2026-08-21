@@ -33,6 +33,10 @@ import {
   resolveTaskStateCreation,
   resolveTaskStateUpdate,
 } from "./task-states.js";
+import {
+  validateAndNormalizeTaskCustomFields,
+  type ValidateTaskCustomFieldsOptions,
+} from "../custom-field-contract.js";
 
 export type TaskRecord = typeof tasks.$inferSelect;
 export type TaskStatus = TaskRecord["status"];
@@ -641,7 +645,7 @@ export function createTasksRepository(context: DatabaseTenantContext) {
         throw new TenantResourceNotFoundError("project section");
       }
     }
-    await validateCustomFields(input.projectId, input.customFields);
+    await resolveCustomFields(input.projectId, input.customFields, { isCreate: true });
     resolveTaskStateCreation(input);
     const resolvedAssignments = resolveTaskAssignmentCreation(input);
     await requireActiveMembers([
@@ -651,28 +655,28 @@ export function createTasksRepository(context: DatabaseTenantContext) {
     ]);
   }
 
-  async function validateCustomFields(projectId: string, customFieldsInput?: Record<string, unknown> | null) {
-    if (!customFieldsInput || typeof customFieldsInput !== "object") return;
-    const keys = Object.keys(customFieldsInput).filter((k) => !["dependencies", "reminders", "recurrence"].includes(k));
-    if (!keys.length) return;
-
-    const matchingFields = await db
-      .select({ key: customFields.key, projectId: customFields.projectId })
+  async function resolveCustomFields(
+    projectId: string,
+    customFieldsInput?: Record<string, unknown> | null,
+    options?: ValidateTaskCustomFieldsOptions,
+  ) {
+    const definitions = await db
+      .select()
       .from(customFields)
       .where(
         and(
           eq(customFields.organizationId, organizationId),
           eq(customFields.workspaceId, workspaceId),
-          inArray(customFields.key, keys),
           isNull(customFields.deletedAt),
         ),
       );
 
-    for (const field of matchingFields) {
-      if (field.projectId !== null && field.projectId !== projectId) {
-        throw new TenantConflictError(`Custom field '${field.key}' belongs to another project`);
-      }
-    }
+    return validateAndNormalizeTaskCustomFields(
+      { organizationId, workspaceId, projectId },
+      customFieldsInput,
+      definitions,
+      options,
+    );
   }
 
   async function validateUpdateInput(taskId: string, projectId: string, input: UpdateTaskInput) {
@@ -707,8 +711,12 @@ export function createTasksRepository(context: DatabaseTenantContext) {
         throw new TenantResourceNotFoundError("project section");
       }
     }
-    await validateCustomFields(projectId, input.customFields);
     const before = await getById(taskId);
+    if (input.customFields !== undefined) {
+      await resolveCustomFields(projectId, input.customFields, {
+        existingCustomFields: before.customFields,
+      });
+    }
     resolveTaskStateUpdate(before, input);
     const resolvedAssignments = resolveTaskAssignmentUpdate(before, input);
     await requireActiveMembers([
@@ -950,6 +958,7 @@ export function createTasksRepository(context: DatabaseTenantContext) {
 
     async create(input: CreateTaskInput) {
       await validateCreateInput(input);
+      const canonicalCustomFields = await resolveCustomFields(input.projectId, input.customFields, { isCreate: true });
       const [serialNumber] = await allocateTaskSerialNumbers(organizationId);
       const reminders = input.reminders ? normalizeReminders(input.reminders) : [];
       const canonicalState = resolveTaskStateCreation(input);
@@ -976,7 +985,7 @@ export function createTasksRepository(context: DatabaseTenantContext) {
             serial: formatTaskSerial(serialNumber),
             order: input.order ?? serialNumber - FIRST_TASK_SERIAL_NUMBER,
             tags: input.tags ?? [],
-            customFields: input.customFields ?? {},
+            customFields: canonicalCustomFields,
             estimatedHours: input.estimatedHours ?? 4,
             loggedHours: input.loggedHours ?? 0,
             startDate: canonicalState.startDate,
@@ -1438,13 +1447,18 @@ export function createTasksRepository(context: DatabaseTenantContext) {
                 }),
           }
         : undefined;
-      const customFields = normalizedMetadata
-        ? {
-            ...(before.customFields ?? {}),
-            ...normalizedMetadata,
-            ...(taskUpdates.customFields ?? {}),
-          }
-        : taskUpdates.customFields;
+      let customFields: Record<string, unknown> | undefined = undefined;
+      if (taskUpdates.customFields !== undefined) {
+        customFields = await resolveCustomFields(before.projectId, taskUpdates.customFields, {
+          existingCustomFields: before.customFields,
+        });
+      }
+      if (normalizedMetadata) {
+        customFields = {
+          ...(customFields ?? before.customFields ?? {}),
+          ...normalizedMetadata,
+        };
+      }
 
       const blockingTasks = dependencySerials?.length
         ? await db

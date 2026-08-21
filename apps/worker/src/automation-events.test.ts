@@ -108,6 +108,8 @@ describe("automation event worker", () => {
       const taskId = randomUUID();
       const eventId = randomUUID();
       try {
+        await pool.query("delete from automation_events");
+        await pool.query("delete from automation_runs");
         await pool.query("insert into users (id, email, name) values ($1, $2, 'Automation actor')", [
           userId,
           `automation-${userId}@example.test`,

@@ -1,4 +1,5 @@
 export * from "./client.js";
+export * from "./custom-field-contract.js";
 export * from "./dev-seed.js";
 export * from "./errors.js";
 export * from "./data-lifecycle-locator.js";

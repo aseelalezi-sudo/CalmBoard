@@ -145,13 +145,16 @@ export function parseCreateCustomFieldInput(body: JsonObject): CreateCustomField
   if (name.length > 160) throw new BadRequestException("name is too long");
   const type = body.type === undefined ? "short_text" : requiredString(body.type, "type");
   if (!customFieldTypes.has(type)) throw new BadRequestException("type is invalid");
+  const explicitKey = body.key !== undefined ? optionalString(body.key, "key") : undefined;
   const input: CreateCustomFieldInput = {
     name,
     key:
-      name
+      explicitKey ??
+      (name
         .toLowerCase()
         .replace(/[\s_]+/g, "-")
-        .replace(/[^a-z0-9-]/g, "") || `field-${Date.now()}`,
+        .replace(/[^a-z0-9-]/g, "") ||
+        `field-${Date.now()}`),
     type,
   };
   if (body.projectId !== undefined) {

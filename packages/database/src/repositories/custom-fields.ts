@@ -3,6 +3,7 @@ import { db } from "../client.js";
 import { TenantConflictError, TenantPermissionDeniedError, TenantResourceNotFoundError } from "../errors.js";
 import { customFields, memberships, projects, workspaces } from "../schema.js";
 import { assertWorkspaceTenantContext, type DatabaseTenantContext } from "../tenant-context.js";
+import { validateCustomFieldDefinition } from "../custom-field-contract.js";
 
 export type CustomFieldRecord = typeof customFields.$inferSelect;
 export type CustomFieldOption = { label: string; value: string; color?: string };
@@ -79,15 +80,16 @@ export function createCustomFieldsRepository(context: DatabaseTenantContext) {
     async create(input: CreateCustomFieldInput) {
       await requireWorkspace();
       await requireActor();
-      if (input.projectId) await requireProject(input.projectId);
+      const validated = validateCustomFieldDefinition(input);
+      if (validated.projectId) await requireProject(validated.projectId);
       const [existingField] = await db
         .select({ id: customFields.id })
         .from(customFields)
         .where(
           and(
             tenantScope,
-            eq(customFields.key, input.key),
-            input.projectId ? eq(customFields.projectId, input.projectId) : isNull(customFields.projectId),
+            eq(customFields.key, validated.key),
+            validated.projectId ? eq(customFields.projectId, validated.projectId) : isNull(customFields.projectId),
           ),
         )
         .limit(1);
@@ -98,15 +100,15 @@ export function createCustomFieldsRepository(context: DatabaseTenantContext) {
         .values({
           organizationId,
           workspaceId,
-          projectId: input.projectId ?? null,
-          name: input.name,
-          key: input.key,
-          type: input.type,
-          description: input.description ?? "",
-          required: input.required ?? false,
-          sensitive: input.sensitive ?? false,
-          options: input.options ?? [],
-          order: input.order ?? 10,
+          projectId: validated.projectId ?? null,
+          name: validated.name,
+          key: validated.key,
+          type: validated.type,
+          description: validated.description ?? "",
+          required: validated.required ?? false,
+          sensitive: validated.sensitive ?? false,
+          options: validated.options ?? [],
+          order: validated.order ?? 10,
           createdById: actorId,
         })
         .returning();
