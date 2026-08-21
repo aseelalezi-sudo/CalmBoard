@@ -22,6 +22,7 @@ import { allocateTaskSerialNumbers, FIRST_TASK_SERIAL_NUMBER, formatTaskSerial }
 import { assertWorkspaceTenantContext, type DatabaseTenantContext } from "../tenant-context.js";
 import { createNotificationsRepository } from "./notifications.js";
 import { createTaskFollowersRepository } from "./task-followers.js";
+import { createTaskDependenciesRepository, type TaskDependencyLink } from "./task-dependencies.js";
 import { resolveTaskAssignmentCreation, resolveTaskAssignmentUpdate } from "./task-assignments.js";
 import {
   assertValidTaskStatus,
@@ -78,12 +79,7 @@ export type TaskMetadata = {
   dependencies?: string[];
   reminders?: TaskReminder[];
 };
-export type TaskDependencyLink = {
-  blockingTaskId: string;
-  blockingTaskSerial: string;
-  type: (typeof taskDependencies.$inferSelect)["type"];
-  lagMinutes: number;
-};
+export type { TaskDependencyLink } from "./task-dependencies.js";
 
 export type TaskListFilters = {
   projectId?: string;
@@ -219,6 +215,8 @@ export type CreateTaskInput = {
   recurrence?: TaskRecurrenceInput;
   isRecurring?: boolean;
   isMilestone?: boolean;
+  dependencies?: string[];
+  metadata?: Partial<TaskMetadata>;
 };
 
 export type UpdateTaskInput = Partial<
@@ -250,6 +248,7 @@ export type UpdateTaskInput = Partial<
   expectedVersion?: number;
   assigneeIds?: string[];
   followerIds?: string[];
+  dependencies?: string[];
   metadata?: Partial<TaskMetadata>;
   recurrence?: TaskRecurrenceInput | null;
 };
@@ -653,6 +652,11 @@ export function createTasksRepository(context: DatabaseTenantContext) {
       ...(input.followerIds ?? []),
       ...(input.reporterId ? [input.reporterId] : []),
     ]);
+    const rawDependencies = input.dependencies ?? input.metadata?.dependencies;
+    if (rawDependencies !== undefined) {
+      const taskDependenciesRepo = createTaskDependenciesRepository(context, db);
+      await taskDependenciesRepo.validateTaskDependenciesInput(null, rawDependencies);
+    }
   }
 
   async function resolveCustomFields(
@@ -967,6 +971,13 @@ export function createTasksRepository(context: DatabaseTenantContext) {
       const { assigneeId: primaryAssigneeId, assigneeIds: finalAssigneeIds } = resolveTaskAssignmentCreation(input);
       const followerIds = [...new Set(input.followerIds ?? [])];
 
+      const rawDependencies = input.dependencies ?? input.metadata?.dependencies;
+      const taskDependenciesRepo = createTaskDependenciesRepository(context, db);
+      const validatedDependencies =
+        rawDependencies !== undefined
+          ? await taskDependenciesRepo.validateTaskDependenciesInput(null, rawDependencies)
+          : [];
+
       const task = await db.transaction(async (transaction) => {
         const [created] = await transaction
           .insert(tasks)
@@ -1048,6 +1059,10 @@ export function createTasksRepository(context: DatabaseTenantContext) {
             createdBy: actorId ?? null,
             ...recurrence,
           });
+        }
+        if (validatedDependencies.length) {
+          const txDependenciesRepo = createTaskDependenciesRepository(context, transaction);
+          await txDependenciesRepo.replaceTaskDependencies(created.id, validatedDependencies, actorId);
         }
         if (automationDepth <= maxSubtaskDepth) {
           await transaction.insert(automationEvents).values(
@@ -1425,28 +1440,31 @@ export function createTasksRepository(context: DatabaseTenantContext) {
       if (hasAssigneeMutation && primaryBefore !== finalAssigneeId) {
         taskUpdates.assigneeId = finalAssigneeId;
       }
+      const rawDependencies = input.dependencies ?? metadata?.dependencies;
+      const taskDependenciesRepo = createTaskDependenciesRepository(context, db);
+      const validatedDependencies =
+        rawDependencies !== undefined
+          ? await taskDependenciesRepo.validateTaskDependenciesInput(before.id, rawDependencies)
+          : undefined;
       const dependencySerials =
-        metadata?.dependencies === undefined
-          ? undefined
-          : [...new Set(metadata.dependencies.map((value) => value.trim()))];
+        validatedDependencies !== undefined ? validatedDependencies.map((d) => d.blockingTaskSerial) : undefined;
+
       const reminderInputs = metadata?.reminders === undefined ? undefined : normalizeReminders(metadata.reminders);
-      if (dependencySerials?.includes(before.serial)) {
-        throw new TenantConflictError("A task cannot depend on itself");
-      }
-      const normalizedMetadata = metadata
-        ? {
-            ...metadata,
-            ...(dependencySerials === undefined ? {} : { dependencies: dependencySerials }),
-            ...(reminderInputs === undefined
-              ? {}
-              : {
-                  reminders: reminderInputs.map(({ remindAt, ...reminder }) => ({
-                    ...reminder,
-                    time: remindAt.toISOString(),
-                  })),
-                }),
-          }
-        : undefined;
+      const normalizedMetadata =
+        metadata || rawDependencies !== undefined
+          ? {
+              ...(metadata ?? {}),
+              ...(dependencySerials === undefined ? {} : { dependencies: [...dependencySerials].sort() }),
+              ...(reminderInputs === undefined
+                ? {}
+                : {
+                    reminders: reminderInputs.map(({ remindAt, ...reminder }) => ({
+                      ...reminder,
+                      time: remindAt.toISOString(),
+                    })),
+                  }),
+            }
+          : undefined;
       let customFields: Record<string, unknown> | undefined = undefined;
       if (taskUpdates.customFields !== undefined) {
         customFields = await resolveCustomFields(before.projectId, taskUpdates.customFields, {
@@ -1460,14 +1478,13 @@ export function createTasksRepository(context: DatabaseTenantContext) {
         };
       }
 
-      const blockingTasks = dependencySerials?.length
-        ? await db
-            .select({ id: tasks.id, serial: tasks.serial })
-            .from(tasks)
-            .where(and(tenantScope, inArray(tasks.serial, dependencySerials), isNull(tasks.deletedAt)))
-        : [];
-      if (dependencySerials && blockingTasks.length !== dependencySerials.length) {
-        throw new TenantResourceNotFoundError("task dependency");
+      function canonicalizeCustomFieldsForCompare(cf?: Record<string, unknown> | null) {
+        if (!cf) return "{}";
+        const copy = { ...cf };
+        if (Array.isArray(copy.dependencies)) {
+          copy.dependencies = [...copy.dependencies].sort();
+        }
+        return JSON.stringify(copy);
       }
 
       const hasOtherScalarChanges =
@@ -1483,16 +1500,17 @@ export function createTasksRepository(context: DatabaseTenantContext) {
         (taskUpdates.timezone !== undefined && taskUpdates.timezone !== before.timezone) ||
         (taskUpdates.storyPoints !== undefined && taskUpdates.storyPoints !== (before.storyPoints ?? null)) ||
         (taskUpdates.delayReason !== undefined && taskUpdates.delayReason !== (before.delayReason ?? null)) ||
-        (customFields !== undefined && JSON.stringify(customFields) !== JSON.stringify(before.customFields ?? {}));
+        (customFields !== undefined &&
+          canonicalizeCustomFieldsForCompare(customFields) !== canonicalizeCustomFieldsForCompare(before.customFields));
 
       const followerIdsChanged =
         followerIds !== undefined &&
         JSON.stringify([...followerIds].sort()) !== JSON.stringify([...(before.followerIds ?? [])].sort());
 
+      const beforeSerials = (before.dependencies ?? []).slice().sort();
+      const desiredSerials = dependencySerials !== undefined ? [...dependencySerials].sort() : undefined;
       const dependenciesChanged =
-        dependencySerials !== undefined &&
-        JSON.stringify([...dependencySerials].sort()) !==
-          JSON.stringify([...(before.customFields?.dependencies ?? [])].sort());
+        desiredSerials !== undefined && JSON.stringify(desiredSerials) !== JSON.stringify(beforeSerials);
 
       const remindersChanged = reminderInputs !== undefined;
 
@@ -1634,29 +1652,9 @@ export function createTasksRepository(context: DatabaseTenantContext) {
               await followersRepo.unwatch(taskId, finalAssigneeId);
             }
           }
-          if (dependencySerials !== undefined) {
-            await transaction
-              .update(taskDependencies)
-              .set({ deletedAt: new Date() })
-              .where(
-                and(
-                  eq(taskDependencies.organizationId, organizationId),
-                  eq(taskDependencies.workspaceId, workspaceId),
-                  eq(taskDependencies.dependentTaskId, taskId),
-                  isNull(taskDependencies.deletedAt),
-                ),
-              );
-            if (blockingTasks.length) {
-              await transaction.insert(taskDependencies).values(
-                blockingTasks.map((blockingTask) => ({
-                  organizationId,
-                  workspaceId,
-                  blockingTaskId: blockingTask.id,
-                  dependentTaskId: taskId,
-                  createdBy: actorId ?? null,
-                })),
-              );
-            }
+          if (validatedDependencies !== undefined) {
+            const txDependenciesRepo = createTaskDependenciesRepository(context, transaction);
+            await txDependenciesRepo.replaceTaskDependencies(taskId, validatedDependencies, actorId);
           }
           if (reminderInputs !== undefined) {
             const now = new Date();
