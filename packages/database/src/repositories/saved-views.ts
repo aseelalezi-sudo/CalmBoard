@@ -191,14 +191,7 @@ export function createSavedViewsRepository(context: DatabaseTenantContext) {
           await transaction
             .update(savedViews)
             .set({ isDefault: false, updatedAt: new Date() })
-            .where(
-              and(
-                activeScope,
-                eq(savedViews.projectId, input.projectId),
-                eq(savedViews.createdBy, currentActorId),
-                eq(savedViews.isDefault, true),
-              ),
-            );
+            .where(and(activeScope, eq(savedViews.projectId, input.projectId), eq(savedViews.isDefault, true)));
         }
         const [view] = await transaction
           .insert(savedViews)
@@ -254,14 +247,7 @@ export function createSavedViewsRepository(context: DatabaseTenantContext) {
           await transaction
             .update(savedViews)
             .set({ isDefault: false, updatedAt: new Date() })
-            .where(
-              and(
-                activeScope,
-                eq(savedViews.projectId, existing.projectId),
-                eq(savedViews.createdBy, currentActorId),
-                eq(savedViews.isDefault, true),
-              ),
-            );
+            .where(and(activeScope, eq(savedViews.projectId, existing.projectId), eq(savedViews.isDefault, true)));
         }
 
         const updates: Record<string, unknown> = { updatedAt: new Date() };

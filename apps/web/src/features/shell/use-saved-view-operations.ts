@@ -36,11 +36,7 @@ export function useSavedViewOperations(input: {
         const updated = await updateSavedViewRecord(scope, view, updates);
         setSavedViews((current) =>
           current.map((candidate) => {
-            if (
-              updated.isDefault &&
-              candidate.projectId === updated.projectId &&
-              candidate.createdBy === updated.createdBy
-            ) {
+            if (updated.isDefault && candidate.projectId === updated.projectId) {
               return candidate.id === updated.id ? updated : { ...candidate, isDefault: false };
             }
             return candidate.id === updated.id ? updated : candidate;

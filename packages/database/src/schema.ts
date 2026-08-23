@@ -1783,11 +1783,9 @@ export const savedViews = pgTable(
       table.isShared,
       table.createdBy,
     ),
-    uniqueIndex("saved_views_creator_project_default_unique")
-      .on(table.organizationId, table.workspaceId, table.projectId, table.createdBy)
-      .where(
-        sql`${table.isDefault} = true and ${table.deletedAt} is null and ${table.projectId} is not null and ${table.createdBy} is not null`,
-      ),
+    uniqueIndex("saved_views_project_default_unique")
+      .on(table.organizationId, table.workspaceId, table.projectId)
+      .where(sql`${table.isDefault} = true and ${table.deletedAt} is null and ${table.projectId} is not null`),
     check(
       "saved_views_view_type_check",
       sql`${table.viewType} in ('board', 'list', 'table', 'calendar', 'timeline', 'workload')`,

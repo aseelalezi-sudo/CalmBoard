@@ -244,13 +244,11 @@ export function CalmBoardApp() {
 
   useEffect(() => {
     if (!activeProject || appliedDefaultProject.current === activeProject.id) return;
-    const defaultView = visibleSavedViews.find(
-      (view) => view.projectId === activeProject.id && view.createdBy === currentUser?.id && view.isDefault,
-    );
+    const defaultView = visibleSavedViews.find((view) => view.projectId === activeProject.id && view.isDefault);
     if (!defaultView) return;
     appliedDefaultProject.current = activeProject.id;
     applySavedView(defaultView, false);
-  }, [activeProject, applySavedView, currentUser?.id, visibleSavedViews]);
+  }, [activeProject, applySavedView, visibleSavedViews]);
 
   /* ---------- boot ---------- */
   useEffect(() => {
@@ -1677,9 +1675,7 @@ export function CalmBoardApp() {
           setSavedViews((current) => [
             view,
             ...current.map((candidate) =>
-              view.isDefault && candidate.projectId === view.projectId && candidate.createdBy === view.createdBy
-                ? { ...candidate, isDefault: false }
-                : candidate,
+              view.isDefault && candidate.projectId === view.projectId ? { ...candidate, isDefault: false } : candidate,
             ),
           ])
         }

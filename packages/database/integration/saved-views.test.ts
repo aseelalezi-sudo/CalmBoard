@@ -362,4 +362,198 @@ describe("owner-scoped saved views", () => {
         .catch(() => undefined);
     }
   });
+
+  it("enforces project-level single default invariant across users, updates, deletions, and DB constraints", async () => {
+    const organizationId = randomUUID();
+    const workspaceId = randomUUID();
+    const project1Id = randomUUID();
+    const project2Id = randomUUID();
+    const userAId = randomUUID();
+    const userBId = randomUUID();
+
+    try {
+      await db.insert(users).values([
+        { id: userAId, email: `user-a-${userAId}@example.com`, name: "User A" },
+        { id: userBId, email: `user-b-${userBId}@example.com`, name: "User B" },
+      ]);
+      await db.insert(organizations).values({
+        id: organizationId,
+        ownerId: userAId,
+        name: "Default Invariant Org",
+        slug: `def-org-${organizationId}`,
+      });
+      await db.insert(workspaces).values({
+        id: workspaceId,
+        organizationId,
+        name: "Default Invariant WS",
+        slug: `def-ws-${workspaceId}`,
+      });
+      await db.insert(memberships).values([
+        { userId: userAId, organizationId, workspaceId: null, role: "owner" },
+        { userId: userBId, organizationId, workspaceId: null, role: "member" },
+      ]);
+      await db.insert(projects).values([
+        { id: project1Id, organizationId, workspaceId, name: "Project 1" },
+        { id: project2Id, organizationId, workspaceId, name: "Project 2" },
+      ]);
+
+      const repoA = createSavedViewsRepository({ organizationId, workspaceId, actorId: userAId });
+      const repoB = createSavedViewsRepository({ organizationId, workspaceId, actorId: userBId });
+
+      // Step A: User A creates default view A in Project 1
+      const viewA = await repoA.create({
+        projectId: project1Id,
+        name: "View A (User A)",
+        viewType: "table",
+        filters: { status: "todo" },
+        configuration: { schemaVersion: 2, table: {} },
+        isShared: true,
+        isDefault: true,
+      });
+      assert.equal(viewA.isDefault, true);
+
+      // Step B: User B creates default view B in same Project 1
+      // View A must become isDefault = false, and View B becomes isDefault = true
+      const viewB = await repoB.create({
+        projectId: project1Id,
+        name: "View B (User B)",
+        viewType: "board",
+        filters: { priority: "high" },
+        configuration: { schemaVersion: 2, board: {} },
+        isShared: true,
+        isDefault: true,
+      });
+      assert.equal(viewB.isDefault, true);
+
+      const viewsAfterB = await repoA.list(project1Id);
+      const fetchedA = viewsAfterB.find((v) => v.id === viewA.id);
+      const fetchedB = viewsAfterB.find((v) => v.id === viewB.id);
+      assert.equal(fetchedA?.isDefault, false, "User A view must be switched to non-default");
+      assert.equal(fetchedB?.isDefault, true, "User B view must be the default");
+
+      // Verify exactly ONE active default exists in DB for Project 1
+      const activeDefaultsP1 = await db.select().from(savedViews).where(eq(savedViews.projectId, project1Id));
+      const activeP1Defaults = activeDefaultsP1.filter((v) => v.isDefault && !v.deletedAt);
+      assert.equal(activeP1Defaults.length, 1);
+      assert.equal(activeP1Defaults[0]?.id, viewB.id);
+
+      // Step C: User A updates View A to isDefault = true
+      // View B must become isDefault = false
+      const updatedA = await repoA.update(viewA.id, "table", { isDefault: true });
+      assert.equal(updatedA.isDefault, true);
+
+      const viewsAfterUpdateA = await repoA.list(project1Id);
+      assert.equal(viewsAfterUpdateA.find((v) => v.id === viewA.id)?.isDefault, true);
+      assert.equal(viewsAfterUpdateA.find((v) => v.id === viewB.id)?.isDefault, false);
+
+      // Step D: Re-saving already-default View A (true no-op)
+      const noopUpdate = await repoA.update(viewA.id, "table", { isDefault: true });
+      assert.equal(noopUpdate.id, viewA.id);
+      assert.deepEqual(noopUpdate.updatedAt, updatedA.updatedAt);
+
+      // Step E: Cross-project defaults: Project 2 default does not affect Project 1
+      const viewC = await repoA.create({
+        projectId: project2Id,
+        name: "View C (Project 2)",
+        viewType: "list",
+        filters: {},
+        configuration: { schemaVersion: 2, list: {} },
+        isShared: true,
+        isDefault: true,
+      });
+      assert.equal(viewC.isDefault, true);
+      const p1Check = await repoA.list(project1Id);
+      assert.equal(p1Check.find((v) => v.id === viewA.id)?.isDefault, true);
+
+      // Step F: Setting isDefault = false simply removes default
+      const unsetA = await repoA.update(viewA.id, "table", { isDefault: false });
+      assert.equal(unsetA.isDefault, false);
+      const viewsAfterUnset = await repoA.list(project1Id);
+      assert.equal(
+        viewsAfterUnset.some((v) => v.isDefault),
+        false,
+      );
+
+      // Step G: Deleting a default view
+      const viewD = await repoA.create({
+        projectId: project1Id,
+        name: "View D to delete",
+        viewType: "timeline",
+        filters: {},
+        configuration: { schemaVersion: 2, timeline: {} },
+        isShared: true,
+        isDefault: true,
+      });
+      assert.equal(viewD.isDefault, true);
+      await repoA.delete(viewD.id);
+      const viewsAfterDelete = await repoA.list(project1Id);
+      assert.equal(
+        viewsAfterDelete.some((v) => v.id === viewD.id),
+        false,
+      );
+
+      // Can create a new default view with no conflict
+      const viewE = await repoB.create({
+        projectId: project1Id,
+        name: "View E new default",
+        viewType: "table",
+        filters: {},
+        configuration: { schemaVersion: 2, table: {} },
+        isShared: true,
+        isDefault: true,
+      });
+      assert.equal(viewE.isDefault, true);
+
+      // Step H: Non-creator cannot mutate private view
+      const privateViewA = await repoA.create({
+        projectId: project1Id,
+        name: "Private View A",
+        viewType: "table",
+        filters: {},
+        configuration: { schemaVersion: 2, table: {} },
+        isShared: false,
+        isDefault: false,
+      });
+      await assert.rejects(
+        () => repoB.update(privateViewA.id, "table", { name: "Hacked" }),
+        /saved view was not found/,
+      );
+
+      // Step I: Direct DB uniqueness constraint test
+      // Attempting to insert a duplicate active default in DB violates saved_views_project_default_unique
+      await assert.rejects(
+        () =>
+          db.insert(savedViews).values({
+            id: randomUUID(),
+            organizationId,
+            workspaceId,
+            projectId: project1Id,
+            name: "Violating default",
+            viewType: "table",
+            filters: {},
+            configuration: { schemaVersion: 2 },
+            isShared: true,
+            isDefault: true,
+            createdBy: userAId,
+          }),
+        (err: any) => {
+          const text = `${err?.message || ""} ${err?.cause?.message || ""}`;
+          return /saved_views_project_default_unique|duplicate key/i.test(text);
+        },
+      );
+    } finally {
+      await db
+        .delete(organizations)
+        .where(eq(organizations.id, organizationId))
+        .catch(() => undefined);
+      await db
+        .delete(users)
+        .where(eq(users.id, userAId))
+        .catch(() => undefined);
+      await db
+        .delete(users)
+        .where(eq(users.id, userBId))
+        .catch(() => undefined);
+    }
+  });
 });
