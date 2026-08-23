@@ -30,6 +30,7 @@ import { cn } from "@/lib/utils";
 import { Badge, Avatar, Bar, Card, Empty, SectionTitle, Btn, Toggle, ScreenState } from "@/components/ui";
 import { confirmAction, promptAction } from "@/components/feedback";
 import { useBulkTaskActions } from "@/features/tasks/use-bulk-task-actions";
+import { useTaskViewStateStore } from "@/stores/task-view-state-store";
 import { AdvancedWorkload } from "./advanced-workload";
 import { TaskAssignmentControl } from "./task-assignment-control";
 import {
@@ -565,7 +566,15 @@ function BoardColumn({
 /* ================= Board View ================= */
 export function BoardView({ ctx }: { ctx: ViewCtx }) {
   const [activeTask, setActiveTask] = useState<Task | null>(null);
-  const [collapsedColumns, setCollapsedColumns] = useState<Record<string, boolean>>({});
+  const boardViewState = useTaskViewStateStore((state) => state.board);
+  const setBoardViewState = useTaskViewStateStore((state) => state.setBoard);
+  const collapsedColumns = boardViewState.collapsedColumns ?? {};
+  const setCollapsedColumns = (
+    value: Record<string, boolean> | ((prev: Record<string, boolean>) => Record<string, boolean>),
+  ) => {
+    const next = typeof value === "function" ? value(collapsedColumns) : value;
+    setBoardViewState({ collapsedColumns: next });
+  };
   const hasActiveFilters = Object.values(ctx.taskFilter).some(Boolean);
   const reorderDisabled = !ctx.can("tasks.update") || hasActiveFilters;
   const sensors = useSensors(

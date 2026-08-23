@@ -1795,7 +1795,7 @@ export const savedViews = pgTable(
     check("saved_views_filters_object_check", sql`jsonb_typeof(${table.filters}) = 'object'`),
     check(
       "saved_views_configuration_version_check",
-      sql`jsonb_typeof(${table.configuration}) = 'object' and ${table.configuration}->>'schemaVersion' = '1'`,
+      sql`jsonb_typeof(${table.configuration}) = 'object' and ${table.configuration}->>'schemaVersion' in ('1', '2')`,
     ),
     check(
       "saved_views_default_scope_check",

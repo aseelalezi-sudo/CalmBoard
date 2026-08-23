@@ -9,6 +9,8 @@ import {
   organizations,
   pool,
   projects,
+  savedViews,
+  tasks,
   users,
   workspaces,
 } from "../src/index";
@@ -61,7 +63,7 @@ describe("owner-scoped saved views", () => {
         name: "Shared board",
         viewType: "board",
         filters: { status: "todo" },
-        configuration: { schemaVersion: 1 },
+        configuration: { schemaVersion: 2, board: { groupBy: "priority", collapsedColumns: {} } },
         isShared: true,
         isDefault: true,
       });
@@ -78,7 +80,7 @@ describe("owner-scoped saved views", () => {
       await assert.rejects(() => member.delete(second.id), /saved view was not found/);
 
       const updated = await owner.update(first.id, "table", {
-        configuration: { schemaVersion: 1, table: { columnSizing: { title: 460 } } },
+        configuration: { schemaVersion: 2, table: { columnSizing: { title: 460 } } },
       });
       assert.equal(
         (updated.configuration as { table?: { columnSizing?: { title?: number } } }).table?.columnSizing?.title,
@@ -97,6 +99,266 @@ describe("owner-scoped saved views", () => {
       await db
         .delete(users)
         .where(eq(users.id, memberId))
+        .catch(() => undefined);
+    }
+  });
+
+  it("prunes invalid, deleted, and foreign task IDs from custom groups", async () => {
+    const organizationId = randomUUID();
+    const workspaceId = randomUUID();
+    const projectId = randomUUID();
+    const otherProjectId = randomUUID();
+    const ownerId = randomUUID();
+    const validTaskId = randomUUID();
+    const deletedTaskId = randomUUID();
+    const foreignTaskId = randomUUID();
+
+    try {
+      await db.insert(users).values({ id: ownerId, email: `${ownerId}@example.com`, name: "Task Owner" });
+      await db.insert(organizations).values({
+        id: organizationId,
+        ownerId,
+        name: "Custom Group Org",
+        slug: `cg-org-${organizationId}`,
+      });
+      await db.insert(workspaces).values({
+        id: workspaceId,
+        organizationId,
+        name: "Custom Group WS",
+        slug: `cg-ws-${workspaceId}`,
+      });
+      await db.insert(memberships).values({
+        userId: ownerId,
+        organizationId,
+        workspaceId: null,
+        role: "owner",
+      });
+      await db.insert(projects).values([
+        { id: projectId, organizationId, workspaceId, name: "Main Project" },
+        { id: otherProjectId, organizationId, workspaceId, name: "Other Project" },
+      ]);
+
+      // Insert valid task, deleted task in same project, and foreign task in another project
+      await db.insert(tasks).values([
+        {
+          id: validTaskId,
+          serial: 1,
+          organizationId,
+          workspaceId,
+          projectId,
+          title: "Valid Task",
+          status: "todo",
+          priority: "medium",
+          type: "task",
+          reporterId: ownerId,
+        },
+        {
+          id: deletedTaskId,
+          serial: 2,
+          organizationId,
+          workspaceId,
+          projectId,
+          title: "Deleted Task",
+          status: "todo",
+          priority: "medium",
+          type: "task",
+          reporterId: ownerId,
+          deletedAt: new Date(),
+        },
+        {
+          id: foreignTaskId,
+          serial: 3,
+          organizationId,
+          workspaceId,
+          projectId: otherProjectId,
+          title: "Foreign Task",
+          status: "todo",
+          priority: "medium",
+          type: "task",
+          reporterId: ownerId,
+        },
+      ]);
+
+      const repo = createSavedViewsRepository({ organizationId, workspaceId, actorId: ownerId });
+
+      const created = await repo.create({
+        projectId,
+        name: "Table with Custom Groups",
+        viewType: "table",
+        filters: {},
+        configuration: {
+          schemaVersion: 2,
+          table: {
+            groupBy: "custom",
+            customGroups: [
+              {
+                id: "grp-1",
+                name: "Phase 1",
+                color: "indigo",
+                taskIds: [validTaskId, deletedTaskId, foreignTaskId, randomUUID()],
+              },
+            ],
+          },
+        },
+        isShared: false,
+        isDefault: false,
+      });
+
+      assert.equal(created.configuration.table?.customGroups?.[0]?.taskIds.length, 1);
+      assert.deepEqual(created.configuration.table?.customGroups?.[0]?.taskIds, [validTaskId]);
+
+      // Now test listing prunes appropriately
+      const listed = await repo.list(projectId);
+      const fetched = listed.find((v) => v.id === created.id);
+      assert.ok(fetched);
+      assert.deepEqual(fetched.configuration.table?.customGroups?.[0]?.taskIds, [validTaskId]);
+    } finally {
+      await db
+        .delete(organizations)
+        .where(eq(organizations.id, organizationId))
+        .catch(() => undefined);
+      await db
+        .delete(users)
+        .where(eq(users.id, ownerId))
+        .catch(() => undefined);
+    }
+  });
+
+  it("handles canonical no-op updates without changing updated_at timestamp or writing redundant mutations", async () => {
+    const organizationId = randomUUID();
+    const workspaceId = randomUUID();
+    const projectId = randomUUID();
+    const ownerId = randomUUID();
+
+    try {
+      await db.insert(users).values({ id: ownerId, email: `${ownerId}@example.com`, name: "Noop Owner" });
+      await db.insert(organizations).values({
+        id: organizationId,
+        ownerId,
+        name: "Noop Org",
+        slug: `noop-org-${organizationId}`,
+      });
+      await db.insert(workspaces).values({
+        id: workspaceId,
+        organizationId,
+        name: "Noop WS",
+        slug: `noop-ws-${workspaceId}`,
+      });
+      await db.insert(memberships).values({
+        userId: ownerId,
+        organizationId,
+        workspaceId: null,
+        role: "owner",
+      });
+      await db.insert(projects).values({ id: projectId, organizationId, workspaceId, name: "Noop Project" });
+
+      const repo = createSavedViewsRepository({ organizationId, workspaceId, actorId: ownerId });
+
+      const created = await repo.create({
+        projectId,
+        name: "Timeline View",
+        viewType: "timeline",
+        filters: { status: "in_progress", priority: "high" },
+        configuration: {
+          schemaVersion: 2,
+          timeline: { zoom: "months", showCritical: true },
+        },
+        isShared: true,
+        isDefault: true,
+      });
+
+      // Update with identical canonical values but different object key order
+      const noopUpdate = await repo.update(created.id, "timeline", {
+        name: "Timeline View",
+        filters: { priority: "high", status: "in_progress" },
+        configuration: {
+          schemaVersion: 2,
+          timeline: { showCritical: true, zoom: "months" },
+        },
+        isShared: true,
+        isDefault: true,
+      });
+
+      assert.equal(noopUpdate.id, created.id);
+      assert.deepEqual(noopUpdate.updatedAt, created.updatedAt);
+    } finally {
+      await db
+        .delete(organizations)
+        .where(eq(organizations.id, organizationId))
+        .catch(() => undefined);
+      await db
+        .delete(users)
+        .where(eq(users.id, ownerId))
+        .catch(() => undefined);
+    }
+  });
+
+  it("loads and preserves backward compatibility with raw schemaVersion 1 legacy views", async () => {
+    const organizationId = randomUUID();
+    const workspaceId = randomUUID();
+    const projectId = randomUUID();
+    const ownerId = randomUUID();
+    const legacyViewId = randomUUID();
+
+    try {
+      await db.insert(users).values({ id: ownerId, email: `${ownerId}@example.com`, name: "Legacy Owner" });
+      await db.insert(organizations).values({
+        id: organizationId,
+        ownerId,
+        name: "Legacy Org",
+        slug: `legacy-org-${organizationId}`,
+      });
+      await db.insert(workspaces).values({
+        id: workspaceId,
+        organizationId,
+        name: "Legacy WS",
+        slug: `legacy-ws-${workspaceId}`,
+      });
+      await db.insert(memberships).values({
+        userId: ownerId,
+        organizationId,
+        workspaceId: null,
+        role: "owner",
+      });
+      await db.insert(projects).values({ id: projectId, organizationId, workspaceId, name: "Legacy Project" });
+
+      // Directly insert legacy v1 JSON into database
+      await db.insert(savedViews).values({
+        id: legacyViewId,
+        organizationId,
+        workspaceId,
+        projectId,
+        name: "Legacy v1 Table",
+        viewType: "table",
+        filters: { status: "todo" },
+        configuration: {
+          schemaVersion: 1,
+          table: {
+            columnSizing: { title: 320, due: 150 },
+            columnOrder: ["select", "title", "due"],
+          },
+        },
+        isShared: true,
+        isDefault: true,
+        createdBy: ownerId,
+      });
+
+      const repo = createSavedViewsRepository({ organizationId, workspaceId, actorId: ownerId });
+      const listed = await repo.list(projectId);
+      const found = listed.find((v) => v.id === legacyViewId);
+
+      assert.ok(found);
+      assert.equal(found.name, "Legacy v1 Table");
+      assert.equal(found.configuration.schemaVersion, 1);
+      assert.equal(found.configuration.table?.columnSizing?.title, 320);
+    } finally {
+      await db
+        .delete(organizations)
+        .where(eq(organizations.id, organizationId))
+        .catch(() => undefined);
+      await db
+        .delete(users)
+        .where(eq(users.id, ownerId))
         .catch(() => undefined);
     }
   });

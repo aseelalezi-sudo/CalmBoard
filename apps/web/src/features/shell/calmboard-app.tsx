@@ -88,7 +88,8 @@ export function CalmBoardApp() {
   const setCollapsed = useUiStore((state) => state.setCollapsed);
   const setActiveView = useUiStore((state) => state.setActiveView);
   const toggleLocale = useUiStore((state) => state.toggleLocale);
-  const taskTableViewState = useTaskViewStateStore((state) => state.table);
+  const taskViewState = useTaskViewStateStore((state) => state);
+  const taskTableViewState = taskViewState.table;
   const applyTaskViewConfiguration = useTaskViewStateStore((state) => state.apply);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -234,7 +235,7 @@ export function CalmBoardApp() {
     (view: SavedView, announce = true) => {
       setTaskFilter(view.filters ?? {});
       setActiveView(view.viewType);
-      if (view.viewType === "table" && view.configuration) applyTaskViewConfiguration(view.configuration);
+      if (view.configuration) applyTaskViewConfiguration(view.configuration);
       if (announce) notify(`${t("طُبّق", "Applied")}: ${view.name}`);
     },
     [applyTaskViewConfiguration, notify, setActiveView, t],
@@ -1418,7 +1419,7 @@ export function CalmBoardApp() {
                                 onClick={() =>
                                   void updateSavedView(view, {
                                     filters: taskFilter,
-                                    configuration: currentSavedViewConfiguration(activeView, taskTableViewState),
+                                    configuration: currentSavedViewConfiguration(activeView, taskViewState),
                                   })
                                 }
                                 className="px-1 text-violet-500 hover:text-violet-900 disabled:cursor-not-allowed disabled:opacity-35 dark:hover:text-white"
@@ -1668,7 +1669,7 @@ export function CalmBoardApp() {
         t={t}
         activeView={activeView}
         taskFilter={taskFilter}
-        configuration={currentSavedViewConfiguration(activeView, taskTableViewState)}
+        configuration={currentSavedViewConfiguration(activeView, taskViewState)}
         orgId={activeOrg?.id}
         wsId={activeWorkspace?.id}
         projectId={activeProject?.id}

@@ -288,28 +288,51 @@ export function AdvancedTaskTable({ ctx }: { ctx: ViewCtx }) {
   const [selectionAnchorId, setSelectionAnchorId] = useState<string | null>(null);
   const [newRowTitle, setNewRowTitle] = useState("");
   const [newRowSubmitting, setNewRowSubmitting] = useState(false);
-  const [groupBy, setGroupBy] = useState<"none" | "status" | "priority" | "custom">("none");
-  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
+  const groupBy = tableViewState.groupBy ?? "none";
+  const setGroupBy = (
+    value:
+      | "none"
+      | "status"
+      | "priority"
+      | "custom"
+      | ((prev: "none" | "status" | "priority" | "custom") => "none" | "status" | "priority" | "custom"),
+  ) => {
+    const next = typeof value === "function" ? value(groupBy) : value;
+    setTableViewState({ groupBy: next });
+  };
+  const collapsedGroups = tableViewState.collapsedGroups ?? {};
+  const setCollapsedGroups = (
+    value: Record<string, boolean> | ((prev: Record<string, boolean>) => Record<string, boolean>),
+  ) => {
+    const next = typeof value === "function" ? value(collapsedGroups) : value;
+    setTableViewState({ collapsedGroups: next });
+  };
   const [groupQuickAdd, setGroupQuickAdd] = useState<Record<string, string>>({});
   const [groupQuickAddSubmitting, setGroupQuickAddSubmitting] = useState<Record<string, boolean>>({});
 
   // Custom Groups (Sub-tables)
-  const [customGroups, setCustomGroups] = useState<
-    Array<{ id: string; name: string; color: string; taskIds: string[] }>
-  >([
-    {
-      id: "grp-1",
-      name: ctx.locale === "ar" ? "المرحلة الأولى (Phase 1)" : "Phase 1",
-      color: "indigo",
-      taskIds: [],
-    },
-    {
-      id: "grp-2",
-      name: ctx.locale === "ar" ? "قائمة المؤجلات (Backlog)" : "Backlog",
-      color: "emerald",
-      taskIds: [],
-    },
-  ]);
+  const customGroups = useMemo(
+    () =>
+      tableViewState.customGroups ?? [
+        {
+          id: "grp-1",
+          name: ctx.locale === "ar" ? "المرحلة الأولى (Phase 1)" : "Phase 1",
+          color: "indigo",
+          taskIds: [],
+        },
+        {
+          id: "grp-2",
+          name: ctx.locale === "ar" ? "قائمة المؤجلات (Backlog)" : "Backlog",
+          color: "emerald",
+          taskIds: [],
+        },
+      ],
+    [ctx.locale, tableViewState.customGroups],
+  );
+  const setCustomGroups = (value: typeof customGroups | ((prev: typeof customGroups) => typeof customGroups)) => {
+    const next = typeof value === "function" ? value(customGroups) : value;
+    setTableViewState({ customGroups: next });
+  };
   const [showNewGroupModal, setShowNewGroupModal] = useState(false);
   const [newGroupName, setNewGroupName] = useState("");
   const [newGroupColor, setNewGroupColor] = useState("indigo");

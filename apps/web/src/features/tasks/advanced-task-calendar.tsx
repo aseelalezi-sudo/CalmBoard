@@ -21,6 +21,7 @@ import { IconCalendar, IconPlus } from "@/components/icons";
 import { promptAction } from "@/components/feedback";
 import type { Task, ViewCtx } from "@/lib/types";
 import { fmtNumber, PRIORITY_CONFIG, STATUS_CONFIG } from "@/lib/types";
+import { useTaskViewStateStore } from "@/stores/task-view-state-store";
 import { cn } from "@/lib/utils";
 import {
   calendarDayFromKey,
@@ -191,7 +192,10 @@ function formatCalendarTitle(anchor: Date, mode: TaskCalendarMode, locale: ViewC
 }
 
 export function AdvancedTaskCalendar({ ctx }: { ctx: ViewCtx }) {
-  const [mode, setMode] = useState<TaskCalendarMode>("month");
+  const calendarViewState = useTaskViewStateStore((state) => state.calendar);
+  const setCalendarViewState = useTaskViewStateStore((state) => state.setCalendar);
+  const mode = calendarViewState.mode;
+  const setMode = (nextMode: TaskCalendarMode) => setCalendarViewState({ mode: nextMode });
   const [anchor, setAnchor] = useState(() => new Date());
   const [activeDrag, setActiveDrag] = useState<CalendarDragData | null>(null);
   const sensors = useSensors(

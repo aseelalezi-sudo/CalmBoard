@@ -350,6 +350,54 @@ export type Invitation = {
   lastSentAt?: string | null;
   createdAt: string;
 };
+export type SavedViewFilters = Partial<Record<"search" | "status" | "priority" | "assignee" | "assigneeId", string>>;
+
+export type SavedViewCustomGroup = {
+  id: string;
+  name: string;
+  color: string;
+  taskIds: string[];
+};
+
+export type SavedViewTableConfiguration = {
+  sorting: Array<{ id: string; desc: boolean }>;
+  columnVisibility: Record<string, boolean>;
+  columnOrder: string[];
+  columnPinning: { left: string[]; right: string[] };
+  columnSizing: Record<string, number>;
+  groupBy: "none" | "status" | "priority" | "custom";
+  collapsedGroups: Record<string, boolean>;
+  customGroups: SavedViewCustomGroup[];
+};
+
+export type SavedViewBoardConfiguration = {
+  groupBy: "status" | "priority" | "assignee";
+  collapsedColumns: Record<string, boolean>;
+};
+
+export type SavedViewCalendarConfiguration = {
+  mode: "month" | "week" | "day";
+};
+
+export type SavedViewTimelineConfiguration = {
+  zoom: "days" | "weeks" | "months";
+  showCritical: boolean;
+};
+
+export type SavedViewListConfiguration = {
+  sorting: Array<{ id: string; desc: boolean }>;
+  groupBy: "none" | "status" | "priority";
+};
+
+export type SavedViewConfiguration = {
+  schemaVersion: 1 | 2;
+  table?: Partial<SavedViewTableConfiguration>;
+  board?: Partial<SavedViewBoardConfiguration>;
+  calendar?: Partial<SavedViewCalendarConfiguration>;
+  timeline?: Partial<SavedViewTimelineConfiguration>;
+  list?: Partial<SavedViewListConfiguration>;
+};
+
 export type SavedView = {
   id: string;
   organizationId: string;
@@ -364,14 +412,6 @@ export type SavedView = {
   createdBy?: string | null;
   updatedAt?: string;
 };
-export type SavedViewTableConfiguration = {
-  sorting: Array<{ id: string; desc: boolean }>;
-  columnVisibility: Record<string, boolean>;
-  columnOrder: string[];
-  columnPinning: { left: string[]; right: string[] };
-  columnSizing: Record<string, number>;
-};
-export type SavedViewConfiguration = { schemaVersion: 1; table?: Partial<SavedViewTableConfiguration> };
 export type FormFieldType = "text" | "textarea" | "email" | "number" | "date" | "select" | "radio" | "checkbox";
 export type FormConditionOperator = "equals" | "not_equals" | "contains" | "is_empty" | "not_empty";
 export type FormFieldCondition = { fieldId: string; operator: FormConditionOperator; value?: string };

@@ -19,6 +19,7 @@ import { calendarDayDifference } from "./task-calendar-range";
 import { calculateCriticalPath } from "./task-critical-path";
 import { createProjectBaselineRecord, getProjectBaselines } from "./api";
 import { compareProjectBaseline, detectScheduleConflicts } from "./task-schedule-analysis";
+import { useTaskViewStateStore } from "@/stores/task-view-state-store";
 
 const LABEL_WIDTH = 270;
 const ROW_HEIGHT = 52;
@@ -104,8 +105,15 @@ function taskBarTone(task: Task, isCritical: boolean) {
 
 export function AdvancedTaskGantt({ ctx }: { ctx: ViewCtx }) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [zoom, setZoom] = useState<TaskGanttZoom>("weeks");
-  const [showCritical, setShowCritical] = useState(false);
+  const timelineViewState = useTaskViewStateStore((state) => state.timeline);
+  const setTimelineViewState = useTaskViewStateStore((state) => state.setTimeline);
+  const zoom = timelineViewState.zoom;
+  const setZoom = (nextZoom: TaskGanttZoom) => setTimelineViewState({ zoom: nextZoom });
+  const showCritical = timelineViewState.showCritical;
+  const setShowCritical = (value: boolean | ((prev: boolean) => boolean)) => {
+    const next = typeof value === "function" ? value(showCritical) : value;
+    setTimelineViewState({ showCritical: next });
+  };
   const [baselines, setBaselines] = useState<ProjectBaseline[]>([]);
   const [selectedBaselineId, setSelectedBaselineId] = useState("");
   const [availableTimelineWidth, setAvailableTimelineWidth] = useState(720);
