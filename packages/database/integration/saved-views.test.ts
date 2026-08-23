@@ -13,6 +13,7 @@ import {
   tasks,
   users,
   workspaces,
+  type SavedViewConfiguration,
 } from "../src/index";
 
 after(async () => pool.end());
@@ -142,39 +143,36 @@ describe("owner-scoped saved views", () => {
       await db.insert(tasks).values([
         {
           id: validTaskId,
-          serial: 1,
+          serial: "1",
           organizationId,
           workspaceId,
           projectId,
           title: "Valid Task",
           status: "todo",
           priority: "medium",
-          type: "task",
           reporterId: ownerId,
         },
         {
           id: deletedTaskId,
-          serial: 2,
+          serial: "2",
           organizationId,
           workspaceId,
           projectId,
           title: "Deleted Task",
           status: "todo",
           priority: "medium",
-          type: "task",
           reporterId: ownerId,
           deletedAt: new Date(),
         },
         {
           id: foreignTaskId,
-          serial: 3,
+          serial: "3",
           organizationId,
           workspaceId,
           projectId: otherProjectId,
           title: "Foreign Task",
           status: "todo",
           priority: "medium",
-          type: "task",
           reporterId: ownerId,
         },
       ]);
@@ -204,14 +202,16 @@ describe("owner-scoped saved views", () => {
         isDefault: false,
       });
 
-      assert.equal(created.configuration.table?.customGroups?.[0]?.taskIds.length, 1);
-      assert.deepEqual(created.configuration.table?.customGroups?.[0]?.taskIds, [validTaskId]);
+      const createdConfig = created.configuration as SavedViewConfiguration;
+      assert.equal(createdConfig.table?.customGroups?.[0]?.taskIds.length, 1);
+      assert.deepEqual(createdConfig.table?.customGroups?.[0]?.taskIds, [validTaskId]);
 
       // Now test listing prunes appropriately
       const listed = await repo.list(projectId);
       const fetched = listed.find((v) => v.id === created.id);
       assert.ok(fetched);
-      assert.deepEqual(fetched.configuration.table?.customGroups?.[0]?.taskIds, [validTaskId]);
+      const fetchedConfig = fetched.configuration as SavedViewConfiguration;
+      assert.deepEqual(fetchedConfig.table?.customGroups?.[0]?.taskIds, [validTaskId]);
     } finally {
       await db
         .delete(organizations)
@@ -349,8 +349,9 @@ describe("owner-scoped saved views", () => {
 
       assert.ok(found);
       assert.equal(found.name, "Legacy v1 Table");
-      assert.equal(found.configuration.schemaVersion, 1);
-      assert.equal(found.configuration.table?.columnSizing?.title, 320);
+      const foundConfig = found.configuration as SavedViewConfiguration;
+      assert.equal(foundConfig.schemaVersion, 1);
+      assert.equal(foundConfig.table?.columnSizing?.title, 320);
     } finally {
       await db
         .delete(organizations)

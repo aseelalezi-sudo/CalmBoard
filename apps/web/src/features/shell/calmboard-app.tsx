@@ -1354,14 +1354,14 @@ export function CalmBoardApp() {
                       value={taskFilter.search || ""}
                       onChange={(e) => setTaskFilter({ ...taskFilter, search: e.target.value })}
                       placeholder={t("تصفية…", "Filter…")}
-                      className={`${inputCls} h-8 !w-28 sm:!w-32 text-[12px] shrink-0`}
+                      className={`${inputCls} h-8 w-28! sm:w-32! text-[12px] shrink-0`}
                     />
                     <select
                       name="auto-field-c0spigt"
                       aria-label={t("تصفية حسب الحالة", "Filter by status")}
                       value={taskFilter.status || ""}
                       onChange={(e) => setTaskFilter({ ...taskFilter, status: e.target.value || undefined })}
-                      className={`${selectCls} h-8 !w-auto !min-w-[95px] text-[11.5px] shrink-0`}
+                      className={`${selectCls} h-8 w-auto! min-w-[95px]! text-[11.5px] shrink-0`}
                     >
                       <option value="">{t("كل الحالات", "All status")}</option>
                       {Object.entries(STATUS_CONFIG).map(([k, v]) => (
@@ -1375,7 +1375,7 @@ export function CalmBoardApp() {
                       aria-label={t("تصفية حسب الأولوية", "Filter by priority")}
                       value={taskFilter.priority || ""}
                       onChange={(e) => setTaskFilter({ ...taskFilter, priority: e.target.value || undefined })}
-                      className={`${selectCls} h-8 !w-auto !min-w-[105px] text-[11.5px] shrink-0`}
+                      className={`${selectCls} h-8 w-auto! min-w-[105px]! text-[11.5px] shrink-0`}
                     >
                       <option value="">{t("كل الأولويات", "All priority")}</option>
                       {Object.entries(PRIORITY_CONFIG).map(([k, v]) => (

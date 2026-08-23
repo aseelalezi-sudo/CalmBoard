@@ -1755,7 +1755,7 @@ export function AdvancedTaskTable({ ctx }: { ctx: ViewCtx }) {
         {selectedIds.length > 0 &&
           typeof document !== "undefined" &&
           createPortal(
-            <div className="fixed bottom-7 inset-x-0 mx-auto w-fit max-w-[calc(100%-1rem)] z-[9999] flex items-center gap-2.5 rounded-2xl border border-line/90 bg-surface/95 dark:bg-zinc-900/95 px-4 py-2.5 shadow-[0_20px_50px_rgba(0,0,0,0.35)] backdrop-blur-xl animate-slide-up text-ink ring-1 ring-black/10 dark:ring-white/10 select-none">
+            <div className="fixed bottom-7 inset-x-0 mx-auto w-fit max-w-[calc(100%-1rem)] z-9999 flex items-center gap-2.5 rounded-2xl border border-line/90 bg-surface/95 dark:bg-zinc-900/95 px-4 py-2.5 shadow-[0_20px_50px_rgba(0,0,0,0.35)] backdrop-blur-xl animate-slide-up text-ink ring-1 ring-black/10 dark:ring-white/10 select-none">
               {/* Selection Badge */}
               <div className="flex items-center gap-1.5 rounded-xl bg-accent/15 px-3 py-1.5 text-[12px] font-bold text-accent shrink-0 select-none">
                 <IconCheck size={13} />
