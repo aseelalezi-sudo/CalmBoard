@@ -1,4 +1,20 @@
-import { and, asc, count, desc, eq, gte, ilike, inArray, isNull, lte, ne, or, sql, type SQL } from "drizzle-orm";
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  gte,
+  ilike,
+  inArray,
+  isNotNull,
+  isNull,
+  lte,
+  ne,
+  or,
+  sql,
+  type SQL,
+} from "drizzle-orm";
 import { db } from "../client.js";
 import { TenantConflictError, TenantResourceNotFoundError } from "../errors.js";
 import {
@@ -92,6 +108,8 @@ export type TaskListFilters = {
   tag?: string;
   dueFrom?: Date;
   dueTo?: Date;
+  calendarFrom?: Date;
+  calendarTo?: Date;
   sortBy?:
     | "order"
     | "createdAt"
@@ -751,6 +769,29 @@ export function createTasksRepository(context: DatabaseTenantContext) {
     if (filters.tag) conditions.push(sql`${tasks.tags} @> ${JSON.stringify([filters.tag])}::jsonb`);
     if (filters.dueFrom) conditions.push(gte(tasks.dueDate, filters.dueFrom));
     if (filters.dueTo) conditions.push(lte(tasks.dueDate, filters.dueTo));
+    if (filters.calendarFrom && filters.calendarTo) {
+      conditions.push(
+        and(
+          or(isNotNull(tasks.startDate), isNotNull(tasks.dueDate)),
+          lte(sql`coalesce(${tasks.startDate}, ${tasks.dueDate})`, filters.calendarTo),
+          gte(sql`coalesce(${tasks.dueDate}, ${tasks.startDate})`, filters.calendarFrom),
+        )!,
+      );
+    } else if (filters.calendarFrom) {
+      conditions.push(
+        and(
+          or(isNotNull(tasks.startDate), isNotNull(tasks.dueDate)),
+          gte(sql`coalesce(${tasks.dueDate}, ${tasks.startDate})`, filters.calendarFrom),
+        )!,
+      );
+    } else if (filters.calendarTo) {
+      conditions.push(
+        and(
+          or(isNotNull(tasks.startDate), isNotNull(tasks.dueDate)),
+          lte(sql`coalesce(${tasks.startDate}, ${tasks.dueDate})`, filters.calendarTo),
+        )!,
+      );
+    }
     if (filters.parentId) conditions.push(eq(tasks.parentId, filters.parentId));
     else if (!filters.includeSubtasks) conditions.push(isNull(tasks.parentId));
     if (filters.search) {

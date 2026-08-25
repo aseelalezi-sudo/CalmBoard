@@ -27,6 +27,21 @@ export function calendarDaysForView(anchor: Date, mode: TaskCalendarMode, weekSt
   return Array.from({ length: 42 }, (_, index) => addCalendarDays(gridStart, index));
 }
 
+export function visibleCalendarQueryRange(anchor: Date, mode: TaskCalendarMode, weekStartsOn: 0 | 6) {
+  const days = calendarDaysForView(anchor, mode, weekStartsOn);
+  const firstDay = days[0]!;
+  const lastDay = days[days.length - 1]!;
+  const rangeStart = new Date(Date.UTC(firstDay.getFullYear(), firstDay.getMonth(), firstDay.getDate(), 0, 0, 0, 0));
+  const rangeEnd = new Date(Date.UTC(lastDay.getFullYear(), lastDay.getMonth(), lastDay.getDate(), 23, 59, 59, 999));
+  return {
+    days,
+    rangeStart,
+    rangeEnd,
+    calendarFrom: rangeStart.toISOString(),
+    calendarTo: rangeEnd.toISOString(),
+  };
+}
+
 export function shiftCalendarAnchor(anchor: Date, mode: TaskCalendarMode, direction: -1 | 1) {
   if (mode === "day") return addCalendarDays(anchor, direction);
   if (mode === "week") return addCalendarDays(anchor, direction * 7);
@@ -45,6 +60,31 @@ export function calendarDayFromKey(value: string) {
   if (!match) return null;
   const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
   return calendarDayKey(date) === value ? date : null;
+}
+
+export function taskDayKey(value: string | Date | null | undefined, timezone?: string | null): string | null {
+  if (!value) return null;
+  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return value;
+  }
+  const date = typeof value === "string" ? new Date(value) : value;
+  if (Number.isNaN(date.getTime())) return null;
+
+  try {
+    const tz = timezone?.trim() || "UTC";
+    const formatter = new Intl.DateTimeFormat("en-CA", {
+      timeZone: tz,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    });
+    return formatter.format(date);
+  } catch {
+    const year = date.getUTCFullYear();
+    const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+    const day = String(date.getUTCDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }
 }
 
 export function calendarDayDifference(target: Date, source: Date) {
@@ -67,11 +107,17 @@ function moveDateToDay(value: string, target: Date) {
   return date.toISOString();
 }
 
+export type CalendarTaskInput = {
+  startDate?: string | null;
+  dueDate?: string | null;
+  timezone?: string | null;
+};
+
 export function shiftTaskCalendarDates(
-  task: Pick<Task, "startDate" | "dueDate">,
+  task: CalendarTaskInput,
   targetDay: Date,
   sourceDay: Date,
-): Pick<Task, "startDate" | "dueDate"> | null {
+): { startDate?: string; dueDate?: string } | null {
   if (!task.startDate && !task.dueDate) return null;
   const dayDelta = calendarDayDifference(targetDay, sourceDay);
   const startDate = task.startDate ? shiftDate(task.startDate, dayDelta) : undefined;
@@ -81,9 +127,9 @@ export function shiftTaskCalendarDates(
 }
 
 export function resizeTaskCalendarEnd(
-  task: Pick<Task, "startDate" | "dueDate">,
+  task: CalendarTaskInput,
   targetDay: Date,
-): Pick<Task, "startDate" | "dueDate"> | null {
+): { startDate?: string; dueDate: string } | null {
   const effectiveStartText = task.startDate ?? task.dueDate;
   if (!effectiveStartText) return null;
   const effectiveStart = new Date(effectiveStartText);
@@ -98,13 +144,15 @@ export function resizeTaskCalendarEnd(
   };
 }
 
-export function taskOccursOnCalendarDay(task: Pick<Task, "startDate" | "dueDate">, day: Date) {
+export function taskOccursOnCalendarDay(task: CalendarTaskInput, day: Date, calendarTimezone?: string): boolean {
   if (!task.startDate && !task.dueDate) return false;
-  const start = calendarDayStart(new Date(task.startDate ?? task.dueDate!));
-  const end = calendarDayStart(new Date(task.dueDate ?? task.startDate!));
-  const target = calendarDayStart(day);
-  if ([start, end, target].some((value) => Number.isNaN(value.getTime()))) return false;
-  const lower = start <= end ? start : end;
-  const upper = start <= end ? end : start;
-  return target >= lower && target <= upper;
+  const tz = task.timezone || calendarTimezone || "UTC";
+  const startKey = task.startDate ? taskDayKey(task.startDate, tz) : taskDayKey(task.dueDate!, tz);
+  const dueKey = task.dueDate ? taskDayKey(task.dueDate, tz) : taskDayKey(task.startDate!, tz);
+  if (!startKey || !dueKey) return false;
+
+  const targetKey = calendarDayKey(day);
+  const lower = startKey <= dueKey ? startKey : dueKey;
+  const upper = startKey <= dueKey ? dueKey : startKey;
+  return targetKey >= lower && targetKey <= upper;
 }

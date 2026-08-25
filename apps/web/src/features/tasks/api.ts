@@ -181,3 +181,34 @@ export function projectTaskScope(project: Pick<Project, "id" | "organizationId" 
     actorId,
   };
 }
+
+export type TaskFilters = {
+  search?: string;
+  status?: string;
+  priority?: string;
+  assigneeId?: string;
+  dueFrom?: string;
+  dueTo?: string;
+  calendarFrom?: string;
+  calendarTo?: string;
+  signal?: AbortSignal;
+};
+
+export function getCalendarTasks(
+  project: Pick<Project, "id" | "organizationId" | "workspaceId">,
+  filters: TaskFilters = {},
+) {
+  const query = new URLSearchParams({
+    projectId: project.id,
+    organizationId: project.organizationId,
+    workspaceId: project.workspaceId,
+    includeSubtasks: "true",
+  });
+  for (const [key, value] of Object.entries(filters)) {
+    if (key !== "signal" && value !== undefined && value !== "") query.set(key, String(value));
+  }
+  return requestJson<Task[]>(
+    `${apiServiceUrl("/tasks")}?${query.toString()}`,
+    filters.signal ? { signal: filters.signal } : undefined,
+  );
+}

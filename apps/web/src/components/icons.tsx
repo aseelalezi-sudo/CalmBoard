@@ -393,6 +393,7 @@ export const IconRotateCw = make(
   </>,
   "IconRotateCw",
 );
+export const IconRefresh = IconRotateCw;
 
 export const IconLock = make(
   <>

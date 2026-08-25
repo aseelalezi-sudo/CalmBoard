@@ -77,9 +77,31 @@ export function getProjects(organizationId: string, workspaceId: string) {
   );
 }
 
-export function getTasks(project: Pick<Project, "id" | "organizationId" | "workspaceId">) {
+export type TaskFilters = {
+  search?: string;
+  status?: string;
+  priority?: string;
+  assigneeId?: string;
+  dueFrom?: string;
+  dueTo?: string;
+  calendarFrom?: string;
+  calendarTo?: string;
+  signal?: AbortSignal;
+};
+
+export function getTasks(project: Pick<Project, "id" | "organizationId" | "workspaceId">, filters: TaskFilters = {}) {
+  const query = new URLSearchParams({
+    projectId: project.id,
+    organizationId: project.organizationId,
+    workspaceId: project.workspaceId,
+    includeSubtasks: "true",
+  });
+  for (const [key, value] of Object.entries(filters)) {
+    if (key !== "signal" && value !== undefined && value !== "") query.set(key, String(value));
+  }
   return requestJson<Task[]>(
-    `${apiServiceUrl("/tasks")}?projectId=${encodeURIComponent(project.id)}&organizationId=${encodeURIComponent(project.organizationId)}&workspaceId=${encodeURIComponent(project.workspaceId)}&includeSubtasks=true`,
+    `${apiServiceUrl("/tasks")}?${query.toString()}`,
+    filters.signal ? { signal: filters.signal } : undefined,
   );
 }
 
@@ -96,6 +118,8 @@ export type TaskPageFilters = {
   status?: string;
   priority?: string;
   assigneeId?: string;
+  calendarFrom?: string;
+  calendarTo?: string;
   sortBy?:
     | "order"
     | "createdAt"

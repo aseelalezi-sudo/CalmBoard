@@ -15,22 +15,23 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Badge, Card, Empty, SegmentedTabs } from "@/components/ui";
-import { IconCalendar, IconPlus } from "@/components/icons";
+import { IconCalendar, IconPlus, IconRefresh } from "@/components/icons";
 import { promptAction } from "@/components/feedback";
 import type { Task, ViewCtx } from "@/lib/types";
 import { fmtNumber, PRIORITY_CONFIG, STATUS_CONFIG } from "@/lib/types";
 import { useTaskViewStateStore } from "@/stores/task-view-state-store";
+import { getCalendarTasks } from "./api";
 import { cn } from "@/lib/utils";
 import {
   calendarDayFromKey,
   calendarDayKey,
-  calendarDaysForView,
   resizeTaskCalendarEnd,
   shiftCalendarAnchor,
   shiftTaskCalendarDates,
   taskOccursOnCalendarDay,
+  visibleCalendarQueryRange,
   type TaskCalendarMode,
 } from "./task-calendar-range";
 
@@ -180,7 +181,7 @@ function formatCalendarTitle(anchor: Date, mode: TaskCalendarMode, locale: ViewC
     return anchor.toLocaleDateString(dateLocale, { weekday: "long", year: "numeric", month: "long", day: "numeric" });
   }
   if (mode === "week") {
-    const days = calendarDaysForView(anchor, "week", locale === "ar" ? 6 : 0);
+    const { days } = visibleCalendarQueryRange(anchor, "week", locale === "ar" ? 6 : 0);
     const first = days[0]!;
     const last = days[6]!;
     return `${first.toLocaleDateString(dateLocale, { month: "short", day: "numeric" })} – ${last.toLocaleDateString(
@@ -198,6 +199,11 @@ export function AdvancedTaskCalendar({ ctx }: { ctx: ViewCtx }) {
   const setMode = (nextMode: TaskCalendarMode) => setCalendarViewState({ mode: nextMode });
   const [anchor, setAnchor] = useState(() => new Date());
   const [activeDrag, setActiveDrag] = useState<CalendarDragData | null>(null);
+  const [calendarTasks, setCalendarTasks] = useState<Task[]>([]);
+  const [loading, setLoading] = useState(false);
+  const requestVersion = useRef(0);
+  const abortController = useRef<AbortController | null>(null);
+
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 180, tolerance: 6 } }),
@@ -205,13 +211,81 @@ export function AdvancedTaskCalendar({ ctx }: { ctx: ViewCtx }) {
   );
   const today = new Date();
   const weekStartsOn = ctx.locale === "ar" ? 6 : 0;
-  const days = useMemo(() => calendarDaysForView(anchor, mode, weekStartsOn), [anchor, mode, weekStartsOn]);
+  const visibleRange = useMemo(
+    () => visibleCalendarQueryRange(anchor, mode, weekStartsOn),
+    [anchor, mode, weekStartsOn],
+  );
+  const days = visibleRange.days;
+
+  const activeProject = ctx.activeProject;
+  const notify = ctx.notify;
+  const t = ctx.t;
+
+  // Range-aware query execution with requestVersion and AbortController
+  useEffect(() => {
+    if (!activeProject) {
+      setCalendarTasks([]);
+      setLoading(false);
+      return;
+    }
+
+    abortController.current?.abort();
+    const controller = new AbortController();
+    abortController.current = controller;
+
+    const version = ++requestVersion.current;
+    setLoading(true);
+
+    void getCalendarTasks(activeProject, {
+      calendarFrom: visibleRange.calendarFrom,
+      calendarTo: visibleRange.calendarTo,
+      signal: controller.signal,
+    })
+      .then((records) => {
+        if (version === requestVersion.current) {
+          setCalendarTasks(records);
+        }
+      })
+      .catch((error: unknown) => {
+        if (error instanceof Error && error.name === "AbortError") return;
+        if (version === requestVersion.current) {
+          notify(t("تعذر تحميل مهام التقويم", "Could not load calendar tasks"), "error");
+        }
+      })
+      .finally(() => {
+        if (version === requestVersion.current) {
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      controller.abort();
+    };
+  }, [activeProject, notify, t, visibleRange.calendarFrom, visibleRange.calendarTo]);
+
+  // Combine and deduplicate tasks from range query with active context mutations
   const tasksByDay = useMemo(() => {
+    const taskMap = new Map<string, Task>();
+    for (const task of calendarTasks) {
+      taskMap.set(task.id, task);
+    }
+    // Also include any active tasks in ctx.tasks matching date criteria
+    for (const task of ctx.tasks) {
+      if (
+        taskMap.has(task.id) ||
+        taskOccursOnCalendarDay(task, visibleRange.rangeStart) ||
+        taskOccursOnCalendarDay(task, visibleRange.rangeEnd)
+      ) {
+        taskMap.set(task.id, task);
+      }
+    }
+
+    const allTasks = [...taskMap.values()];
     const grouped = new Map<string, Task[]>();
     for (const day of days) {
       grouped.set(
         calendarDayKey(day),
-        ctx.tasks
+        allTasks
           .filter((task) => taskOccursOnCalendarDay(task, day))
           .sort((left, right) => {
             const leftDate = new Date(left.startDate ?? left.dueDate ?? 0).getTime();
@@ -221,7 +295,17 @@ export function AdvancedTaskCalendar({ ctx }: { ctx: ViewCtx }) {
       );
     }
     return grouped;
-  }, [ctx.tasks, days]);
+  }, [calendarTasks, ctx.tasks, days, visibleRange.rangeEnd, visibleRange.rangeStart]);
+
+  const scheduledCount = useMemo(() => {
+    const scheduledIds = new Set<string>();
+    for (const tasksOnDay of tasksByDay.values()) {
+      for (const task of tasksOnDay) {
+        scheduledIds.add(task.id);
+      }
+    }
+    return scheduledIds.size;
+  }, [tasksByDay]);
 
   const createTaskForDay = async (day: Date) => {
     if (!ctx.can("tasks.create")) return;
@@ -234,7 +318,7 @@ export function AdvancedTaskCalendar({ ctx }: { ctx: ViewCtx }) {
       defaultValue: ctx.t("مهمة مجدولة", "Scheduled task"),
     });
     if (!title?.trim()) return;
-    const dueDate = new Date(day.getFullYear(), day.getMonth(), day.getDate(), 12);
+    const dueDate = new Date(Date.UTC(day.getFullYear(), day.getMonth(), day.getDate(), 12, 0, 0, 0));
     ctx.createTask({ title: title.trim(), dueDate: dueDate.toISOString() });
   };
 
@@ -263,10 +347,16 @@ export function AdvancedTaskCalendar({ ctx }: { ctx: ViewCtx }) {
       );
       return;
     }
-    const saved = await ctx.updateTask(drag.task.id, {
+
+    const payload = {
       ...updates,
       ...(drag.type === "resize" && drag.task.isMilestone ? { isMilestone: false } : {}),
-    });
+    };
+
+    // Optimistically update local calendar state
+    setCalendarTasks((current) => current.map((t) => (t.id === drag.task.id ? ({ ...t, ...payload } as Task) : t)));
+
+    const saved = await ctx.updateTask(drag.task.id, payload);
     if (saved !== false) {
       ctx.notify(
         drag.type === "move"
@@ -309,11 +399,11 @@ export function AdvancedTaskCalendar({ ctx }: { ctx: ViewCtx }) {
               {ctx.locale === "ar" ? "‹" : "›"}
             </button>
             <h3 className="ms-2 text-[14px] font-bold text-ink">{formatCalendarTitle(anchor, mode, ctx.locale)}</h3>
+            {loading && <IconRefresh size={14} className="animate-spin text-accent ms-1" />}
           </div>
           <div className="flex items-center gap-3">
             <Badge tone="indigo">
-              {fmtNumber(ctx.tasks.filter((task) => task.startDate || task.dueDate).length, ctx.locale)}{" "}
-              {ctx.t("مجدولة", "scheduled")}
+              {fmtNumber(scheduledCount, ctx.locale)} {ctx.t("مجدولة", "scheduled")}
             </Badge>
             <SegmentedTabs
               label={ctx.t("طريقة عرض التقويم", "Calendar view mode")}
@@ -363,7 +453,7 @@ export function AdvancedTaskCalendar({ ctx }: { ctx: ViewCtx }) {
                     {dayTasks.map((task) => (
                       <TaskCalendarCard key={task.id} task={task} ctx={ctx} day={days[0]!} />
                     ))}
-                    {dayTasks.length === 0 && (
+                    {dayTasks.length === 0 && !loading && (
                       <Empty
                         icon={<IconCalendar size={22} />}
                         title={ctx.t("لا توجد مهام في هذا اليوم", "No tasks on this day")}

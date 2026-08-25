@@ -9,16 +9,7 @@ import type { SavedViewTableConfiguration } from "@/lib/types";
 
 const BOARD_PAGE_SIZE = 50;
 const TABLE_PAGE_SIZE = 100;
-const fullCollectionViews = new Set([
-  "list",
-  "calendar",
-  "timeline",
-  "workload",
-  "mywork",
-  "dashboard",
-  "sprints",
-  "sprint_board",
-]);
+const fullCollectionViews = new Set(["list", "timeline", "workload", "mywork", "dashboard", "sprints", "sprint_board"]);
 const tableSortFields: Record<string, TaskPageFilters["sortBy"]> = {
   title: "title",
   status: "status",

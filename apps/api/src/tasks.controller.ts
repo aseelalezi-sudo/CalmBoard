@@ -52,7 +52,7 @@ const taskSortFields = new Set([
   "loggedHours",
 ] as const);
 
-function parseQueryDate(value: string, field: string) {
+export function parseQueryDate(value: string, field: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) throw new BadRequestException(`${field} must be a valid date`);
   return date;
@@ -134,6 +134,8 @@ export class TasksController {
     @Query("tag") tag?: string,
     @Query("dueFrom") dueFrom?: string,
     @Query("dueTo") dueTo?: string,
+    @Query("calendarFrom") calendarFrom?: string,
+    @Query("calendarTo") calendarTo?: string,
     @Query("sortBy") sortBy?: string,
     @Query("sortDirection") sortDirection?: string,
     @Query("includeSubtasks") includeSubtasks?: string,
@@ -151,6 +153,8 @@ export class TasksController {
       tag,
       dueFrom: dueFrom ? parseQueryDate(dueFrom, "dueFrom") : undefined,
       dueTo: dueTo ? parseQueryDate(dueTo, "dueTo") : undefined,
+      calendarFrom: calendarFrom ? parseQueryDate(calendarFrom, "calendarFrom") : undefined,
+      calendarTo: calendarTo ? parseQueryDate(calendarTo, "calendarTo") : undefined,
       sortBy: parseSortBy(sortBy),
       sortDirection: parseSortDirection(sortDirection),
       includeSubtasks: includeSubtasks === "true",
