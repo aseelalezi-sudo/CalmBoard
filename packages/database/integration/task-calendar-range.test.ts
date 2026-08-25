@@ -12,6 +12,11 @@ import {
   users,
   workspaces,
 } from "../src/index.js";
+import {
+  calendarDayKey,
+  taskOccursOnCalendarDay,
+  visibleCalendarQueryRange,
+} from "../../../apps/web/src/features/tasks/task-calendar-range.js";
 
 after(async () => {
   await pool.end();
@@ -397,5 +402,172 @@ describe("task calendar range queries and pagination safety (integration)", () =
     assert.ok(calendarIds.has(target1.id));
     assert.ok(calendarIds.has(target2.id));
     assert.ok(calendarIds.has(target3.id));
+  });
+
+  it("guarantees task timezone and calendar query envelope compatibility across Asia/Tokyo, Asia/Riyadh, America/New_York, and UTC", async () => {
+    const organizationId = randomUUID();
+    const workspaceId = randomUUID();
+    const actorId = randomUUID();
+
+    await db.insert(organizations).values({
+      id: organizationId,
+      name: "TZ Org",
+      slug: `tz-org-${organizationId.slice(0, 8)}`,
+    });
+    await db.insert(workspaces).values({
+      id: workspaceId,
+      organizationId,
+      name: "TZ Workspace",
+      slug: `tz-ws-${workspaceId.slice(0, 8)}`,
+    });
+    await db.insert(users).values({
+      id: actorId,
+      email: `tz-actor-${actorId.slice(0, 8)}@example.com`,
+      name: "TZ Actor",
+    });
+    await db.insert(memberships).values({
+      organizationId,
+      workspaceId,
+      userId: actorId,
+      role: "owner",
+      status: "active",
+    });
+
+    const projectId = randomUUID();
+    await db.insert(projects).values({
+      id: projectId,
+      organizationId,
+      workspaceId,
+      name: "TZ Project",
+    });
+
+    const repository = createTasksRepository({
+      organizationId,
+      workspaceId,
+      actorId,
+    });
+
+    // 1. Task in Asia/Tokyo at midnight local time:
+    // 2026-08-01 00:00:00+09:00 -> 2026-07-31T15:00:00.000Z
+    const tokyoMidnightTask = await repository.create({
+      projectId,
+      title: "Tokyo Midnight Task",
+      startDate: new Date("2026-07-31T15:00:00.000Z"),
+      dueDate: new Date("2026-07-31T15:00:00.000Z"),
+      timezone: "Asia/Tokyo",
+    });
+
+    // 2. Task in Asia/Riyadh at midnight local time:
+    // 2026-08-01 00:00:00+03:00 -> 2026-07-31T21:00:00.000Z
+    const riyadhMidnightTask = await repository.create({
+      projectId,
+      title: "Riyadh Midnight Task",
+      startDate: new Date("2026-07-31T21:00:00.000Z"),
+      dueDate: new Date("2026-07-31T21:00:00.000Z"),
+      timezone: "Asia/Riyadh",
+    });
+
+    // 3. Task in America/New_York late night local time:
+    // 2026-08-01 23:30:00-04:00 (EDT) -> 2026-08-02T03:30:00.000Z
+    const nyLateNightTask = await repository.create({
+      projectId,
+      title: "New York Late Night Task",
+      startDate: new Date("2026-08-02T03:30:00.000Z"),
+      dueDate: new Date("2026-08-02T03:30:00.000Z"),
+      timezone: "America/New_York",
+    });
+
+    // 4. Task in UTC at midnight:
+    // 2026-08-01 00:00:00Z
+    const utcMidnightTask = await repository.create({
+      projectId,
+      title: "UTC Midnight Task",
+      startDate: new Date("2026-08-01T00:00:00.000Z"),
+      dueDate: new Date("2026-08-01T00:00:00.000Z"),
+      timezone: "UTC",
+    });
+
+    // 5. Multi-day task in Tokyo:
+    // 2026-08-01 to 2026-08-05 in Tokyo -> 2026-07-31T15:00:00.000Z to 2026-08-05T14:59:59.000Z
+    const tokyoMultiDayTask = await repository.create({
+      projectId,
+      title: "Tokyo Multi-Day Task",
+      startDate: new Date("2026-07-31T15:00:00.000Z"),
+      dueDate: new Date("2026-08-05T14:59:59.000Z"),
+      timezone: "Asia/Tokyo",
+    });
+
+    // 6. Task outside visible range (Tokyo on August 15):
+    const tokyoOutsideTask = await repository.create({
+      projectId,
+      title: "Tokyo Outside Task",
+      startDate: new Date("2026-08-14T15:00:00.000Z"),
+      dueDate: new Date("2026-08-14T15:00:00.000Z"),
+      timezone: "Asia/Tokyo",
+    });
+
+    // 7. Task before visible range (Tokyo on July 20):
+    const tokyoBeforeTask = await repository.create({
+      projectId,
+      title: "Tokyo Before Task",
+      startDate: new Date("2026-07-19T15:00:00.000Z"),
+      dueDate: new Date("2026-07-19T15:00:00.000Z"),
+      timezone: "Asia/Tokyo",
+    });
+
+    // ----------------------------------------------------
+    // Scenario A: User views Single Day (August 1, 2026)
+    // ----------------------------------------------------
+    const dayAnchor = new Date(2026, 7, 1);
+    const dayQueryRange = visibleCalendarQueryRange(dayAnchor, "day", 0, "UTC");
+
+    const dayResults = await repository.list({
+      projectId,
+      calendarFrom: new Date(dayQueryRange.calendarFrom),
+      calendarTo: new Date(dayQueryRange.calendarTo),
+    });
+
+    const dayResultIds = new Set(dayResults.map((t) => t.id));
+
+    // Zero false negatives: all tasks intended for August 1 in their respective timezones MUST be returned
+    assert.ok(dayResultIds.has(tokyoMidnightTask.id), "Tokyo midnight task must be returned for August 1");
+    assert.ok(dayResultIds.has(riyadhMidnightTask.id), "Riyadh midnight task must be returned for August 1");
+    assert.ok(dayResultIds.has(nyLateNightTask.id), "New York late night task must be returned for August 1");
+    assert.ok(dayResultIds.has(utcMidnightTask.id), "UTC midnight task must be returned for August 1");
+    assert.ok(dayResultIds.has(tokyoMultiDayTask.id), "Tokyo multi-day task must be returned for August 1");
+
+    // Correct bounds: tasks outside August 1 envelope must NOT be returned
+    assert.ok(!dayResultIds.has(tokyoOutsideTask.id), "August 15 task must not be returned for August 1");
+    assert.ok(!dayResultIds.has(tokyoBeforeTask.id), "July 20 task must not be returned for August 1");
+
+    // Frontend placement verification:
+    // Each returned task must be placed onto August 1 cell by taskOccursOnCalendarDay
+    assert.equal(taskOccursOnCalendarDay(tokyoMidnightTask, dayAnchor), true);
+    assert.equal(taskOccursOnCalendarDay(riyadhMidnightTask, dayAnchor), true);
+    assert.equal(taskOccursOnCalendarDay(nyLateNightTask, dayAnchor), true);
+    assert.equal(taskOccursOnCalendarDay(utcMidnightTask, dayAnchor), true);
+    assert.equal(taskOccursOnCalendarDay(tokyoMultiDayTask, dayAnchor), true);
+
+    // ----------------------------------------------------
+    // Scenario B: User views Month View (August 2026 month grid)
+    // ----------------------------------------------------
+    const monthAnchor = new Date(2026, 7, 1);
+    const monthQueryRange = visibleCalendarQueryRange(monthAnchor, "month", 0, "UTC");
+
+    const monthResults = await repository.list({
+      projectId,
+      calendarFrom: new Date(monthQueryRange.calendarFrom),
+      calendarTo: new Date(monthQueryRange.calendarTo),
+    });
+
+    const monthResultIds = new Set(monthResults.map((t) => t.id));
+
+    assert.ok(monthResultIds.has(tokyoMidnightTask.id));
+    assert.ok(monthResultIds.has(riyadhMidnightTask.id));
+    assert.ok(monthResultIds.has(nyLateNightTask.id));
+    assert.ok(monthResultIds.has(utcMidnightTask.id));
+    assert.ok(monthResultIds.has(tokyoMultiDayTask.id));
+    assert.ok(monthResultIds.has(tokyoOutsideTask.id), "August 15 task must be included in August month grid");
+    assert.ok(!monthResultIds.has(tokyoBeforeTask.id), "July 20 task must not be included in August month grid");
   });
 });

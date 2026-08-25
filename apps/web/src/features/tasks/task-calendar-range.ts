@@ -1,4 +1,4 @@
-import type { Task } from "@/lib/types";
+import type { Task } from "../../lib/types";
 
 export type TaskCalendarMode = "day" | "week" | "month";
 
@@ -116,12 +116,18 @@ export function visibleCalendarQueryRange(
     tz,
   );
 
+  // Safe UTC query envelope covering all worldwide task timezones (UTC-12 to UTC+14, buffered by 24 hours)
+  const envelopeStart = new Date(rangeStart.getTime() - 24 * 60 * 60 * 1000);
+  const envelopeEnd = new Date(rangeEnd.getTime() + 24 * 60 * 60 * 1000);
+
   return {
     days,
     rangeStart,
     rangeEnd,
-    calendarFrom: rangeStart.toISOString(),
-    calendarTo: rangeEnd.toISOString(),
+    envelopeStart,
+    envelopeEnd,
+    calendarFrom: envelopeStart.toISOString(),
+    calendarTo: envelopeEnd.toISOString(),
     calendarTimezone: tz,
   };
 }

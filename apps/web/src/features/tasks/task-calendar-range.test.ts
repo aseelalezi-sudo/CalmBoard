@@ -35,22 +35,28 @@ test("task calendar date ranges and timezone semantics", async (t) => {
     assert.equal(calendarDayKey(month[41]!), "2026-08-07");
   });
 
-  await t.test("builds visible query ranges with exact UTC boundaries", () => {
+  await t.test("builds visible query ranges with exact UTC boundaries and safe query envelopes", () => {
     const anchor = new Date(2026, 6, 29);
     const dayRange = visibleCalendarQueryRange(anchor, "day", 6);
     assert.equal(dayRange.days.length, 1);
-    assert.equal(dayRange.calendarFrom, "2026-07-29T00:00:00.000Z");
-    assert.equal(dayRange.calendarTo, "2026-07-29T23:59:59.999Z");
+    assert.equal(dayRange.rangeStart.toISOString(), "2026-07-29T00:00:00.000Z");
+    assert.equal(dayRange.rangeEnd.toISOString(), "2026-07-29T23:59:59.999Z");
+    assert.equal(dayRange.calendarFrom, "2026-07-28T00:00:00.000Z");
+    assert.equal(dayRange.calendarTo, "2026-07-30T23:59:59.999Z");
 
     const weekRange = visibleCalendarQueryRange(anchor, "week", 6);
     assert.equal(weekRange.days.length, 7);
-    assert.equal(weekRange.calendarFrom, "2026-07-25T00:00:00.000Z");
-    assert.equal(weekRange.calendarTo, "2026-07-31T23:59:59.999Z");
+    assert.equal(weekRange.rangeStart.toISOString(), "2026-07-25T00:00:00.000Z");
+    assert.equal(weekRange.rangeEnd.toISOString(), "2026-07-31T23:59:59.999Z");
+    assert.equal(weekRange.calendarFrom, "2026-07-24T00:00:00.000Z");
+    assert.equal(weekRange.calendarTo, "2026-08-01T23:59:59.999Z");
 
     const monthRange = visibleCalendarQueryRange(anchor, "month", 6);
     assert.equal(monthRange.days.length, 42);
-    assert.equal(monthRange.calendarFrom, "2026-06-27T00:00:00.000Z");
-    assert.equal(monthRange.calendarTo, "2026-08-07T23:59:59.999Z");
+    assert.equal(monthRange.rangeStart.toISOString(), "2026-06-27T00:00:00.000Z");
+    assert.equal(monthRange.rangeEnd.toISOString(), "2026-08-07T23:59:59.999Z");
+    assert.equal(monthRange.calendarFrom, "2026-06-26T00:00:00.000Z");
+    assert.equal(monthRange.calendarTo, "2026-08-08T23:59:59.999Z");
   });
 
   await t.test("moves the anchor according to the active view", () => {
@@ -176,29 +182,37 @@ test("task calendar date ranges and timezone semantics", async (t) => {
 
     // 1. UTC
     const utcRange = visibleCalendarQueryRange(dayAnchor, "day", 0, "UTC");
-    assert.equal(utcRange.calendarFrom, "2026-08-15T00:00:00.000Z");
-    assert.equal(utcRange.calendarTo, "2026-08-15T23:59:59.999Z");
+    assert.equal(utcRange.rangeStart.toISOString(), "2026-08-15T00:00:00.000Z");
+    assert.equal(utcRange.rangeEnd.toISOString(), "2026-08-15T23:59:59.999Z");
+    assert.equal(utcRange.calendarFrom, "2026-08-14T00:00:00.000Z");
+    assert.equal(utcRange.calendarTo, "2026-08-16T23:59:59.999Z");
 
     // 2. Asia/Riyadh (+03:00)
     // 2026-08-15 00:00:00 in Riyadh is 2026-08-14 21:00:00 UTC
     // 2026-08-15 23:59:59.999 in Riyadh is 2026-08-15 20:59:59.999 UTC
     const riyadhRange = visibleCalendarQueryRange(dayAnchor, "day", 0, "Asia/Riyadh");
-    assert.equal(riyadhRange.calendarFrom, "2026-08-14T21:00:00.000Z");
-    assert.equal(riyadhRange.calendarTo, "2026-08-15T20:59:59.999Z");
+    assert.equal(riyadhRange.rangeStart.toISOString(), "2026-08-14T21:00:00.000Z");
+    assert.equal(riyadhRange.rangeEnd.toISOString(), "2026-08-15T20:59:59.999Z");
+    assert.equal(riyadhRange.calendarFrom, "2026-08-13T21:00:00.000Z");
+    assert.equal(riyadhRange.calendarTo, "2026-08-16T20:59:59.999Z");
 
     // 3. Asia/Tokyo (+09:00)
     // 2026-08-15 00:00:00 in Tokyo is 2026-08-14 15:00:00 UTC
     // 2026-08-15 23:59:59.999 in Tokyo is 2026-08-15 14:59:59.999 UTC
     const tokyoRange = visibleCalendarQueryRange(dayAnchor, "day", 0, "Asia/Tokyo");
-    assert.equal(tokyoRange.calendarFrom, "2026-08-14T15:00:00.000Z");
-    assert.equal(tokyoRange.calendarTo, "2026-08-15T14:59:59.999Z");
+    assert.equal(tokyoRange.rangeStart.toISOString(), "2026-08-14T15:00:00.000Z");
+    assert.equal(tokyoRange.rangeEnd.toISOString(), "2026-08-15T14:59:59.999Z");
+    assert.equal(tokyoRange.calendarFrom, "2026-08-13T15:00:00.000Z");
+    assert.equal(tokyoRange.calendarTo, "2026-08-16T14:59:59.999Z");
 
     // 4. America/New_York (-04:00 EDT)
     // 2026-08-15 00:00:00 in NY is 2026-08-15 04:00:00 UTC
     // 2026-08-15 23:59:59.999 in NY is 2026-08-16 03:59:59.999 UTC
     const nyRange = visibleCalendarQueryRange(dayAnchor, "day", 0, "America/New_York");
-    assert.equal(nyRange.calendarFrom, "2026-08-15T04:00:00.000Z");
-    assert.equal(nyRange.calendarTo, "2026-08-16T03:59:59.999Z");
+    assert.equal(nyRange.rangeStart.toISOString(), "2026-08-15T04:00:00.000Z");
+    assert.equal(nyRange.rangeEnd.toISOString(), "2026-08-16T03:59:59.999Z");
+    assert.equal(nyRange.calendarFrom, "2026-08-14T04:00:00.000Z");
+    assert.equal(nyRange.calendarTo, "2026-08-17T03:59:59.999Z");
 
     // 5. Midnight boundary task in Tokyo:
     // Task timestamp is midnight local time: 2026-08-01 00:00:00+09:00 -> 2026-07-31T15:00:00.000Z
@@ -207,13 +221,26 @@ test("task calendar date ranges and timezone semantics", async (t) => {
       dueDate: "2026-07-31T15:00:00.000Z",
       timezone: "Asia/Tokyo",
     };
-    const tokyoMonthRange = visibleCalendarQueryRange(anchor, "month", 0, "Asia/Tokyo");
-    // Range query includes the task timestamp
-    assert.ok(tokyoMonthRange.calendarFrom <= tokyoTask.startDate);
-    assert.ok(tokyoMonthRange.calendarTo >= tokyoTask.dueDate);
+    // When queried with UTC calendar default:
+    const utcDayRange = visibleCalendarQueryRange(anchor, "day", 0, "UTC");
+    // Safe envelope MUST encompass Tokyo midnight task
+    assert.ok(utcDayRange.calendarFrom <= tokyoTask.startDate);
+    assert.ok(utcDayRange.calendarTo >= tokyoTask.dueDate);
     // Frontend maps task to August 1 in Tokyo
     assert.equal(taskDayKey(tokyoTask.startDate, "Asia/Tokyo"), "2026-08-01");
-    assert.equal(taskOccursOnCalendarDay(tokyoTask, new Date(2026, 7, 1), "Asia/Tokyo"), true);
+    assert.equal(taskOccursOnCalendarDay(tokyoTask, new Date(2026, 7, 1)), true);
+
+    // 6. Late night boundary task in New York:
+    // 2026-08-01 23:30:00-04:00 -> 2026-08-02T03:30:00.000Z
+    const nyTask = {
+      startDate: "2026-08-02T03:30:00.000Z",
+      dueDate: "2026-08-02T03:30:00.000Z",
+      timezone: "America/New_York",
+    };
+    assert.ok(utcDayRange.calendarFrom <= nyTask.startDate);
+    assert.ok(utcDayRange.calendarTo >= nyTask.dueDate);
+    assert.equal(taskDayKey(nyTask.startDate, "America/New_York"), "2026-08-01");
+    assert.equal(taskOccursOnCalendarDay(nyTask, new Date(2026, 7, 1)), true);
   });
 
   await t.test("matchesTaskFilters accurately evaluates status, priority, assignee, and search filters", () => {
