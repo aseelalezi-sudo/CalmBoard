@@ -70,7 +70,6 @@ describe("task calendar range queries and pagination safety (integration)", () =
       organizationId,
       workspaceId,
       name: "Calendar Project",
-      key: `CP${projectId.slice(0, 4)}`.toUpperCase(),
     });
 
     const repository = createTasksRepository({
@@ -285,7 +284,6 @@ describe("task calendar range queries and pagination safety (integration)", () =
       organizationId: otherOrgId,
       workspaceId: otherWsId,
       name: "Other Project",
-      key: `OP${otherProjectId.slice(0, 4)}`.toUpperCase(),
     });
 
     const otherRepo = createTasksRepository({
@@ -315,7 +313,6 @@ describe("task calendar range queries and pagination safety (integration)", () =
       organizationId,
       workspaceId,
       name: "Scale Project",
-      key: `SP${scaleProject.slice(0, 4)}`.toUpperCase(),
     });
 
     // Create 220 historical tasks in 2025
