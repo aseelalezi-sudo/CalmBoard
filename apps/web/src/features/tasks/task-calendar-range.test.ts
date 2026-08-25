@@ -5,12 +5,15 @@ import {
   calendarDayFromKey,
   calendarDayKey,
   calendarDaysForView,
+  matchesTaskFilters,
   resizeTaskCalendarEnd,
   shiftCalendarAnchor,
   shiftTaskCalendarDates,
   taskDayKey,
   taskOccursOnCalendarDay,
+  taskOccursWithinVisibleRange,
   visibleCalendarQueryRange,
+  zonedTimeToUtc,
 } from "./task-calendar-range";
 
 test("task calendar date ranges and timezone semantics", async (t) => {
@@ -165,5 +168,89 @@ test("task calendar date ranges and timezone semantics", async (t) => {
       ),
       null,
     );
+  });
+
+  await t.test("converts visibleCalendarQueryRange accurately across timezones and midnight boundaries", () => {
+    const anchor = new Date(2026, 7, 1); // August 1, 2026
+    const dayAnchor = new Date(2026, 7, 15);
+
+    // 1. UTC
+    const utcRange = visibleCalendarQueryRange(dayAnchor, "day", 0, "UTC");
+    assert.equal(utcRange.calendarFrom, "2026-08-15T00:00:00.000Z");
+    assert.equal(utcRange.calendarTo, "2026-08-15T23:59:59.999Z");
+
+    // 2. Asia/Riyadh (+03:00)
+    // 2026-08-15 00:00:00 in Riyadh is 2026-08-14 21:00:00 UTC
+    // 2026-08-15 23:59:59.999 in Riyadh is 2026-08-15 20:59:59.999 UTC
+    const riyadhRange = visibleCalendarQueryRange(dayAnchor, "day", 0, "Asia/Riyadh");
+    assert.equal(riyadhRange.calendarFrom, "2026-08-14T21:00:00.000Z");
+    assert.equal(riyadhRange.calendarTo, "2026-08-15T20:59:59.999Z");
+
+    // 3. Asia/Tokyo (+09:00)
+    // 2026-08-15 00:00:00 in Tokyo is 2026-08-14 15:00:00 UTC
+    // 2026-08-15 23:59:59.999 in Tokyo is 2026-08-15 14:59:59.999 UTC
+    const tokyoRange = visibleCalendarQueryRange(dayAnchor, "day", 0, "Asia/Tokyo");
+    assert.equal(tokyoRange.calendarFrom, "2026-08-14T15:00:00.000Z");
+    assert.equal(tokyoRange.calendarTo, "2026-08-15T14:59:59.999Z");
+
+    // 4. America/New_York (-04:00 EDT)
+    // 2026-08-15 00:00:00 in NY is 2026-08-15 04:00:00 UTC
+    // 2026-08-15 23:59:59.999 in NY is 2026-08-16 03:59:59.999 UTC
+    const nyRange = visibleCalendarQueryRange(dayAnchor, "day", 0, "America/New_York");
+    assert.equal(nyRange.calendarFrom, "2026-08-15T04:00:00.000Z");
+    assert.equal(nyRange.calendarTo, "2026-08-16T03:59:59.999Z");
+
+    // 5. Midnight boundary task in Tokyo:
+    // Task timestamp is midnight local time: 2026-08-01 00:00:00+09:00 -> 2026-07-31T15:00:00.000Z
+    const tokyoTask = {
+      startDate: "2026-07-31T15:00:00.000Z",
+      dueDate: "2026-07-31T15:00:00.000Z",
+      timezone: "Asia/Tokyo",
+    };
+    const tokyoMonthRange = visibleCalendarQueryRange(anchor, "month", 0, "Asia/Tokyo");
+    // Range query includes the task timestamp
+    assert.ok(tokyoMonthRange.calendarFrom <= tokyoTask.startDate);
+    assert.ok(tokyoMonthRange.calendarTo >= tokyoTask.dueDate);
+    // Frontend maps task to August 1 in Tokyo
+    assert.equal(taskDayKey(tokyoTask.startDate, "Asia/Tokyo"), "2026-08-01");
+    assert.equal(taskOccursOnCalendarDay(tokyoTask, new Date(2026, 7, 1), "Asia/Tokyo"), true);
+  });
+
+  await t.test("matchesTaskFilters accurately evaluates status, priority, assignee, and search filters", () => {
+    const task = {
+      title: "Deploy Auth System",
+      description: "Setup OAuth and passkeys",
+      serial: "CB-104",
+      status: "in_progress",
+      priority: "urgent",
+      assigneeId: "user-1",
+      assigneeIds: ["user-1", "user-2"],
+      assignees: [{ id: "user-1" }, { id: "user-2" }],
+    };
+
+    // All match
+    assert.equal(matchesTaskFilters(task, {}), true);
+    assert.equal(matchesTaskFilters(task, { status: "in_progress" }), true);
+    assert.equal(matchesTaskFilters(task, { priority: "urgent" }), true);
+    assert.equal(matchesTaskFilters(task, { assigneeId: "user-1" }), true);
+    assert.equal(matchesTaskFilters(task, { assigneeId: "user-2" }), true);
+    assert.equal(matchesTaskFilters(task, { search: "deploy" }), true);
+    assert.equal(matchesTaskFilters(task, { search: "passkeys" }), true);
+    assert.equal(matchesTaskFilters(task, { search: "CB-104" }), true);
+
+    // Mismatches
+    assert.equal(matchesTaskFilters(task, { status: "done" }), false);
+    assert.equal(matchesTaskFilters(task, { priority: "low" }), false);
+    assert.equal(matchesTaskFilters(task, { assigneeId: "user-99" }), false);
+    assert.equal(matchesTaskFilters(task, { search: "unrelated query" }), false);
+  });
+
+  await t.test("taskOccursWithinVisibleRange detects whether task is in visible grid", () => {
+    const days = [new Date(2026, 7, 10), new Date(2026, 7, 11), new Date(2026, 7, 12)];
+    const insideTask = { startDate: "2026-08-11T10:00:00.000Z", dueDate: "2026-08-11T12:00:00.000Z", timezone: "UTC" };
+    const outsideTask = { startDate: "2026-08-20T10:00:00.000Z", dueDate: "2026-08-20T12:00:00.000Z", timezone: "UTC" };
+
+    assert.equal(taskOccursWithinVisibleRange(insideTask, days, "UTC"), true);
+    assert.equal(taskOccursWithinVisibleRange(outsideTask, days, "UTC"), false);
   });
 });

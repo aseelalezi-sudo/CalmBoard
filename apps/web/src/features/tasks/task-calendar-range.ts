@@ -27,18 +27,102 @@ export function calendarDaysForView(anchor: Date, mode: TaskCalendarMode, weekSt
   return Array.from({ length: 42 }, (_, index) => addCalendarDays(gridStart, index));
 }
 
-export function visibleCalendarQueryRange(anchor: Date, mode: TaskCalendarMode, weekStartsOn: 0 | 6) {
+export function zonedTimeToUtc(
+  year: number,
+  month: number, // 1-12
+  day: number,
+  hours: number,
+  minutes: number,
+  seconds: number,
+  ms: number,
+  timezone: string = "UTC",
+): Date {
+  const tz = timezone?.trim() || "UTC";
+  let guess = Date.UTC(year, month - 1, day, hours, minutes, seconds, ms);
+  try {
+    for (let i = 0; i < 4; i++) {
+      const d = new Date(guess);
+      const parts = new Intl.DateTimeFormat("en-US", {
+        timeZone: tz,
+        year: "numeric",
+        month: "numeric",
+        day: "numeric",
+        hour: "numeric",
+        minute: "numeric",
+        second: "numeric",
+        fractionalSecondDigits: 3,
+        hour12: false,
+      }).formatToParts(d);
+
+      let py = year;
+      let pm = month;
+      let pd = day;
+      let ph = hours;
+      let pmin = minutes;
+      let ps = seconds;
+      let pms = ms;
+
+      for (const p of parts) {
+        if (p.type === "year") py = Number(p.value);
+        else if (p.type === "month") pm = Number(p.value);
+        else if (p.type === "day") pd = Number(p.value);
+        else if (p.type === "hour") ph = Number(p.value) === 24 ? 0 : Number(p.value);
+        else if (p.type === "minute") pmin = Number(p.value);
+        else if (p.type === "second") ps = Number(p.value);
+        else if (p.type === "fractionalSecond") pms = Number(p.value);
+      }
+
+      const zonedAsUtc = Date.UTC(py, pm - 1, pd, ph, pmin, ps, pms);
+      const targetAsUtc = Date.UTC(year, month - 1, day, hours, minutes, seconds, ms);
+      const diff = zonedAsUtc - targetAsUtc;
+      if (diff === 0) break;
+      guess -= diff;
+    }
+  } catch {
+    return new Date(Date.UTC(year, month - 1, day, hours, minutes, seconds, ms));
+  }
+  return new Date(guess);
+}
+
+export function visibleCalendarQueryRange(
+  anchor: Date,
+  mode: TaskCalendarMode,
+  weekStartsOn: 0 | 6,
+  calendarTimezone: string = "UTC",
+) {
   const days = calendarDaysForView(anchor, mode, weekStartsOn);
   const firstDay = days[0]!;
   const lastDay = days[days.length - 1]!;
-  const rangeStart = new Date(Date.UTC(firstDay.getFullYear(), firstDay.getMonth(), firstDay.getDate(), 0, 0, 0, 0));
-  const rangeEnd = new Date(Date.UTC(lastDay.getFullYear(), lastDay.getMonth(), lastDay.getDate(), 23, 59, 59, 999));
+  const tz = calendarTimezone?.trim() || "UTC";
+
+  const rangeStart = zonedTimeToUtc(
+    firstDay.getFullYear(),
+    firstDay.getMonth() + 1,
+    firstDay.getDate(),
+    0,
+    0,
+    0,
+    0,
+    tz,
+  );
+  const rangeEnd = zonedTimeToUtc(
+    lastDay.getFullYear(),
+    lastDay.getMonth() + 1,
+    lastDay.getDate(),
+    23,
+    59,
+    59,
+    999,
+    tz,
+  );
+
   return {
     days,
     rangeStart,
     rangeEnd,
     calendarFrom: rangeStart.toISOString(),
     calendarTo: rangeEnd.toISOString(),
+    calendarTimezone: tz,
   };
 }
 
@@ -113,6 +197,46 @@ export type CalendarTaskInput = {
   timezone?: string | null;
 };
 
+export type CalendarCommonFilters = {
+  search?: string;
+  status?: string;
+  priority?: string;
+  assigneeId?: string;
+};
+
+export function matchesTaskFilters(
+  task: CalendarTaskInput & {
+    title?: string;
+    description?: string | null;
+    serial?: string | null;
+    status?: string;
+    priority?: string;
+    assigneeId?: string | null;
+    assigneeIds?: string[];
+    assignees?: Array<{ id: string }>;
+  },
+  filters: CalendarCommonFilters = {},
+): boolean {
+  if (filters.status && task.status && task.status !== filters.status) return false;
+  if (filters.priority && task.priority && task.priority !== filters.priority) return false;
+  if (filters.assigneeId) {
+    const directMatch = task.assigneeId === filters.assigneeId;
+    const arrayMatch = Array.isArray(task.assigneeIds) && task.assigneeIds.includes(filters.assigneeId);
+    const objectsMatch = Array.isArray(task.assignees) && task.assignees.some((a) => a.id === filters.assigneeId);
+    if (!directMatch && !arrayMatch && !objectsMatch) return false;
+  }
+  if (filters.search) {
+    const q = filters.search.toLowerCase().trim();
+    if (q) {
+      const titleMatch = task.title ? task.title.toLowerCase().includes(q) : false;
+      const descMatch = task.description ? task.description.toLowerCase().includes(q) : false;
+      const serialMatch = task.serial ? task.serial.toLowerCase().includes(q) : false;
+      if (!titleMatch && !descMatch && !serialMatch) return false;
+    }
+  }
+  return true;
+}
+
 export function shiftTaskCalendarDates(
   task: CalendarTaskInput,
   targetDay: Date,
@@ -146,7 +270,7 @@ export function resizeTaskCalendarEnd(
 
 export function taskOccursOnCalendarDay(task: CalendarTaskInput, day: Date, calendarTimezone?: string): boolean {
   if (!task.startDate && !task.dueDate) return false;
-  const tz = task.timezone || calendarTimezone || "UTC";
+  const tz = calendarTimezone || task.timezone || "UTC";
   const startKey = task.startDate ? taskDayKey(task.startDate, tz) : taskDayKey(task.dueDate!, tz);
   const dueKey = task.dueDate ? taskDayKey(task.dueDate, tz) : taskDayKey(task.startDate!, tz);
   if (!startKey || !dueKey) return false;
@@ -155,4 +279,12 @@ export function taskOccursOnCalendarDay(task: CalendarTaskInput, day: Date, cale
   const lower = startKey <= dueKey ? startKey : dueKey;
   const upper = startKey <= dueKey ? dueKey : startKey;
   return targetKey >= lower && targetKey <= upper;
+}
+
+export function taskOccursWithinVisibleRange(
+  task: CalendarTaskInput,
+  days: Date[],
+  calendarTimezone?: string,
+): boolean {
+  return days.some((day) => taskOccursOnCalendarDay(task, day, calendarTimezone));
 }

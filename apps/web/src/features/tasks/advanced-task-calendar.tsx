@@ -25,13 +25,18 @@ import { useTaskViewStateStore } from "@/stores/task-view-state-store";
 import { getCalendarTasks } from "./api";
 import { cn } from "@/lib/utils";
 import {
+  addCalendarDays,
   calendarDayFromKey,
   calendarDayKey,
+  matchesTaskFilters,
   resizeTaskCalendarEnd,
   shiftCalendarAnchor,
   shiftTaskCalendarDates,
+  startOfCalendarWeek,
   taskOccursOnCalendarDay,
+  taskOccursWithinVisibleRange,
   visibleCalendarQueryRange,
+  type CalendarCommonFilters,
   type TaskCalendarMode,
 } from "./task-calendar-range";
 
@@ -175,24 +180,28 @@ function TaskCalendarCard({
   );
 }
 
-function formatCalendarTitle(anchor: Date, mode: TaskCalendarMode, locale: ViewCtx["locale"]) {
+function formatCalendarTitle(anchor: Date, mode: TaskCalendarMode, locale: "ar" | "en") {
   const dateLocale = locale === "ar" ? "ar-u-nu-latn" : "en-US";
   if (mode === "day") {
-    return anchor.toLocaleDateString(dateLocale, { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+    return anchor.toLocaleDateString(dateLocale, {
+      weekday: "long",
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+    });
   }
   if (mode === "week") {
-    const { days } = visibleCalendarQueryRange(anchor, "week", locale === "ar" ? 6 : 0);
-    const first = days[0]!;
-    const last = days[6]!;
-    return `${first.toLocaleDateString(dateLocale, { month: "short", day: "numeric" })} – ${last.toLocaleDateString(
+    const start = startOfCalendarWeek(anchor, locale === "ar" ? 6 : 0);
+    const end = addCalendarDays(start, 6);
+    return `${start.toLocaleDateString(dateLocale, { month: "short", day: "numeric" })} - ${end.toLocaleDateString(
       dateLocale,
-      { year: "numeric", month: "short", day: "numeric" },
+      { month: "short", day: "numeric", year: "numeric" },
     )}`;
   }
   return anchor.toLocaleDateString(dateLocale, { year: "numeric", month: "long" });
 }
 
-export function AdvancedTaskCalendar({ ctx }: { ctx: ViewCtx }) {
+export function AdvancedTaskCalendar({ ctx, calendarTimezone = "UTC" }: { ctx: ViewCtx; calendarTimezone?: string }) {
   const calendarViewState = useTaskViewStateStore((state) => state.calendar);
   const setCalendarViewState = useTaskViewStateStore((state) => state.setCalendar);
   const mode = calendarViewState.mode;
@@ -212,14 +221,29 @@ export function AdvancedTaskCalendar({ ctx }: { ctx: ViewCtx }) {
   const today = new Date();
   const weekStartsOn = ctx.locale === "ar" ? 6 : 0;
   const visibleRange = useMemo(
-    () => visibleCalendarQueryRange(anchor, mode, weekStartsOn),
-    [anchor, mode, weekStartsOn],
+    () => visibleCalendarQueryRange(anchor, mode, weekStartsOn, calendarTimezone),
+    [anchor, mode, weekStartsOn, calendarTimezone],
   );
   const days = visibleRange.days;
 
   const activeProject = ctx.activeProject;
   const notify = ctx.notify;
   const t = ctx.t;
+
+  const searchFilter = ctx.taskFilter?.search;
+  const statusFilter = ctx.taskFilter?.status;
+  const priorityFilter = ctx.taskFilter?.priority;
+  const assigneeFilter = ctx.taskFilter?.assignee || ctx.taskFilter?.assigneeId;
+
+  const commonFilters: CalendarCommonFilters = useMemo(
+    () => ({
+      search: searchFilter || undefined,
+      status: statusFilter || undefined,
+      priority: priorityFilter || undefined,
+      assigneeId: assigneeFilter || undefined,
+    }),
+    [assigneeFilter, priorityFilter, searchFilter, statusFilter],
+  );
 
   // Range-aware query execution with requestVersion and AbortController
   useEffect(() => {
@@ -237,6 +261,7 @@ export function AdvancedTaskCalendar({ ctx }: { ctx: ViewCtx }) {
     setLoading(true);
 
     void getCalendarTasks(activeProject, {
+      ...commonFilters,
       calendarFrom: visibleRange.calendarFrom,
       calendarTo: visibleRange.calendarTo,
       signal: controller.signal,
@@ -261,41 +286,34 @@ export function AdvancedTaskCalendar({ ctx }: { ctx: ViewCtx }) {
     return () => {
       controller.abort();
     };
-  }, [activeProject, notify, t, visibleRange.calendarFrom, visibleRange.calendarTo]);
+  }, [activeProject, commonFilters, notify, t, visibleRange.calendarFrom, visibleRange.calendarTo]);
 
-  // Combine and deduplicate tasks from range query with active context mutations
+  // Authoritative grouping strictly from calendar range dataset and active filters
   const tasksByDay = useMemo(() => {
-    const taskMap = new Map<string, Task>();
-    for (const task of calendarTasks) {
-      taskMap.set(task.id, task);
+    const grouped = new Map<string, Task[]>();
+    for (const day of days) {
+      grouped.set(calendarDayKey(day), []);
     }
-    // Also include any active tasks in ctx.tasks matching date criteria
-    for (const task of ctx.tasks) {
-      if (
-        taskMap.has(task.id) ||
-        taskOccursOnCalendarDay(task, visibleRange.rangeStart) ||
-        taskOccursOnCalendarDay(task, visibleRange.rangeEnd)
-      ) {
-        taskMap.set(task.id, task);
+
+    for (const task of calendarTasks) {
+      if (!matchesTaskFilters(task, commonFilters)) continue;
+      for (const day of days) {
+        if (taskOccursOnCalendarDay(task, day, calendarTimezone)) {
+          grouped.get(calendarDayKey(day))?.push(task);
+        }
       }
     }
 
-    const allTasks = [...taskMap.values()];
-    const grouped = new Map<string, Task[]>();
-    for (const day of days) {
-      grouped.set(
-        calendarDayKey(day),
-        allTasks
-          .filter((task) => taskOccursOnCalendarDay(task, day))
-          .sort((left, right) => {
-            const leftDate = new Date(left.startDate ?? left.dueDate ?? 0).getTime();
-            const rightDate = new Date(right.startDate ?? right.dueDate ?? 0).getTime();
-            return leftDate - rightDate || left.order - right.order;
-          }),
-      );
+    for (const [, list] of grouped.entries()) {
+      list.sort((left, right) => {
+        const leftDate = new Date(left.startDate ?? left.dueDate ?? 0).getTime();
+        const rightDate = new Date(right.startDate ?? right.dueDate ?? 0).getTime();
+        return leftDate - rightDate || left.order - right.order;
+      });
     }
+
     return grouped;
-  }, [calendarTasks, ctx.tasks, days, visibleRange.rangeEnd, visibleRange.rangeStart]);
+  }, [calendarTasks, days, calendarTimezone, commonFilters]);
 
   const scheduledCount = useMemo(() => {
     const scheduledIds = new Set<string>();
@@ -353,17 +371,32 @@ export function AdvancedTaskCalendar({ ctx }: { ctx: ViewCtx }) {
       ...(drag.type === "resize" && drag.task.isMilestone ? { isMilestone: false } : {}),
     };
 
-    // Optimistically update local calendar state
-    setCalendarTasks((current) => current.map((t) => (t.id === drag.task.id ? ({ ...t, ...payload } as Task) : t)));
+    const previousTasks = calendarTasks;
 
-    const saved = await ctx.updateTask(drag.task.id, payload);
-    if (saved !== false) {
-      ctx.notify(
-        drag.type === "move"
-          ? ctx.t("تم نقل المهمة وحفظ تواريخها", "Task moved and dates saved")
-          : ctx.t("تم تغيير مدة المهمة وحفظها", "Task duration changed and saved"),
-        "success",
-      );
+    // Optimistically update local scoped calendar state
+    setCalendarTasks((current) => {
+      return current
+        .map((t) => (t.id === drag.task.id ? ({ ...t, ...payload } as Task) : t))
+        .filter((t) => {
+          if (t.id !== drag.task.id) return true;
+          return taskOccursWithinVisibleRange(t, days, calendarTimezone) && matchesTaskFilters(t, commonFilters);
+        });
+    });
+
+    try {
+      const saved = await ctx.updateTask(drag.task.id, payload);
+      if (saved !== false) {
+        ctx.notify(
+          drag.type === "move"
+            ? ctx.t("تم نقل المهمة وحفظ تواريخها", "Task moved and dates saved")
+            : ctx.t("تم تغيير مدة المهمة وحفظها", "Task duration changed and saved"),
+          "success",
+        );
+      } else {
+        setCalendarTasks(previousTasks);
+      }
+    } catch {
+      setCalendarTasks(previousTasks);
     }
   };
 

@@ -200,6 +200,25 @@ describe("task calendar range queries and pagination safety (integration)", () =
     assert.ok(!resultIds.has(taskStartOnlyOutside.id), "Task with start date outside range must be excluded");
     assert.ok(!resultIds.has(taskDateless.id), "Dateless task must be excluded");
 
+    // Timezone query boundary tests:
+    // Tokyo midnight boundary: 2026-08-01 00:00:00+09:00 -> 2026-07-31T15:00:00.000Z
+    const taskTokyoMidnight = await repository.create({
+      projectId,
+      title: "Tokyo Midnight Task",
+      dueDate: new Date("2026-07-31T15:00:00.000Z"),
+      timezone: "Asia/Tokyo",
+    });
+
+    const tokyoBoundaryResults = await repository.list({
+      projectId,
+      calendarFrom: new Date("2026-07-31T15:00:00.000Z"),
+      calendarTo: new Date("2026-08-31T14:59:59.999Z"),
+    });
+    assert.ok(
+      tokyoBoundaryResults.some((t) => t.id === taskTokyoMidnight.id),
+      "Task with Tokyo midnight timestamp must be returned in Tokyo-converted range query",
+    );
+
     // ----------------------------------------------------
     // 2. Filter Parity (Additive constraints)
     // ----------------------------------------------------
