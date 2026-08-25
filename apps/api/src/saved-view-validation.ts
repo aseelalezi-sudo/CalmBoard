@@ -1,20 +1,25 @@
 import { BadRequestException } from "@nestjs/common";
-import type {
-  CreateSavedViewInput,
-  SavedViewBoardConfiguration,
-  SavedViewCalendarConfiguration,
-  SavedViewConfiguration,
-  SavedViewFilters,
-  SavedViewListConfiguration,
-  SavedViewTableConfiguration,
-  SavedViewTimelineConfiguration,
-  SavedViewType,
-  UpdateSavedViewInput,
+import {
+  canonicalizeCustomFieldFilters,
+  CUSTOM_FIELD_OPERATORS,
+  type CreateSavedViewInput,
+  type CustomFieldFilter,
+  type CustomFieldOperator,
+  type SavedViewBoardConfiguration,
+  type SavedViewCalendarConfiguration,
+  type SavedViewConfiguration,
+  type SavedViewFilters,
+  type SavedViewListConfiguration,
+  type SavedViewTableConfiguration,
+  type SavedViewTimelineConfiguration,
+  type SavedViewType,
+  type UpdateSavedViewInput,
 } from "@calmboard/database";
 import { isJsonObject, requiredString, type JsonObject } from "./request-validation.js";
 
 const viewTypes = new Set<SavedViewType>(["board", "list", "table", "calendar", "timeline", "workload"]);
-const filterKeys = new Set<string>(["search", "status", "priority", "assignee", "assigneeId"]);
+const filterKeys = new Set<string>(["search", "status", "priority", "assignee", "assigneeId", "customFields"]);
+const customFieldOpsSet = new Set<string>(CUSTOM_FIELD_OPERATORS);
 const taskStatuses = new Set(["backlog", "todo", "in_progress", "review", "done", "canceled"]);
 const taskPriorities = new Set(["low", "medium", "high", "urgent"]);
 const tableColumnIds = new Set([
@@ -43,12 +48,40 @@ function parseViewType(value: unknown): SavedViewType {
   return viewType;
 }
 
+export function parseCustomFieldFiltersArray(value: unknown): CustomFieldFilter[] {
+  if (!Array.isArray(value)) {
+    throw new BadRequestException("filters.customFields must be an array");
+  }
+  if (value.length > 50) {
+    throw new BadRequestException("filters.customFields exceeds maximum limit of 50 filters");
+  }
+  return value.map((entry, index) => {
+    if (!isJsonObject(entry)) {
+      throw new BadRequestException(`filters.customFields[${index}] must be an object`);
+    }
+    const fieldKey = requiredString(entry.fieldKey, `filters.customFields[${index}].fieldKey`);
+    const operator = requiredString(entry.operator, `filters.customFields[${index}].operator`) as CustomFieldOperator;
+    if (!customFieldOpsSet.has(operator)) {
+      throw new BadRequestException(`filters.customFields[${index}].operator is invalid`);
+    }
+    return {
+      fieldKey,
+      operator,
+      value: entry.value,
+    };
+  });
+}
+
 export function parseSavedViewFilters(value: unknown): SavedViewFilters {
   if (!isJsonObject(value)) throw new BadRequestException("filters must be an object");
   const filters: SavedViewFilters = {};
   for (const [key, entry] of Object.entries(value)) {
     if (!filterKeys.has(key)) throw new BadRequestException(`filters.${key} is unsupported`);
     if (entry === undefined || entry === null || entry === "") continue;
+    if (key === "customFields") {
+      filters.customFields = canonicalizeCustomFieldFilters(parseCustomFieldFiltersArray(entry));
+      continue;
+    }
     const parsed = requiredString(entry, `filters.${key}`);
     if (parsed.length > 200) throw new BadRequestException(`filters.${key} is too long`);
     if (key === "status" && !taskStatuses.has(parsed)) throw new BadRequestException("filters.status is invalid");

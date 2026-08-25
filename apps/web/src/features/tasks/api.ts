@@ -191,6 +191,7 @@ export type TaskFilters = {
   dueTo?: string;
   calendarFrom?: string;
   calendarTo?: string;
+  customFieldFilters?: Array<{ fieldKey: string; operator: string; value?: unknown }>;
   signal?: AbortSignal;
 };
 
@@ -205,7 +206,11 @@ export function getCalendarTasks(
     includeSubtasks: "true",
   });
   for (const [key, value] of Object.entries(filters)) {
-    if (key !== "signal" && value !== undefined && value !== "") query.set(key, String(value));
+    if (key === "customFieldFilters" && Array.isArray(value) && value.length > 0) {
+      query.set("customFieldFilters", JSON.stringify(value));
+    } else if (key !== "signal" && key !== "customFieldFilters" && value !== undefined && value !== "") {
+      query.set(key, String(value));
+    }
   }
   return requestJson<Task[]>(
     `${apiServiceUrl("/tasks")}?${query.toString()}`,

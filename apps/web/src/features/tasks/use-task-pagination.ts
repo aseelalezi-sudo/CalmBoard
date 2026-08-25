@@ -34,12 +34,42 @@ export type TaskPaginationState = {
   loadMoreStatus: (status: string) => Promise<void>;
 };
 
-function tableSort(sorting: SavedViewTableConfiguration["sorting"]): Pick<TaskPageFilters, "sortBy" | "sortDirection"> {
+function parseCustomFieldFilters(
+  raw?: unknown,
+): Array<{ fieldKey: string; operator: string; value?: unknown }> | undefined {
+  if (!raw) return undefined;
+  if (Array.isArray(raw)) return raw;
+  if (typeof raw === "string") {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed;
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
+}
+
+function tableSort(
+  sorting: SavedViewTableConfiguration["sorting"],
+): Pick<TaskPageFilters, "sortBy" | "sortDirection" | "customSortField" | "customSortDirection"> {
   const first = sorting?.[0];
-  const sortBy = first ? tableSortFields[first.id] : undefined;
+  if (!first) {
+    return {
+      sortBy: "createdAt",
+      sortDirection: "desc",
+    };
+  }
+  const builtIn = tableSortFields[first.id];
+  if (builtIn) {
+    return {
+      sortBy: builtIn,
+      sortDirection: first.desc ? "desc" : "asc",
+    };
+  }
   return {
-    sortBy: sortBy ?? "createdAt",
-    sortDirection: first?.desc ? "desc" : "asc",
+    customSortField: first.id,
+    customSortDirection: first.desc ? "desc" : "asc",
   };
 }
 
@@ -68,14 +98,17 @@ export function useTaskPagination(input: {
   const statusFilter = taskFilter.status;
   const priorityFilter = taskFilter.priority;
   const assigneeFilter = taskFilter.assignee;
+  const rawCustomFieldFilters = (taskFilter as Record<string, unknown> | undefined)?.customFieldFilters;
+  const customFieldFilters = useMemo(() => parseCustomFieldFilters(rawCustomFieldFilters), [rawCustomFieldFilters]);
   const commonFilters = useMemo(
     () => ({
       search: searchFilter || undefined,
       status: statusFilter || undefined,
       priority: priorityFilter || undefined,
       assigneeId: assigneeFilter || undefined,
+      customFieldFilters,
     }),
-    [assigneeFilter, priorityFilter, searchFilter, statusFilter],
+    [assigneeFilter, customFieldFilters, priorityFilter, searchFilter, statusFilter],
   );
 
   const load = useCallback(async () => {
@@ -118,6 +151,15 @@ export function useTaskPagination(input: {
         return;
       }
       if (activeView === "table") {
+        if (tableState.groupBy && tableState.groupBy !== "none") {
+          setMode("full");
+          const records = await getTasks(project, commonFilters);
+          if (version !== requestVersion.current) return;
+          setTasks(records);
+          setPage({ nextCursor: null, total: records.length });
+          setBoardPages({});
+          return;
+        }
         setMode("page");
         const response = await getTaskPage(project, {
           ...commonFilters,
@@ -132,7 +174,7 @@ export function useTaskPagination(input: {
       }
       if (fullCollectionViews.has(activeView)) {
         setMode("full");
-        const records = await getTasks(project);
+        const records = await getTasks(project, commonFilters);
         if (version !== requestVersion.current) return;
         setTasks(records);
         setPage({ nextCursor: null, total: records.length });
@@ -145,7 +187,17 @@ export function useTaskPagination(input: {
     } finally {
       if (version === requestVersion.current) setLoading(false);
     }
-  }, [activeProject, activeView, commonFilters, notify, setTasks, t, tableState.sorting, statusFilter]);
+  }, [
+    activeProject,
+    activeView,
+    commonFilters,
+    notify,
+    setTasks,
+    t,
+    tableState.sorting,
+    tableState.groupBy,
+    statusFilter,
+  ]);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => void load(), searchFilter ? 250 : 0);

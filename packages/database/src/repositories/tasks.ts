@@ -51,9 +51,18 @@ import {
   resolveTaskStateUpdate,
 } from "./task-states.js";
 import {
+  normalizeCustomFieldType,
   validateAndNormalizeTaskCustomFields,
   type ValidateTaskCustomFieldsOptions,
 } from "../custom-field-contract.js";
+import {
+  buildCustomFieldSqlCondition,
+  buildCustomFieldSqlSortColumn,
+  validateAndNormalizeCustomFieldFilter,
+  type CustomFieldFilter,
+  type CustomFieldSort,
+} from "../custom-field-query.js";
+import type { CustomFieldRecord } from "./custom-fields.js";
 
 export type TaskRecord = typeof tasks.$inferSelect;
 export type TaskStatus = TaskRecord["status"];
@@ -123,6 +132,8 @@ export type TaskListFilters = {
     | "estimatedHours"
     | "loggedHours";
   sortDirection?: "asc" | "desc";
+  customSort?: CustomFieldSort;
+  customFieldFilters?: CustomFieldFilter[];
   includeSubtasks?: boolean;
 };
 
@@ -135,21 +146,55 @@ type TaskSortField = NonNullable<TaskListFilters["sortBy"]>;
 type TaskSortDirection = NonNullable<TaskListFilters["sortDirection"]>;
 type TaskCursor = {
   version: 1;
-  sortBy: TaskSortField;
+  sortBy: TaskSortField | "customField";
   sortDirection: TaskSortDirection;
-  value: string | number | null;
+  value: string | number | boolean | null;
   id: string;
+  customFieldKey?: string;
+  customFieldType?: string;
 };
 
-function pageSort(filters: TaskListFilters) {
+type ResolvedPageSort =
+  | {
+      isCustom: false;
+      sortBy: TaskSortField;
+      sortDirection: TaskSortDirection;
+    }
+  | {
+      isCustom: true;
+      sortBy: "customField";
+      customFieldKey: string;
+      customFieldType: string;
+      sortDirection: TaskSortDirection;
+    };
+
+function pageSort(filters: TaskListFilters, defsByKey?: Map<string, CustomFieldRecord>): ResolvedPageSort {
+  if (filters.customSort) {
+    const def = defsByKey?.get(filters.customSort.fieldKey);
+    return {
+      isCustom: true,
+      sortBy: "customField",
+      customFieldKey: filters.customSort.fieldKey,
+      customFieldType: def ? normalizeCustomFieldType(def.type) : "short_text",
+      sortDirection: filters.customSort.direction,
+    };
+  }
   return {
+    isCustom: false,
     sortBy: filters.sortBy ?? ("createdAt" as const),
     sortDirection: filters.sortDirection ?? ("desc" as const),
   };
 }
 
-function taskSortValue(task: TaskRecord, sortBy: TaskSortField): string | number | null {
-  switch (sortBy) {
+function taskSortValue(task: TaskRecord, sort: ResolvedPageSort): string | number | boolean | null {
+  if (sort.isCustom) {
+    const raw = (task.customFields as Record<string, unknown> | null | undefined)?.[sort.customFieldKey];
+    if (raw === undefined || raw === null || raw === "") return null;
+    if (typeof raw === "number" || typeof raw === "boolean" || typeof raw === "string") return raw;
+    if (raw instanceof Date) return raw.toISOString();
+    return String(raw);
+  }
+  switch (sort.sortBy) {
     case "order":
       return task.order;
     case "createdAt":
@@ -175,28 +220,44 @@ function taskSortValue(task: TaskRecord, sortBy: TaskSortField): string | number
   }
 }
 
-function encodeTaskCursor(task: TaskRecord, filters: TaskListFilters) {
-  const sort = pageSort(filters);
-  return Buffer.from(
-    JSON.stringify({
-      version: 1,
-      ...sort,
-      value: taskSortValue(task, sort.sortBy),
-      id: task.id,
-    } satisfies TaskCursor),
-  ).toString("base64url");
+function encodeTaskCursor(task: TaskRecord, filters: TaskListFilters, defsByKey?: Map<string, CustomFieldRecord>) {
+  const sort = pageSort(filters, defsByKey);
+  const cursorObj: TaskCursor = {
+    version: 1,
+    sortBy: sort.sortBy,
+    sortDirection: sort.sortDirection,
+    value: taskSortValue(task, sort),
+    id: task.id,
+    ...(sort.isCustom
+      ? {
+          customFieldKey: sort.customFieldKey,
+          customFieldType: sort.customFieldType,
+        }
+      : {}),
+  };
+  return Buffer.from(JSON.stringify(cursorObj)).toString("base64url");
 }
 
-function decodeTaskCursor(cursor: string, filters: TaskListFilters): TaskCursor {
+function decodeTaskCursor(
+  cursor: string,
+  filters: TaskListFilters,
+  defsByKey?: Map<string, CustomFieldRecord>,
+): TaskCursor {
   try {
     const value = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")) as Partial<TaskCursor>;
-    const expected = pageSort(filters);
+    const expected = pageSort(filters, defsByKey);
     if (
       value.version !== 1 ||
       !value.id ||
       value.sortBy !== expected.sortBy ||
       value.sortDirection !== expected.sortDirection ||
-      (value.value !== null && typeof value.value !== "string" && typeof value.value !== "number")
+      (expected.isCustom && value.customFieldKey !== expected.customFieldKey) ||
+      (expected.isCustom && value.customFieldType !== expected.customFieldType) ||
+      (!expected.isCustom && value.customFieldKey !== undefined) ||
+      (value.value !== null &&
+        typeof value.value !== "string" &&
+        typeof value.value !== "number" &&
+        typeof value.value !== "boolean")
     ) {
       throw new Error("invalid cursor");
     }
@@ -748,7 +809,54 @@ export function createTasksRepository(context: DatabaseTenantContext) {
     ]);
   }
 
-  function buildListConditions(filters: TaskListFilters) {
+  async function loadDefinitionsForFilters(filters: TaskListFilters) {
+    const referencedKeys = new Set<string>();
+    if (filters.customSort?.fieldKey) {
+      referencedKeys.add(filters.customSort.fieldKey);
+    }
+    if (filters.customFieldFilters) {
+      for (const f of filters.customFieldFilters) {
+        if (f.fieldKey) referencedKeys.add(f.fieldKey);
+      }
+    }
+    if (referencedKeys.size === 0) {
+      return new Map<string, CustomFieldRecord>();
+    }
+    const keyList = [...referencedKeys];
+    const rows = await db
+      .select()
+      .from(customFields)
+      .where(
+        and(
+          eq(customFields.organizationId, organizationId),
+          eq(customFields.workspaceId, workspaceId),
+          filters.projectId
+            ? or(isNull(customFields.projectId), eq(customFields.projectId, filters.projectId))
+            : undefined,
+          inArray(customFields.key, keyList),
+          isNull(customFields.deletedAt),
+        ),
+      );
+    const defsByKey = new Map<string, CustomFieldRecord>();
+    for (const row of rows) {
+      defsByKey.set(row.key, row);
+    }
+    for (const key of keyList) {
+      const def = defsByKey.get(key);
+      if (!def) {
+        throw new TenantConflictError(`Unknown custom field '${key}'`);
+      }
+      if (def.projectId !== null && filters.projectId && def.projectId !== filters.projectId) {
+        throw new TenantConflictError(`Custom field '${key}' belongs to another project`);
+      }
+      if (def.sensitive === true) {
+        throw new TenantConflictError("Querying sensitive custom fields is not supported");
+      }
+    }
+    return defsByKey;
+  }
+
+  function buildListConditions(filters: TaskListFilters, defsByKey: Map<string, CustomFieldRecord> = new Map()) {
     const conditions: SQL[] = [tenantScope, isNull(tasks.deletedAt)];
     if (filters.projectId) conditions.push(eq(tasks.projectId, filters.projectId));
     if (filters.status) conditions.push(eq(tasks.status, filters.status));
@@ -799,10 +907,30 @@ export function createTasksRepository(context: DatabaseTenantContext) {
       const searchCondition = or(ilike(tasks.title, pattern), ilike(tasks.serial, pattern));
       if (searchCondition) conditions.push(searchCondition);
     }
+
+    if (filters.customFieldFilters && filters.customFieldFilters.length > 0) {
+      for (const rawFilter of filters.customFieldFilters) {
+        const validated = validateAndNormalizeCustomFieldFilter(rawFilter, defsByKey, {
+          organizationId,
+          workspaceId,
+          projectId: filters.projectId,
+        });
+        const cond = buildCustomFieldSqlCondition(validated, validated.definition, tasks.customFields);
+        conditions.push(cond);
+      }
+    }
+
     return conditions;
   }
 
-  function taskSort(filters: TaskListFilters) {
+  function taskSort(filters: TaskListFilters, defsByKey: Map<string, CustomFieldRecord> = new Map()) {
+    if (filters.customSort) {
+      const def = defsByKey.get(filters.customSort.fieldKey)!;
+      const col = buildCustomFieldSqlSortColumn(def, tasks.customFields);
+      return filters.customSort.direction === "desc"
+        ? [sql`${col} desc nulls last`, desc(tasks.createdAt), desc(tasks.id)]
+        : [sql`${col} asc nulls last`, desc(tasks.createdAt), desc(tasks.id)];
+    }
     const direction = filters.sortDirection === "desc" ? desc : asc;
     const column =
       filters.sortBy === "createdAt"
@@ -856,15 +984,50 @@ export function createTasksRepository(context: DatabaseTenantContext) {
     }
   }
 
-  function taskPageOrder(filters: TaskListFilters) {
+  function taskPageOrder(filters: TaskListFilters, defsByKey: Map<string, CustomFieldRecord> = new Map()) {
     const sort = pageSort(filters);
+    if (sort.isCustom) {
+      const def = defsByKey.get(sort.customFieldKey)!;
+      const col = buildCustomFieldSqlSortColumn(def, tasks.customFields);
+      return sort.sortDirection === "asc"
+        ? ([sql`${col} asc nulls last`, asc(tasks.id)] as const)
+        : ([sql`${col} desc nulls last`, desc(tasks.id)] as const);
+    }
     const column = taskPageColumn(sort.sortBy);
     return sort.sortDirection === "asc"
       ? ([sql`${column} asc nulls last`, asc(tasks.id)] as const)
       : ([sql`${column} desc nulls last`, desc(tasks.id)] as const);
   }
 
-  function taskPageCursorCondition(cursor: TaskCursor): SQL {
+  function taskPageCursorCondition(cursor: TaskCursor, defsByKey: Map<string, CustomFieldRecord> = new Map()): SQL {
+    if (cursor.sortBy === "customField") {
+      const def = defsByKey.get(cursor.customFieldKey!);
+      if (!def) throw new TenantConflictError("Task cursor is invalid");
+      const col = buildCustomFieldSqlSortColumn(def, tasks.customFields);
+      const rawVal = cursor.value;
+      if (rawVal === null) {
+        return cursor.sortDirection === "asc"
+          ? sql`(${tasks.customFields}->>${def.key} is null or ${tasks.customFields}->>${def.key} = '') and ${tasks.id} > ${cursor.id}`
+          : sql`(${tasks.customFields}->>${def.key} is null or ${tasks.customFields}->>${def.key} = '') and ${tasks.id} < ${cursor.id}`;
+      }
+      let decodedValue: SQL;
+      if (def.type === "number") {
+        decodedValue = sql`${Number(rawVal)}`;
+      } else if (def.type === "date") {
+        const d = new Date(String(rawVal));
+        if (Number.isNaN(d.getTime())) throw new TenantConflictError("Task cursor is invalid");
+        decodedValue = sql`${d.toISOString()}::timestamptz`;
+      } else if (def.type === "checkbox") {
+        decodedValue = sql`${Boolean(rawVal)}`;
+      } else {
+        decodedValue = sql`${String(rawVal)}`;
+      }
+
+      return cursor.sortDirection === "asc"
+        ? sql`(${col} > ${decodedValue} or (${tasks.customFields}->>${def.key} is null or ${tasks.customFields}->>${def.key} = '') or (${col} = ${decodedValue} and ${tasks.id} > ${cursor.id}))`
+        : sql`(${col} < ${decodedValue} or (${tasks.customFields}->>${def.key} is null or ${tasks.customFields}->>${def.key} = '') or (${col} = ${decodedValue} and ${tasks.id} < ${cursor.id}))`;
+    }
+
     const column = taskPageColumn(cursor.sortBy);
     const decodedValue =
       cursor.value !== null &&
@@ -965,11 +1128,12 @@ export function createTasksRepository(context: DatabaseTenantContext) {
     getById,
 
     async list(filters: TaskListFilters = {}) {
+      const defsByKey = await loadDefinitionsForFilters(filters);
       const rows = await db
         .select()
         .from(tasks)
-        .where(and(...buildListConditions(filters)))
-        .orderBy(...taskSort(filters));
+        .where(and(...buildListConditions(filters, defsByKey)))
+        .orderBy(...taskSort(filters, defsByKey));
       return hydrateTaskRows(rows);
     },
 
@@ -977,16 +1141,17 @@ export function createTasksRepository(context: DatabaseTenantContext) {
       if (!Number.isInteger(filters.limit) || filters.limit < 1 || filters.limit > 100) {
         throw new TenantConflictError("Task page limit must be between 1 and 100");
       }
-      const conditions = buildListConditions(filters);
+      const defsByKey = await loadDefinitionsForFilters(filters);
+      const conditions = buildListConditions(filters, defsByKey);
       const countConditions = [...conditions];
       if (filters.cursor) {
-        conditions.push(taskPageCursorCondition(decodeTaskCursor(filters.cursor, filters)));
+        conditions.push(taskPageCursorCondition(decodeTaskCursor(filters.cursor, filters, defsByKey), defsByKey));
       }
       const rows = await db
         .select()
         .from(tasks)
         .where(and(...conditions))
-        .orderBy(...taskPageOrder(filters))
+        .orderBy(...taskPageOrder(filters, defsByKey))
         .limit(filters.limit + 1);
       const totals = await db
         .select({ total: count() })
@@ -996,7 +1161,8 @@ export function createTasksRepository(context: DatabaseTenantContext) {
       const pageRows = hasMore ? rows.slice(0, filters.limit) : rows;
       return {
         items: await hydrateTaskRows(pageRows),
-        nextCursor: hasMore && pageRows.length ? encodeTaskCursor(pageRows[pageRows.length - 1]!, filters) : null,
+        nextCursor:
+          hasMore && pageRows.length ? encodeTaskCursor(pageRows[pageRows.length - 1]!, filters, defsByKey) : null,
         total: totals[0]?.total ?? 0,
       };
     },

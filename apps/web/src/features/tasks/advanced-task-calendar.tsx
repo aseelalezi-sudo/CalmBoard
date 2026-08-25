@@ -234,6 +234,20 @@ export function AdvancedTaskCalendar({ ctx, calendarTimezone = "UTC" }: { ctx: V
   const statusFilter = ctx.taskFilter?.status;
   const priorityFilter = ctx.taskFilter?.priority;
   const assigneeFilter = ctx.taskFilter?.assignee || ctx.taskFilter?.assigneeId;
+  const rawCustomFieldFilters = (ctx.taskFilter as Record<string, unknown> | undefined)?.customFieldFilters;
+  const customFieldFilters = useMemo(() => {
+    if (!rawCustomFieldFilters) return undefined;
+    if (Array.isArray(rawCustomFieldFilters)) return rawCustomFieldFilters;
+    if (typeof rawCustomFieldFilters === "string") {
+      try {
+        const parsed = JSON.parse(rawCustomFieldFilters);
+        if (Array.isArray(parsed)) return parsed;
+      } catch {
+        return undefined;
+      }
+    }
+    return undefined;
+  }, [rawCustomFieldFilters]);
 
   const commonFilters: CalendarCommonFilters = useMemo(
     () => ({
@@ -241,8 +255,9 @@ export function AdvancedTaskCalendar({ ctx, calendarTimezone = "UTC" }: { ctx: V
       status: statusFilter || undefined,
       priority: priorityFilter || undefined,
       assigneeId: assigneeFilter || undefined,
+      customFieldFilters,
     }),
-    [assigneeFilter, priorityFilter, searchFilter, statusFilter],
+    [assigneeFilter, customFieldFilters, priorityFilter, searchFilter, statusFilter],
   );
 
   // Range-aware query execution with requestVersion and AbortController

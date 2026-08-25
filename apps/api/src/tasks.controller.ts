@@ -12,7 +12,7 @@ import {
   Req,
   UnauthorizedException,
 } from "@nestjs/common";
-import { createIdempotencyRepository } from "@calmboard/database";
+import { createIdempotencyRepository, type CustomFieldFilter, type CustomFieldSort } from "@calmboard/database";
 import { createTaskService } from "./task.service.js";
 import { createTaskWatcherService } from "./task-watcher.service.js";
 import { type AuthenticatedRequest } from "./auth.guard.js";
@@ -36,6 +36,7 @@ import {
   parseTaskApprovalRequest,
   parseTaskChecklists,
 } from "./task-workflow-validation.js";
+import { parseCustomFieldFiltersArray } from "./saved-view-validation.js";
 import { RequirePermission, TenantMember } from "./permission.guard.js";
 
 const taskSortFields = new Set([
@@ -104,6 +105,38 @@ function parseSortDirection(value?: string): "asc" | "desc" | undefined {
   return value;
 }
 
+function parseCustomFieldFiltersQuery(value?: string): CustomFieldFilter[] | undefined {
+  if (!value) return undefined;
+  try {
+    const parsed = JSON.parse(value);
+    return parseCustomFieldFiltersArray(parsed);
+  } catch (error) {
+    if (error instanceof BadRequestException) throw error;
+    throw new BadRequestException("customFieldFilters must be valid JSON array");
+  }
+}
+
+function parseCustomSort(fieldKey?: string, direction?: string, customSortJson?: string): CustomFieldSort | undefined {
+  if (customSortJson) {
+    try {
+      const parsed = JSON.parse(customSortJson);
+      if (typeof parsed !== "object" || !parsed) throw new Error();
+      const k = requiredString(parsed.fieldKey, "customSort.fieldKey");
+      const d = parseSortDirection(parsed.direction) ?? "asc";
+      return { fieldKey: k, direction: d };
+    } catch {
+      throw new BadRequestException("customSort must be valid JSON with fieldKey and direction");
+    }
+  }
+  if (fieldKey) {
+    return {
+      fieldKey,
+      direction: parseSortDirection(direction) ?? "asc",
+    };
+  }
+  return undefined;
+}
+
 function watcherTenantContext(
   request: AuthenticatedRequest,
   body?: JsonObject,
@@ -138,6 +171,10 @@ export class TasksController {
     @Query("calendarTo") calendarTo?: string,
     @Query("sortBy") sortBy?: string,
     @Query("sortDirection") sortDirection?: string,
+    @Query("customSortField") customSortField?: string,
+    @Query("customSortDirection") customSortDirection?: string,
+    @Query("customSort") customSort?: string,
+    @Query("customFieldFilters") customFieldFilters?: string,
     @Query("includeSubtasks") includeSubtasks?: string,
     @Query("limit") limit?: string,
     @Query("cursor") cursor?: string,
@@ -157,6 +194,8 @@ export class TasksController {
       calendarTo: calendarTo ? parseQueryDate(calendarTo, "calendarTo") : undefined,
       sortBy: parseSortBy(sortBy),
       sortDirection: parseSortDirection(sortDirection),
+      customSort: parseCustomSort(customSortField, customSortDirection, customSort),
+      customFieldFilters: parseCustomFieldFiltersQuery(customFieldFilters),
       includeSubtasks: includeSubtasks === "true",
     };
     const service = createTaskService(tenantContext(organizationId, workspaceId, actorId));

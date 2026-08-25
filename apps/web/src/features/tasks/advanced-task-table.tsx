@@ -704,6 +704,139 @@ export function AdvancedTaskTable({ ctx }: { ctx: ViewCtx }) {
         };
       });
     }
+    if (groupBy.startsWith("cf:")) {
+      const fieldKey = groupBy.slice(3);
+      const cf = ctx.customFields?.find((f) => f.key === fieldKey);
+      if (cf) {
+        if (cf.type === "single_select") {
+          const options = cf.options || [];
+          const sections = options.map((opt) => {
+            const groupRows = rows.filter((r) => r.original.customFields?.[fieldKey] === opt.value);
+            const groupTasks = groupRows.map((r) => r.original);
+            const points = groupTasks.reduce((acc, t) => acc + (t.storyPoints || 0), 0);
+            return {
+              id: opt.value,
+              label: opt.label,
+              dotColor: opt.color || "bg-indigo-500",
+              borderColor: "border-indigo-500/30 bg-indigo-500/5",
+              accentBar: opt.color || "bg-indigo-500",
+              rows: groupRows,
+              points,
+              defaultStatus: undefined,
+              defaultPriority: undefined,
+              isCustom: true,
+            };
+          });
+          const emptyRows = rows.filter(
+            (r) => !r.original.customFields?.[fieldKey] && r.original.customFields?.[fieldKey] !== 0,
+          );
+          if (emptyRows.length > 0) {
+            sections.push({
+              id: "__empty__",
+              label: ctx.t("بدون قيمة", "No value"),
+              dotColor: "bg-slate-400",
+              borderColor: "border-slate-500/30 bg-slate-500/5",
+              accentBar: "bg-slate-400",
+              rows: emptyRows,
+              points: emptyRows.reduce((acc, r) => acc + (r.original.storyPoints || 0), 0),
+              defaultStatus: undefined,
+              defaultPriority: undefined,
+              isCustom: true,
+            });
+          }
+          return sections;
+        }
+        if (cf.type === "checkbox") {
+          const trueRows = rows.filter((r) => r.original.customFields?.[fieldKey] === true);
+          const falseRows = rows.filter((r) => r.original.customFields?.[fieldKey] === false);
+          const emptyRows = rows.filter(
+            (r) => r.original.customFields?.[fieldKey] === undefined || r.original.customFields?.[fieldKey] === null,
+          );
+          const sections = [
+            {
+              id: "true",
+              label: ctx.t("مكتمل / نعم (Yes)", "Yes / True"),
+              dotColor: "bg-emerald-500",
+              borderColor: "border-emerald-500/30 bg-emerald-500/5",
+              accentBar: "bg-emerald-500",
+              rows: trueRows,
+              points: trueRows.reduce((acc, r) => acc + (r.original.storyPoints || 0), 0),
+              defaultStatus: undefined,
+              defaultPriority: undefined,
+              isCustom: true,
+            },
+            {
+              id: "false",
+              label: ctx.t("غير محدد / لا (No)", "No / False"),
+              dotColor: "bg-amber-500",
+              borderColor: "border-amber-500/30 bg-amber-500/5",
+              accentBar: "bg-amber-500",
+              rows: falseRows,
+              points: falseRows.reduce((acc, r) => acc + (r.original.storyPoints || 0), 0),
+              defaultStatus: undefined,
+              defaultPriority: undefined,
+              isCustom: true,
+            },
+          ];
+          if (emptyRows.length > 0) {
+            sections.push({
+              id: "__empty__",
+              label: ctx.t("بدون قيمة", "No value"),
+              dotColor: "bg-slate-400",
+              borderColor: "border-slate-500/30 bg-slate-500/5",
+              accentBar: "bg-slate-400",
+              rows: emptyRows,
+              points: emptyRows.reduce((acc, r) => acc + (r.original.storyPoints || 0), 0),
+              defaultStatus: undefined,
+              defaultPriority: undefined,
+              isCustom: true,
+            });
+          }
+          return sections;
+        }
+        const uniqueValues = new Set<string>();
+        for (const r of rows) {
+          const val = r.original.customFields?.[fieldKey];
+          if (val !== undefined && val !== null && val !== "") {
+            uniqueValues.add(String(val));
+          }
+        }
+        const sections = Array.from(uniqueValues).map((val) => {
+          const groupRows = rows.filter((r) => String(r.original.customFields?.[fieldKey]) === val);
+          return {
+            id: val,
+            label: val,
+            dotColor: "bg-indigo-500",
+            borderColor: "border-indigo-500/30 bg-indigo-500/5",
+            accentBar: "bg-indigo-500",
+            rows: groupRows,
+            points: groupRows.reduce((acc, r) => acc + (r.original.storyPoints || 0), 0),
+            defaultStatus: undefined,
+            defaultPriority: undefined,
+            isCustom: true,
+          };
+        });
+        const emptyRows = rows.filter((r) => {
+          const val = r.original.customFields?.[fieldKey];
+          return val === undefined || val === null || val === "";
+        });
+        if (emptyRows.length > 0) {
+          sections.push({
+            id: "__empty__",
+            label: ctx.t("بدون قيمة", "No value"),
+            dotColor: "bg-slate-400",
+            borderColor: "border-slate-500/30 bg-slate-500/5",
+            accentBar: "bg-slate-400",
+            rows: emptyRows,
+            points: emptyRows.reduce((acc, r) => acc + (r.original.storyPoints || 0), 0),
+            defaultStatus: undefined,
+            defaultPriority: undefined,
+            isCustom: true,
+          });
+        }
+        return sections;
+      }
+    }
     // Custom Groups mode
     return customGroups.map((cg) => {
       const groupRows = rows.filter((r) => cg.taskIds.includes(r.original.id));
@@ -1180,6 +1313,11 @@ export function AdvancedTaskTable({ ctx }: { ctx: ViewCtx }) {
                 <option value="status">{ctx.t("حسب الحالة (Status)", "By Status")}</option>
                 <option value="priority">{ctx.t("حسب الأولوية (Priority)", "By Priority")}</option>
                 <option value="custom">{ctx.t("مجموعات مخصصة (Custom Groups)", "Custom Groups")}</option>
+                {ctx.customFields?.map((cf) => (
+                  <option key={cf.id} value={`cf:${cf.key}`}>
+                    {ctx.t(`حقل: ${cf.name}`, `Field: ${cf.name}`)}
+                  </option>
+                ))}
               </select>
             </div>
             <button

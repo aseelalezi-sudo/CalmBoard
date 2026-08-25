@@ -3,10 +3,13 @@ import { db } from "../client.js";
 import { TenantConflictError, TenantPermissionDeniedError, TenantResourceNotFoundError } from "../errors.js";
 import { projects, savedViews, tasks, workspaces } from "../schema.js";
 import { assertWorkspaceTenantContext, type DatabaseTenantContext } from "../tenant-context.js";
+import type { CustomFieldFilter } from "../custom-field-query.js";
 
 export type SavedViewType = "board" | "list" | "table" | "calendar" | "timeline" | "workload";
 
-export type SavedViewFilters = Partial<Record<"search" | "status" | "priority" | "assignee" | "assigneeId", string>>;
+export type SavedViewFilters = Partial<Record<"search" | "status" | "priority" | "assignee" | "assigneeId", string>> & {
+  customFields?: CustomFieldFilter[];
+};
 
 export type SavedViewTableConfiguration = {
   sorting?: Array<{ id: string; desc: boolean }>;

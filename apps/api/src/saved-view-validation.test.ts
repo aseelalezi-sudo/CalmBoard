@@ -150,3 +150,30 @@ test("saved view filter validation normalizes assignee and rejects arbitrary fil
 test("saved view update validation requires at least one field", () => {
   assert.throws(() => parseUpdateSavedViewInput({}, "table"), /saved view update is empty/);
 });
+
+test("saved view validation accepts and parses customFields in filters", () => {
+  const parsed = parseSavedViewFilters({
+    status: "in_progress",
+    customFields: [
+      { fieldKey: "cf_score", operator: "greater_than_or_equal", value: 80 },
+      { fieldKey: "cf_env", operator: "contains", value: "prod" },
+    ],
+  });
+  assert.equal(parsed.status, "in_progress");
+  assert.equal(parsed.customFields?.length, 2);
+  assert.equal(parsed.customFields?.[0]?.fieldKey, "cf_env");
+  assert.equal(parsed.customFields?.[0]?.operator, "contains");
+  assert.equal(parsed.customFields?.[0]?.value, "prod");
+  assert.equal(parsed.customFields?.[1]?.fieldKey, "cf_score");
+  assert.equal(parsed.customFields?.[1]?.operator, "greater_than_or_equal");
+  assert.equal(parsed.customFields?.[1]?.value, 80);
+
+  // Rejects invalid operator in customFields
+  assert.throws(
+    () =>
+      parseSavedViewFilters({
+        customFields: [{ fieldKey: "cf_score", operator: "invalid_op", value: 10 }],
+      }),
+    /filters\.customFields\[0\]\.operator is invalid/,
+  );
+});

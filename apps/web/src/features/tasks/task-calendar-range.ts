@@ -208,6 +208,7 @@ export type CalendarCommonFilters = {
   status?: string;
   priority?: string;
   assigneeId?: string;
+  customFieldFilters?: Array<{ fieldKey: string; operator: string; value?: unknown }>;
 };
 
 export function matchesTaskFilters(

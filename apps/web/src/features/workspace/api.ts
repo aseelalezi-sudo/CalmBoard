@@ -86,6 +86,7 @@ export type TaskFilters = {
   dueTo?: string;
   calendarFrom?: string;
   calendarTo?: string;
+  customFieldFilters?: Array<{ fieldKey: string; operator: string; value?: unknown }>;
   signal?: AbortSignal;
 };
 
@@ -97,7 +98,11 @@ export function getTasks(project: Pick<Project, "id" | "organizationId" | "works
     includeSubtasks: "true",
   });
   for (const [key, value] of Object.entries(filters)) {
-    if (key !== "signal" && value !== undefined && value !== "") query.set(key, String(value));
+    if (key === "customFieldFilters" && Array.isArray(value) && value.length > 0) {
+      query.set("customFieldFilters", JSON.stringify(value));
+    } else if (key !== "signal" && key !== "customFieldFilters" && value !== undefined && value !== "") {
+      query.set(key, String(value));
+    }
   }
   return requestJson<Task[]>(
     `${apiServiceUrl("/tasks")}?${query.toString()}`,
@@ -133,6 +138,9 @@ export type TaskPageFilters = {
     | "estimatedHours"
     | "loggedHours";
   sortDirection?: "asc" | "desc";
+  customSortField?: string;
+  customSortDirection?: "asc" | "desc";
+  customFieldFilters?: Array<{ fieldKey: string; operator: string; value?: unknown }>;
 };
 
 export function getTaskPage(
@@ -147,7 +155,11 @@ export function getTaskPage(
     limit: String(filters.limit ?? 100),
   });
   for (const [key, value] of Object.entries(filters)) {
-    if (key !== "limit" && value !== undefined && value !== "") query.set(key, String(value));
+    if (key === "customFieldFilters" && Array.isArray(value) && value.length > 0) {
+      query.set("customFieldFilters", JSON.stringify(value));
+    } else if (key !== "limit" && key !== "customFieldFilters" && value !== undefined && value !== "") {
+      query.set(key, String(value));
+    }
   }
   return requestJson<TaskPage>(`${apiServiceUrl("/tasks")}?${query.toString()}`);
 }
