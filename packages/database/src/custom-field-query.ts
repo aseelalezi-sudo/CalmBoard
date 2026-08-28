@@ -325,8 +325,11 @@ export function buildCustomFieldSafeNumberSql(customFieldsColumn: SQL | any, key
   return sql`(CASE WHEN ${customFieldsColumn}->>${key} ~ '^-?[0-9]+(\.[0-9]+)?([eE][+-]?[0-9]+)?$' THEN (${customFieldsColumn}->>${key})::numeric ELSE NULL END)`;
 }
 
+export const SAFE_DATE_SQL_REGEX =
+  "^(?:[0-9]{4}-(?:(?:0[1-9]|1[0-2])-(?:0[1-9]|1[0-9]|2[0-8])|(?:0[13578]|1[02])-(?:29|30|31)|(?:0[469]|11)-(?:29|30))|(?:[0-9]{2}(?:[02468][48]|[2468]0|[13579][26])|(?:0[48]|[2468][048]|[13579][26])00)-02-29)(?:[T ](?:[01][0-9]|2[0-3]):[0-5][0-9](?::[0-5][0-9](?:\\.[0-9]+)?)?(?:Z|[+-](?:0[0-9]|1[0-4])(?::?[0-5][0-9])?)?)?$";
+
 export function buildCustomFieldSafeDateSql(customFieldsColumn: SQL | any, key: string): SQL {
-  return sql`(CASE WHEN ${customFieldsColumn}->>${key} ~ '^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])([T ]([01][0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9](\.[0-9]+)?)?(Z|[+-]([01][0-9]|2[0-3])(:?[0-5][0-9])?)?)?$' THEN (${customFieldsColumn}->>${key})::timestamptz ELSE NULL END)`;
+  return sql`(CASE WHEN ${customFieldsColumn}->>${key} ~ ${SAFE_DATE_SQL_REGEX} THEN (${customFieldsColumn}->>${key})::timestamptz ELSE NULL END)`;
 }
 
 export function buildCustomFieldSafeBooleanSql(customFieldsColumn: SQL | any, key: string): SQL {
@@ -536,12 +539,21 @@ export function evaluateTaskCustomFieldFilter(
     case "date": {
       let dateVal: number = NaN;
       if (raw instanceof Date) {
-        dateVal = raw.getTime();
+        if (!Number.isNaN(raw.getTime())) {
+          dateVal = raw.getTime();
+        }
       } else if (typeof raw === "string" && raw.trim() !== "") {
-        const parsed = new Date(raw.trim());
-        dateVal = parsed.getTime();
+        const iso = parseAndValidateIsoDate(raw.trim());
+        if (iso) {
+          dateVal = new Date(iso).getTime();
+        }
       }
-      const tgtDate = new Date(String(target)).getTime();
+      const tgtIso = typeof target === "string" ? parseAndValidateIsoDate(target.trim()) : null;
+      const tgtDate = tgtIso
+        ? new Date(tgtIso).getTime()
+        : target instanceof Date && !Number.isNaN(target.getTime())
+          ? target.getTime()
+          : NaN;
       if (Number.isNaN(dateVal) || Number.isNaN(tgtDate)) {
         return op === "not_equals";
       }

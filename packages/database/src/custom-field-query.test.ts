@@ -420,6 +420,42 @@ describe("Custom Field Query Domain - Unit Tests", () => {
         true,
       );
 
+      // Invalid calendar dates evaluate safely as not matching
+      assert.equal(
+        evaluateTaskCustomFieldFilter(
+          { release: "2026-02-30T10:00:00Z" },
+          { fieldKey: "release", operator: "equals", value: "2026-02-28T00:00:00.000Z" },
+          dateDef,
+        ),
+        false,
+      );
+      assert.equal(
+        evaluateTaskCustomFieldFilter(
+          { release: "2026-02-29" },
+          { fieldKey: "release", operator: "before", value: "2026-03-01T00:00:00.000Z" },
+          dateDef,
+        ),
+        false,
+      );
+      assert.equal(
+        evaluateTaskCustomFieldFilter(
+          { release: "2026-04-31" },
+          { fieldKey: "release", operator: "after", value: "2026-04-01T00:00:00.000Z" },
+          dateDef,
+        ),
+        false,
+      );
+
+      // Valid leap year evaluates correctly
+      assert.equal(
+        evaluateTaskCustomFieldFilter(
+          { release: "2024-02-29" },
+          { fieldKey: "release", operator: "equals", value: "2024-02-29T00:00:00.000Z" },
+          dateDef,
+        ),
+        true,
+      );
+
       // Malformed boolean
       assert.equal(
         evaluateTaskCustomFieldFilter(

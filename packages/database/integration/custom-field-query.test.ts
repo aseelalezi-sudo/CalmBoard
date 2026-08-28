@@ -1078,6 +1078,211 @@ describe("Custom Field Query, Filtering, Sorting & View Integration Tests (CB-P1
       assert.ok(highIndexDesc < lowIndexDesc);
       assert.ok(lowIndexDesc < malformedIndexDesc);
     });
+
+    it("safely handles invalid calendar dates (Feb 30, non-leap Feb 29, Apr 31, invalid time, invalid tz) in SQL filters and sorts", async () => {
+      const taskRepo = createTasksRepository({ organizationId: orgId, workspaceId: ws1Id, actorId: userId });
+
+      // Create tasks with invalid calendar dates directly injected into customFields
+      const tFeb30 = await taskRepo.create({
+        projectId: proj1Id,
+        title: "Task Feb 30",
+        status: "todo",
+      });
+      const tFeb29NonLeap = await taskRepo.create({
+        projectId: proj1Id,
+        title: "Task Feb 29 Non-Leap",
+        status: "todo",
+      });
+      const tApr31 = await taskRepo.create({
+        projectId: proj1Id,
+        title: "Task Apr 31",
+        status: "todo",
+      });
+      const tInvalidTz = await taskRepo.create({
+        projectId: proj1Id,
+        title: "Task Invalid TZ",
+        status: "todo",
+      });
+      const tInvalidTime = await taskRepo.create({
+        projectId: proj1Id,
+        title: "Task Invalid Time",
+        status: "todo",
+      });
+
+      // Valid leap year and valid standard dates
+      const tLeapYearValid = await taskRepo.create({
+        projectId: proj1Id,
+        title: "Task Valid Leap Year 2024",
+        status: "todo",
+      });
+      const tValid2026 = await taskRepo.create({
+        projectId: proj1Id,
+        title: "Task Valid 2026-08",
+        status: "todo",
+      });
+
+      await db
+        .update(tasks)
+        .set({ customFields: { cf_release_date: "2026-02-30" } })
+        .where(eq(tasks.id, tFeb30.id));
+      await db
+        .update(tasks)
+        .set({ customFields: { cf_release_date: "2026-02-29" } })
+        .where(eq(tasks.id, tFeb29NonLeap.id));
+      await db
+        .update(tasks)
+        .set({ customFields: { cf_release_date: "2026-04-31" } })
+        .where(eq(tasks.id, tApr31.id));
+      await db
+        .update(tasks)
+        .set({ customFields: { cf_release_date: "2026-08-25T12:00:00+25:00" } })
+        .where(eq(tasks.id, tInvalidTz.id));
+      await db
+        .update(tasks)
+        .set({ customFields: { cf_release_date: "2026-08-25T24:00:00Z" } })
+        .where(eq(tasks.id, tInvalidTime.id));
+      await db
+        .update(tasks)
+        .set({ customFields: { cf_release_date: "2024-02-29T12:00:00.000Z" } })
+        .where(eq(tasks.id, tLeapYearValid.id));
+      await db
+        .update(tasks)
+        .set({ customFields: { cf_release_date: "2026-08-20T00:00:00.000Z" } })
+        .where(eq(tasks.id, tValid2026.id));
+
+      // 1. Filter: equals valid leap year 2024-02-29
+      const filterLeap = await taskRepo.listPage({
+        projectId: proj1Id,
+        customFieldFilters: [{ fieldKey: "cf_release_date", operator: "equals", value: "2024-02-29T12:00:00.000Z" }],
+        limit: 50,
+      });
+      assert.equal(
+        filterLeap.items.some((t) => t.id === tLeapYearValid.id),
+        true,
+      );
+      assert.equal(
+        filterLeap.items.some((t) => t.id === tFeb30.id),
+        false,
+      );
+      assert.equal(
+        filterLeap.items.some((t) => t.id === tFeb29NonLeap.id),
+        false,
+      );
+      assert.equal(
+        filterLeap.items.some((t) => t.id === tApr31.id),
+        false,
+      );
+      assert.equal(
+        filterLeap.items.some((t) => t.id === tInvalidTz.id),
+        false,
+      );
+      assert.equal(
+        filterLeap.items.some((t) => t.id === tInvalidTime.id),
+        false,
+      );
+
+      // 2. Filter: before 2026-05-01 (should match tLeapYearValid, but none of the invalid dates)
+      const filterBeforeMay = await taskRepo.listPage({
+        projectId: proj1Id,
+        customFieldFilters: [{ fieldKey: "cf_release_date", operator: "before", value: "2026-05-01T00:00:00.000Z" }],
+        limit: 50,
+      });
+      assert.equal(
+        filterBeforeMay.items.some((t) => t.id === tLeapYearValid.id),
+        true,
+      );
+      assert.equal(
+        filterBeforeMay.items.some((t) => t.id === tFeb30.id),
+        false,
+      );
+      assert.equal(
+        filterBeforeMay.items.some((t) => t.id === tFeb29NonLeap.id),
+        false,
+      );
+      assert.equal(
+        filterBeforeMay.items.some((t) => t.id === tApr31.id),
+        false,
+      );
+      assert.equal(
+        filterBeforeMay.items.some((t) => t.id === tInvalidTz.id),
+        false,
+      );
+      assert.equal(
+        filterBeforeMay.items.some((t) => t.id === tInvalidTime.id),
+        false,
+      );
+
+      // 3. Filter: after 2026-01-01 (should match tValid2026, but none of the invalid dates)
+      const filterAfterJan = await taskRepo.listPage({
+        projectId: proj1Id,
+        customFieldFilters: [{ fieldKey: "cf_release_date", operator: "after", value: "2026-01-01T00:00:00.000Z" }],
+        limit: 50,
+      });
+      assert.equal(
+        filterAfterJan.items.some((t) => t.id === tValid2026.id),
+        true,
+      );
+      assert.equal(
+        filterAfterJan.items.some((t) => t.id === tFeb30.id),
+        false,
+      );
+      assert.equal(
+        filterAfterJan.items.some((t) => t.id === tFeb29NonLeap.id),
+        false,
+      );
+      assert.equal(
+        filterAfterJan.items.some((t) => t.id === tApr31.id),
+        false,
+      );
+      assert.equal(
+        filterAfterJan.items.some((t) => t.id === tInvalidTz.id),
+        false,
+      );
+      assert.equal(
+        filterAfterJan.items.some((t) => t.id === tInvalidTime.id),
+        false,
+      );
+
+      // 4. Date Sorting ASC: valid leap year 2024 before valid 2026, invalid dates at the end
+      const dateSortAsc = await taskRepo.listPage({
+        projectId: proj1Id,
+        customSort: { fieldKey: "cf_release_date", direction: "asc" },
+        limit: 50,
+      });
+      const leapIdxAsc = dateSortAsc.items.findIndex((t) => t.id === tLeapYearValid.id);
+      const valid2026IdxAsc = dateSortAsc.items.findIndex((t) => t.id === tValid2026.id);
+      const feb30IdxAsc = dateSortAsc.items.findIndex((t) => t.id === tFeb30.id);
+      const feb29IdxAsc = dateSortAsc.items.findIndex((t) => t.id === tFeb29NonLeap.id);
+      const apr31IdxAsc = dateSortAsc.items.findIndex((t) => t.id === tApr31.id);
+      const tzIdxAsc = dateSortAsc.items.findIndex((t) => t.id === tInvalidTz.id);
+      const timeIdxAsc = dateSortAsc.items.findIndex((t) => t.id === tInvalidTime.id);
+
+      assert.ok(leapIdxAsc >= 0 && valid2026IdxAsc >= 0);
+      assert.ok(leapIdxAsc < valid2026IdxAsc, "2024 leap date must sort before 2026 date in ASC");
+      assert.ok(valid2026IdxAsc < feb30IdxAsc, "valid date must sort before malformed Feb 30 in ASC");
+      assert.ok(valid2026IdxAsc < feb29IdxAsc, "valid date must sort before malformed Feb 29 in ASC");
+      assert.ok(valid2026IdxAsc < apr31IdxAsc, "valid date must sort before malformed Apr 31 in ASC");
+      assert.ok(valid2026IdxAsc < tzIdxAsc, "valid date must sort before invalid tz in ASC");
+      assert.ok(valid2026IdxAsc < timeIdxAsc, "valid date must sort before invalid time in ASC");
+
+      // 5. Date Sorting DESC: valid 2026 before valid leap year 2024, invalid dates at the end
+      const dateSortDesc = await taskRepo.listPage({
+        projectId: proj1Id,
+        customSort: { fieldKey: "cf_release_date", direction: "desc" },
+        limit: 50,
+      });
+      const valid2026IdxDesc = dateSortDesc.items.findIndex((t) => t.id === tValid2026.id);
+      const leapIdxDesc = dateSortDesc.items.findIndex((t) => t.id === tLeapYearValid.id);
+      const feb30IdxDesc = dateSortDesc.items.findIndex((t) => t.id === tFeb30.id);
+      const feb29IdxDesc = dateSortDesc.items.findIndex((t) => t.id === tFeb29NonLeap.id);
+      const apr31IdxDesc = dateSortDesc.items.findIndex((t) => t.id === tApr31.id);
+
+      assert.ok(valid2026IdxDesc >= 0 && leapIdxDesc >= 0);
+      assert.ok(valid2026IdxDesc < leapIdxDesc, "2026 date must sort before 2024 leap date in DESC");
+      assert.ok(leapIdxDesc < feb30IdxDesc, "2024 leap date must sort before malformed Feb 30 in DESC");
+      assert.ok(leapIdxDesc < feb29IdxDesc, "2024 leap date must sort before malformed Feb 29 in DESC");
+      assert.ok(leapIdxDesc < apr31IdxDesc, "2024 leap date must sort before malformed Apr 31 in DESC");
+    });
   });
 
   describe("Strict Sort Direction Validation", () => {
