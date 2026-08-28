@@ -820,4 +820,178 @@ describe("Custom Field Query, Filtering, Sorting & View Integration Tests (CB-P1
       assert.deepEqual(fetched.filters, saved.filters);
     });
   });
+
+  describe("Malformed Historical JSONB Resilience & Safe Sorting", () => {
+    it("safely queries and sorts tasks with malformed historical custom field data without crashing", async () => {
+      const taskRepo = createTasksRepository({ organizationId: orgId, workspaceId: ws1Id, actorId: userId });
+
+      // Create a task and inject malformed historical custom field data directly
+      const malformedTask = await taskRepo.create({
+        projectId: proj1Id,
+        title: "Task with Malformed Historical Custom Fields",
+        status: "todo",
+      });
+
+      await db
+        .update(tasks)
+        .set({
+          customFields: {
+            cf_score: "NOT_A_NUMBER",
+            cf_release_date: "INVALID_DATE_2026-99-99",
+            cf_is_blocked: "NOT_A_BOOLEAN",
+          },
+        })
+        .where(eq(tasks.id, malformedTask.id));
+
+      const validHighTask = await taskRepo.create({
+        projectId: proj1Id,
+        title: "Valid High Task",
+        status: "todo",
+        customFields: {
+          cf_score: 95,
+          cf_release_date: "2026-08-15T00:00:00.000Z",
+          cf_is_blocked: true,
+        },
+      });
+
+      const validLowTask = await taskRepo.create({
+        projectId: proj1Id,
+        title: "Valid Low Task",
+        status: "todo",
+        customFields: {
+          cf_score: 20,
+          cf_release_date: "2026-08-28T00:00:00.000Z",
+          cf_is_blocked: false,
+        },
+      });
+
+      // 1. Numeric query: score > 50 should match only validHighTask, exclude malformedTask, and not crash
+      const numGt = await taskRepo.listPage({
+        projectId: proj1Id,
+        customFieldFilters: [{ fieldKey: "cf_score", operator: "greater_than", value: 50 }],
+        limit: 50,
+      });
+      assert.equal(
+        numGt.items.some((t) => t.id === validHighTask.id),
+        true,
+      );
+      assert.equal(
+        numGt.items.some((t) => t.id === validLowTask.id),
+        false,
+      );
+      assert.equal(
+        numGt.items.some((t) => t.id === malformedTask.id),
+        false,
+      );
+
+      // 2. Numeric query: score <= 50 should match only validLowTask, exclude malformedTask, and not crash
+      const numLte = await taskRepo.listPage({
+        projectId: proj1Id,
+        customFieldFilters: [{ fieldKey: "cf_score", operator: "less_than_or_equal", value: 50 }],
+        limit: 50,
+      });
+      assert.equal(
+        numLte.items.some((t) => t.id === validLowTask.id),
+        true,
+      );
+      assert.equal(
+        numLte.items.some((t) => t.id === validHighTask.id),
+        false,
+      );
+      assert.equal(
+        numLte.items.some((t) => t.id === malformedTask.id),
+        false,
+      );
+
+      // 3. Date query: before 2026-08-20 should match only validHighTask, exclude malformedTask, and not crash
+      const dateBefore = await taskRepo.listPage({
+        projectId: proj1Id,
+        customFieldFilters: [{ fieldKey: "cf_release_date", operator: "before", value: "2026-08-20T00:00:00.000Z" }],
+        limit: 50,
+      });
+      assert.equal(
+        dateBefore.items.some((t) => t.id === validHighTask.id),
+        true,
+      );
+      assert.equal(
+        dateBefore.items.some((t) => t.id === validLowTask.id),
+        false,
+      );
+      assert.equal(
+        dateBefore.items.some((t) => t.id === malformedTask.id),
+        false,
+      );
+
+      // 4. Checkbox query: is_blocked = true should match only validHighTask, exclude malformedTask, and not crash
+      const boolTrue = await taskRepo.listPage({
+        projectId: proj1Id,
+        customFieldFilters: [{ fieldKey: "cf_is_blocked", operator: "equals", value: true }],
+        limit: 50,
+      });
+      assert.equal(
+        boolTrue.items.some((t) => t.id === validHighTask.id),
+        true,
+      );
+      assert.equal(
+        boolTrue.items.some((t) => t.id === validLowTask.id),
+        false,
+      );
+      assert.equal(
+        boolTrue.items.some((t) => t.id === malformedTask.id),
+        false,
+      );
+
+      // 5. Numeric sorting with malformed values: ASC puts validLow (20) before validHigh (95), and malformedTask at the end (NULLS LAST)
+      const numSortAsc = await taskRepo.listPage({
+        projectId: proj1Id,
+        customSort: { fieldKey: "cf_score", direction: "asc" },
+        limit: 50,
+      });
+      const lowIndexAsc = numSortAsc.items.findIndex((t) => t.id === validLowTask.id);
+      const highIndexAsc = numSortAsc.items.findIndex((t) => t.id === validHighTask.id);
+      const malformedIndexAsc = numSortAsc.items.findIndex((t) => t.id === malformedTask.id);
+      assert.ok(lowIndexAsc >= 0 && highIndexAsc >= 0 && malformedIndexAsc >= 0);
+      assert.ok(lowIndexAsc < highIndexAsc);
+      assert.ok(highIndexAsc < malformedIndexAsc);
+
+      // 6. Numeric sorting with malformed values: DESC puts validHigh (95) before validLow (20), and malformedTask at the end (NULLS LAST)
+      const numSortDesc = await taskRepo.listPage({
+        projectId: proj1Id,
+        customSort: { fieldKey: "cf_score", direction: "desc" },
+        limit: 50,
+      });
+      const highIndexDesc = numSortDesc.items.findIndex((t) => t.id === validHighTask.id);
+      const lowIndexDesc = numSortDesc.items.findIndex((t) => t.id === validLowTask.id);
+      const malformedIndexDesc = numSortDesc.items.findIndex((t) => t.id === malformedTask.id);
+      assert.ok(highIndexDesc >= 0 && lowIndexDesc >= 0 && malformedIndexDesc >= 0);
+      assert.ok(highIndexDesc < lowIndexDesc);
+      assert.ok(lowIndexDesc < malformedIndexDesc);
+    });
+  });
+
+  describe("Strict Sort Direction Validation", () => {
+    it("rejects invalid sort directions strictly with TenantConflictError", async () => {
+      const taskRepo = createTasksRepository({ organizationId: orgId, workspaceId: ws1Id, actorId: userId });
+
+      await assert.rejects(
+        () =>
+          taskRepo.listPage({
+            projectId: proj1Id,
+            customSort: { fieldKey: "cf_score", direction: "invalid" as any },
+            limit: 10,
+          }),
+        TenantConflictError,
+      );
+
+      await assert.rejects(
+        () =>
+          taskRepo.listPage({
+            projectId: proj1Id,
+            customSort: { fieldKey: "cf_score", direction: "" as any },
+            limit: 10,
+          }),
+        TenantConflictError,
+      );
+    });
+  });
 });

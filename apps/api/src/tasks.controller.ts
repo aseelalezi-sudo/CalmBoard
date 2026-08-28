@@ -122,16 +122,20 @@ function parseCustomSort(fieldKey?: string, direction?: string, customSortJson?:
       const parsed = JSON.parse(customSortJson);
       if (typeof parsed !== "object" || !parsed) throw new Error();
       const k = requiredString(parsed.fieldKey, "customSort.fieldKey");
-      const d = parseSortDirection(parsed.direction) ?? "asc";
+      const d = parseSortDirection(parsed.direction);
+      if (!d) throw new BadRequestException("customSort.direction is required and must be 'asc' or 'desc'");
       return { fieldKey: k, direction: d };
-    } catch {
+    } catch (error) {
+      if (error instanceof BadRequestException) throw error;
       throw new BadRequestException("customSort must be valid JSON with fieldKey and direction");
     }
   }
   if (fieldKey) {
+    const d = parseSortDirection(direction);
+    if (!d) throw new BadRequestException("customSortDirection is required and must be 'asc' or 'desc'");
     return {
       fieldKey,
-      direction: parseSortDirection(direction) ?? "asc",
+      direction: d,
     };
   }
   return undefined;

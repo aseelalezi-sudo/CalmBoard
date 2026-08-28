@@ -59,6 +59,7 @@ import {
   buildCustomFieldSqlCondition,
   buildCustomFieldSqlSortColumn,
   validateAndNormalizeCustomFieldFilter,
+  validateAndNormalizeCustomFieldSort,
   type CustomFieldFilter,
   type CustomFieldSort,
 } from "../custom-field-query.js";
@@ -190,8 +191,32 @@ function taskSortValue(task: TaskRecord, sort: ResolvedPageSort): string | numbe
   if (sort.isCustom) {
     const raw = (task.customFields as Record<string, unknown> | null | undefined)?.[sort.customFieldKey];
     if (raw === undefined || raw === null || raw === "") return null;
-    if (typeof raw === "number" || typeof raw === "boolean" || typeof raw === "string") return raw;
-    if (raw instanceof Date) return raw.toISOString();
+    if (sort.customFieldType === "number") {
+      if (typeof raw === "number" && Number.isFinite(raw)) return raw;
+      if (typeof raw === "string" && /^-?[0-9]+(\.[0-9]+)?([eE][+-]?[0-9]+)?$/.test(raw.trim())) {
+        const n = Number(raw.trim());
+        if (Number.isFinite(n)) return n;
+      }
+      return null;
+    }
+    if (sort.customFieldType === "date") {
+      if (raw instanceof Date && !Number.isNaN(raw.getTime())) return raw.toISOString();
+      if (typeof raw === "string" && raw.trim() !== "") {
+        const d = new Date(raw.trim());
+        if (!Number.isNaN(d.getTime())) return d.toISOString();
+      }
+      return null;
+    }
+    if (sort.customFieldType === "checkbox") {
+      if (typeof raw === "boolean") return raw;
+      if (typeof raw === "string") {
+        const l = raw.trim().toLowerCase();
+        if (l === "true" || l === "t" || l === "1") return true;
+        if (l === "false" || l === "f" || l === "0") return false;
+      }
+      return null;
+    }
+    if (typeof raw === "string") return raw;
     return String(raw);
   }
   switch (sort.sortBy) {
@@ -853,6 +878,22 @@ export function createTasksRepository(context: DatabaseTenantContext) {
         throw new TenantConflictError("Querying sensitive custom fields is not supported");
       }
     }
+    if (filters.customSort) {
+      validateAndNormalizeCustomFieldSort(filters.customSort, defsByKey, {
+        organizationId,
+        workspaceId,
+        projectId: filters.projectId,
+      });
+    }
+    if (filters.customFieldFilters) {
+      for (const f of filters.customFieldFilters) {
+        validateAndNormalizeCustomFieldFilter(f, defsByKey, {
+          organizationId,
+          workspaceId,
+          projectId: filters.projectId,
+        });
+      }
+    }
     return defsByKey;
   }
 
@@ -1007,8 +1048,8 @@ export function createTasksRepository(context: DatabaseTenantContext) {
       const rawVal = cursor.value;
       if (rawVal === null) {
         return cursor.sortDirection === "asc"
-          ? sql`(${tasks.customFields}->>${def.key} is null or ${tasks.customFields}->>${def.key} = '') and ${tasks.id} > ${cursor.id}`
-          : sql`(${tasks.customFields}->>${def.key} is null or ${tasks.customFields}->>${def.key} = '') and ${tasks.id} < ${cursor.id}`;
+          ? sql`${col} is null and ${tasks.id} > ${cursor.id}`
+          : sql`${col} is null and ${tasks.id} < ${cursor.id}`;
       }
       let decodedValue: SQL;
       if (def.type === "number") {
@@ -1024,8 +1065,8 @@ export function createTasksRepository(context: DatabaseTenantContext) {
       }
 
       return cursor.sortDirection === "asc"
-        ? sql`(${col} > ${decodedValue} or (${tasks.customFields}->>${def.key} is null or ${tasks.customFields}->>${def.key} = '') or (${col} = ${decodedValue} and ${tasks.id} > ${cursor.id}))`
-        : sql`(${col} < ${decodedValue} or (${tasks.customFields}->>${def.key} is null or ${tasks.customFields}->>${def.key} = '') or (${col} = ${decodedValue} and ${tasks.id} < ${cursor.id}))`;
+        ? sql`(${col} > ${decodedValue} or ${col} is null or (${col} = ${decodedValue} and ${tasks.id} > ${cursor.id}))`
+        : sql`(${col} < ${decodedValue} or ${col} is null or (${col} = ${decodedValue} and ${tasks.id} < ${cursor.id}))`;
     }
 
     const column = taskPageColumn(cursor.sortBy);

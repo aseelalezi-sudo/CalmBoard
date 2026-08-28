@@ -175,18 +175,10 @@ export function validateAndNormalizeCustomFilterValue(
     }
 
     case "number": {
-      let num: number;
-      if (typeof value === "number") {
-        num = value;
-      } else if (typeof value === "string" && value.trim() !== "") {
-        num = Number(value.trim());
-      } else {
-        throw new TenantConflictError(`Query value for custom field '${def.key}' must be a valid number`);
-      }
-      if (!Number.isFinite(num)) {
+      if (typeof value !== "number" || !Number.isFinite(value)) {
         throw new TenantConflictError(`Query value for custom field '${def.key}' must be a finite number`);
       }
-      return num;
+      return value;
     }
 
     case "date": {
@@ -227,15 +219,10 @@ export function validateAndNormalizeCustomFilterValue(
     }
 
     case "checkbox": {
-      if (typeof value === "boolean") {
-        return value;
+      if (typeof value !== "boolean") {
+        throw new TenantConflictError(`Query value for custom field '${def.key}' must be a boolean`);
       }
-      if (typeof value === "string") {
-        const lower = value.trim().toLowerCase();
-        if (lower === "true" || lower === "1") return true;
-        if (lower === "false" || lower === "0") return false;
-      }
-      throw new TenantConflictError(`Query value for custom field '${def.key}' must be a boolean`);
+      return value;
     }
   }
 }
@@ -267,8 +254,7 @@ export function validateAndNormalizeCustomFieldFilter(
     throw new TenantConflictError("Querying sensitive custom fields is not supported");
   }
 
-  const type = normalizeCustomFieldType(def.type);
-  const operator = validateAndNormalizeCustomFieldOperator(f.operator, type, fieldKey);
+  const operator = validateAndNormalizeCustomFieldOperator(f.operator, normalizeCustomFieldType(def.type), fieldKey);
   const value = validateAndNormalizeCustomFilterValue(def, operator, f.value);
 
   return {
@@ -305,8 +291,11 @@ export function validateAndNormalizeCustomFieldSort(
   if (def.sensitive === true) {
     throw new TenantConflictError("Querying sensitive custom fields is not supported");
   }
-  const direction = s.direction?.toLowerCase() === "desc" ? "desc" : "asc";
-  return { fieldKey, direction, definition: def };
+  const rawDirection = typeof s.direction === "string" ? s.direction.trim().toLowerCase() : "";
+  if (rawDirection !== "asc" && rawDirection !== "desc") {
+    throw new TenantConflictError("Custom field sort direction must be 'asc' or 'desc'");
+  }
+  return { fieldKey, direction: rawDirection as "asc" | "desc", definition: def };
 }
 
 export function canonicalizeCustomFieldFilters(filters?: CustomFieldFilter[]): CustomFieldFilter[] | undefined {
@@ -318,6 +307,18 @@ export function canonicalizeCustomFieldFilters(filters?: CustomFieldFilter[]): C
     if (opComp !== 0) return opComp;
     return JSON.stringify(a.value ?? null).localeCompare(JSON.stringify(b.value ?? null));
   });
+}
+
+export function buildCustomFieldSafeNumberSql(customFieldsColumn: SQL | any, key: string): SQL {
+  return sql`(CASE WHEN ${customFieldsColumn}->>${key} ~ '^-?[0-9]+(\.[0-9]+)?([eE][+-]?[0-9]+)?$' THEN (${customFieldsColumn}->>${key})::numeric ELSE NULL END)`;
+}
+
+export function buildCustomFieldSafeDateSql(customFieldsColumn: SQL | any, key: string): SQL {
+  return sql`(CASE WHEN ${customFieldsColumn}->>${key} ~ '^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])([T ]([01][0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9](\.[0-9]+)?)?(Z|[+-]([01][0-9]|2[0-3])(:?[0-5][0-9])?)?)?$' THEN (${customFieldsColumn}->>${key})::timestamptz ELSE NULL END)`;
+}
+
+export function buildCustomFieldSafeBooleanSql(customFieldsColumn: SQL | any, key: string): SQL {
+  return sql`(CASE WHEN lower(${customFieldsColumn}->>${key}) IN ('true', 't', '1') THEN true WHEN lower(${customFieldsColumn}->>${key}) IN ('false', 'f', '0') THEN false ELSE NULL END)`;
 }
 
 export function buildCustomFieldSqlCondition(
@@ -359,19 +360,20 @@ export function buildCustomFieldSqlCondition(
 
     case "number": {
       const numVal = Number(val);
+      const numCol = buildCustomFieldSafeNumberSql(customFieldsColumn, key);
       switch (op) {
         case "equals":
-          return sql`(${customFieldsColumn}->>${key})::numeric = ${numVal}`;
+          return sql`${numCol} = ${numVal}`;
         case "not_equals":
-          return sql`(${customFieldsColumn}->>${key} IS NULL OR ${customFieldsColumn}->>${key} = '' OR (${customFieldsColumn}->>${key})::numeric <> ${numVal})`;
+          return sql`(${numCol} IS NULL OR ${numCol} <> ${numVal})`;
         case "greater_than":
-          return sql`(${customFieldsColumn}->>${key})::numeric > ${numVal}`;
+          return sql`${numCol} > ${numVal}`;
         case "greater_than_or_equal":
-          return sql`(${customFieldsColumn}->>${key})::numeric >= ${numVal}`;
+          return sql`${numCol} >= ${numVal}`;
         case "less_than":
-          return sql`(${customFieldsColumn}->>${key})::numeric < ${numVal}`;
+          return sql`${numCol} < ${numVal}`;
         case "less_than_or_equal":
-          return sql`(${customFieldsColumn}->>${key})::numeric <= ${numVal}`;
+          return sql`${numCol} <= ${numVal}`;
         default:
           throw new TenantConflictError(`Unsupported operator '${op}' for number`);
       }
@@ -379,19 +381,20 @@ export function buildCustomFieldSqlCondition(
 
     case "date": {
       const dateVal = String(val);
+      const dateCol = buildCustomFieldSafeDateSql(customFieldsColumn, key);
       switch (op) {
         case "equals":
-          return sql`(${customFieldsColumn}->>${key})::timestamptz = ${dateVal}::timestamptz`;
+          return sql`${dateCol} = ${dateVal}::timestamptz`;
         case "not_equals":
-          return sql`(${customFieldsColumn}->>${key} IS NULL OR ${customFieldsColumn}->>${key} = '' OR (${customFieldsColumn}->>${key})::timestamptz <> ${dateVal}::timestamptz)`;
+          return sql`(${dateCol} IS NULL OR ${dateCol} <> ${dateVal}::timestamptz)`;
         case "before":
-          return sql`(${customFieldsColumn}->>${key})::timestamptz < ${dateVal}::timestamptz`;
+          return sql`${dateCol} < ${dateVal}::timestamptz`;
         case "after":
-          return sql`(${customFieldsColumn}->>${key})::timestamptz > ${dateVal}::timestamptz`;
+          return sql`${dateCol} > ${dateVal}::timestamptz`;
         case "on_or_before":
-          return sql`(${customFieldsColumn}->>${key})::timestamptz <= ${dateVal}::timestamptz`;
+          return sql`${dateCol} <= ${dateVal}::timestamptz`;
         case "on_or_after":
-          return sql`(${customFieldsColumn}->>${key})::timestamptz >= ${dateVal}::timestamptz`;
+          return sql`${dateCol} >= ${dateVal}::timestamptz`;
         default:
           throw new TenantConflictError(`Unsupported operator '${op}' for date`);
       }
@@ -411,11 +414,12 @@ export function buildCustomFieldSqlCondition(
 
     case "checkbox": {
       const boolVal = Boolean(val);
+      const boolCol = buildCustomFieldSafeBooleanSql(customFieldsColumn, key);
       switch (op) {
         case "equals":
-          return sql`(${customFieldsColumn}->>${key})::boolean = ${boolVal}`;
+          return sql`${boolCol} = ${boolVal}`;
         case "not_equals":
-          return sql`(${customFieldsColumn}->>${key} IS NULL OR (${customFieldsColumn}->>${key})::boolean <> ${boolVal})`;
+          return sql`(${boolCol} IS NULL OR ${boolCol} <> ${boolVal})`;
         default:
           throw new TenantConflictError(`Unsupported operator '${op}' for checkbox`);
       }
@@ -429,11 +433,11 @@ export function buildCustomFieldSqlSortColumn(def: CustomFieldRecord, customFiel
 
   switch (type) {
     case "number":
-      return sql`(${customFieldsColumn}->>${key})::numeric`;
+      return buildCustomFieldSafeNumberSql(customFieldsColumn, key);
     case "date":
-      return sql`(${customFieldsColumn}->>${key})::timestamptz`;
+      return buildCustomFieldSafeDateSql(customFieldsColumn, key);
     case "checkbox":
-      return sql`(${customFieldsColumn}->>${key})::boolean`;
+      return buildCustomFieldSafeBooleanSql(customFieldsColumn, key);
     case "short_text":
     case "url":
     case "single_select":
@@ -448,107 +452,136 @@ export function evaluateTaskCustomFieldFilter(
   def: CustomFieldRecord,
 ): boolean {
   const type = normalizeCustomFieldType(def.type);
-  const raw = customFields ? customFields[def.key] : undefined;
+  const key = def.key;
   const op = filter.operator;
+  const target = filter.value;
 
-  const isMissingOrEmpty = raw === undefined || raw === null || (typeof raw === "string" && raw.trim() === "");
+  const raw = customFields?.[key];
 
   if (op === "is_empty") {
-    return isMissingOrEmpty;
+    if (raw === undefined || raw === null) return true;
+    if (typeof raw === "string" && raw.trim() === "") return true;
+    return false;
   }
   if (op === "is_not_empty") {
-    return !isMissingOrEmpty;
-  }
-
-  if (isMissingOrEmpty) {
-    if (op === "not_equals") return true;
-    return false;
+    if (raw === undefined || raw === null) return false;
+    if (typeof raw === "string" && raw.trim() === "") return false;
+    return true;
   }
 
   switch (type) {
     case "short_text":
     case "url": {
-      const strVal = String(raw);
-      const target = String(filter.value);
+      const strVal = raw !== undefined && raw !== null ? String(raw) : "";
+      const tgtStr = target !== undefined && target !== null ? String(target) : "";
       switch (op) {
         case "equals":
-          return strVal === target;
+          return strVal === tgtStr;
         case "not_equals":
-          return strVal !== target;
+          return strVal === "" || strVal !== tgtStr;
         case "contains":
-          return strVal.toLowerCase().includes(target.toLowerCase());
+          return strVal.toLowerCase().includes(tgtStr.toLowerCase());
         case "starts_with":
-          return strVal.toLowerCase().startsWith(target.toLowerCase());
+          return strVal.toLowerCase().startsWith(tgtStr.toLowerCase());
         case "ends_with":
-          return strVal.toLowerCase().endsWith(target.toLowerCase());
+          return strVal.toLowerCase().endsWith(tgtStr.toLowerCase());
         default:
           return false;
       }
     }
 
     case "number": {
-      const numVal = Number(raw);
-      const target = Number(filter.value);
-      if (!Number.isFinite(numVal) || !Number.isFinite(target)) return false;
+      let numVal: number;
+      if (typeof raw === "number") {
+        numVal = raw;
+      } else if (typeof raw === "string" && /^-?[0-9]+(\.[0-9]+)?([eE][+-]?[0-9]+)?$/.test(raw.trim())) {
+        numVal = Number(raw.trim());
+      } else {
+        numVal = NaN;
+      }
+      const tgtNum = Number(target);
+      if (!Number.isFinite(numVal) || !Number.isFinite(tgtNum)) {
+        return op === "not_equals";
+      }
       switch (op) {
         case "equals":
-          return numVal === target;
+          return numVal === tgtNum;
         case "not_equals":
-          return numVal !== target;
+          return numVal !== tgtNum;
         case "greater_than":
-          return numVal > target;
+          return numVal > tgtNum;
         case "greater_than_or_equal":
-          return numVal >= target;
+          return numVal >= tgtNum;
         case "less_than":
-          return numVal < target;
+          return numVal < tgtNum;
         case "less_than_or_equal":
-          return numVal <= target;
+          return numVal <= tgtNum;
         default:
           return false;
       }
     }
 
     case "date": {
-      const dateVal = new Date(String(raw)).getTime();
-      const target = new Date(String(filter.value)).getTime();
-      if (Number.isNaN(dateVal) || Number.isNaN(target)) return false;
+      let dateVal: number = NaN;
+      if (raw instanceof Date) {
+        dateVal = raw.getTime();
+      } else if (typeof raw === "string" && raw.trim() !== "") {
+        const parsed = new Date(raw.trim());
+        dateVal = parsed.getTime();
+      }
+      const tgtDate = new Date(String(target)).getTime();
+      if (Number.isNaN(dateVal) || Number.isNaN(tgtDate)) {
+        return op === "not_equals";
+      }
       switch (op) {
         case "equals":
-          return dateVal === target;
+          return dateVal === tgtDate;
+        case "not_equals":
+          return dateVal !== tgtDate;
         case "before":
-          return dateVal < target;
+          return dateVal < tgtDate;
         case "after":
-          return dateVal > target;
+          return dateVal > tgtDate;
         case "on_or_before":
-          return dateVal <= target;
+          return dateVal <= tgtDate;
         case "on_or_after":
-          return dateVal >= target;
+          return dateVal >= tgtDate;
         default:
           return false;
       }
     }
 
     case "single_select": {
-      const selVal = String(raw);
-      const target = String(filter.value);
+      const selVal = raw !== undefined && raw !== null ? String(raw) : "";
+      const tgtSel = target !== undefined && target !== null ? String(target) : "";
       switch (op) {
         case "equals":
-          return selVal === target;
+          return selVal === tgtSel;
         case "not_equals":
-          return selVal !== target;
+          return selVal === "" || selVal !== tgtSel;
         default:
           return false;
       }
     }
 
     case "checkbox": {
-      const boolVal = Boolean(raw);
-      const target = Boolean(filter.value);
+      let boolVal: boolean | null = null;
+      if (typeof raw === "boolean") {
+        boolVal = raw;
+      } else if (typeof raw === "string") {
+        const lower = raw.trim().toLowerCase();
+        if (lower === "true" || lower === "t" || lower === "1") boolVal = true;
+        else if (lower === "false" || lower === "f" || lower === "0") boolVal = false;
+      }
+      const tgtBool = Boolean(target);
+      if (boolVal === null) {
+        return op === "not_equals";
+      }
       switch (op) {
         case "equals":
-          return boolVal === target;
+          return boolVal === tgtBool;
         case "not_equals":
-          return boolVal !== target;
+          return boolVal !== tgtBool;
         default:
           return false;
       }

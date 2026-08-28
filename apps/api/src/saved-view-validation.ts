@@ -64,10 +64,32 @@ export function parseCustomFieldFiltersArray(value: unknown): CustomFieldFilter[
     if (!customFieldOpsSet.has(operator)) {
       throw new BadRequestException(`filters.customFields[${index}].operator is invalid`);
     }
+    let parsedVal = entry.value;
+    if (operator === "is_empty" || operator === "is_not_empty") {
+      parsedVal = undefined;
+    } else if (typeof parsedVal === "string") {
+      const trimmed = parsedVal.trim();
+      const lower = trimmed.toLowerCase();
+      if (lower === "true") {
+        parsedVal = true;
+      } else if (lower === "false") {
+        parsedVal = false;
+      } else if (
+        operator === "greater_than" ||
+        operator === "greater_than_or_equal" ||
+        operator === "less_than" ||
+        operator === "less_than_or_equal"
+      ) {
+        if (/^-?\d+(\.\d+)?$/.test(trimmed)) {
+          const num = Number(trimmed);
+          if (Number.isFinite(num)) parsedVal = num;
+        }
+      }
+    }
     return {
       fieldKey,
       operator,
-      value: entry.value,
+      value: parsedVal,
     };
   });
 }

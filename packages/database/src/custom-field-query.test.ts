@@ -92,8 +92,9 @@ describe("Custom Field Query Domain - Unit Tests", () => {
     it("normalizes and validates number values", () => {
       const def = makeFieldRecord({ type: "number", key: "cf_score" });
       assert.equal(validateAndNormalizeCustomFilterValue(def, "equals", 42), 42);
-      assert.equal(validateAndNormalizeCustomFilterValue(def, "greater_than", "100.5"), 100.5);
+      assert.equal(validateAndNormalizeCustomFilterValue(def, "greater_than", 100.5), 100.5);
       assert.equal(validateAndNormalizeCustomFilterValue(def, "less_than", 0), 0);
+      assert.throws(() => validateAndNormalizeCustomFilterValue(def, "equals", "100.5"), TenantConflictError);
       assert.throws(() => validateAndNormalizeCustomFilterValue(def, "equals", "abc"), TenantConflictError);
       assert.throws(() => validateAndNormalizeCustomFilterValue(def, "equals", NaN), TenantConflictError);
       assert.throws(() => validateAndNormalizeCustomFilterValue(def, "equals", Infinity), TenantConflictError);
@@ -127,9 +128,48 @@ describe("Custom Field Query Domain - Unit Tests", () => {
       const def = makeFieldRecord({ type: "checkbox", key: "cf_done" });
       assert.equal(validateAndNormalizeCustomFilterValue(def, "equals", true), true);
       assert.equal(validateAndNormalizeCustomFilterValue(def, "equals", false), false);
-      assert.equal(validateAndNormalizeCustomFilterValue(def, "equals", "true"), true);
-      assert.equal(validateAndNormalizeCustomFilterValue(def, "equals", "false"), false);
+      assert.throws(() => validateAndNormalizeCustomFilterValue(def, "equals", "true"), TenantConflictError);
+      assert.throws(() => validateAndNormalizeCustomFilterValue(def, "equals", "false"), TenantConflictError);
       assert.throws(() => validateAndNormalizeCustomFilterValue(def, "equals", "maybe"), TenantConflictError);
+    });
+  });
+
+  describe("Sort validation & normalization", () => {
+    it("accepts canonical 'asc' and 'desc' directions", () => {
+      const def = makeFieldRecord({ key: "cf_num", type: "number" });
+      const defs = new Map<string, CustomFieldRecord>([["cf_num", def]]);
+      const ascSort = validateAndNormalizeCustomFieldSort({ fieldKey: "cf_num", direction: "asc" }, defs, {
+        organizationId: "org-1",
+        workspaceId: "ws-1",
+      });
+      assert.equal(ascSort.direction, "asc");
+
+      const descSort = validateAndNormalizeCustomFieldSort({ fieldKey: "cf_num", direction: "DESC" }, defs, {
+        organizationId: "org-1",
+        workspaceId: "ws-1",
+      });
+      assert.equal(descSort.direction, "desc");
+    });
+
+    it("strictly rejects invalid or missing sort direction", () => {
+      const def = makeFieldRecord({ key: "cf_num", type: "number" });
+      const defs = new Map<string, CustomFieldRecord>([["cf_num", def]]);
+      assert.throws(
+        () =>
+          validateAndNormalizeCustomFieldSort({ fieldKey: "cf_num", direction: "invalid" }, defs, {
+            organizationId: "org-1",
+            workspaceId: "ws-1",
+          }),
+        TenantConflictError,
+      );
+      assert.throws(
+        () =>
+          validateAndNormalizeCustomFieldSort({ fieldKey: "cf_num" }, defs, {
+            organizationId: "org-1",
+            workspaceId: "ws-1",
+          }),
+        TenantConflictError,
+      );
     });
   });
 
@@ -310,6 +350,74 @@ describe("Custom Field Query Domain - Unit Tests", () => {
           task,
           { fieldKey: "deadline", operator: "after", value: "2026-08-24T00:00:00Z" },
           def,
+        ),
+        true,
+      );
+    });
+
+    it("evaluates malformed stored data safely without crashing", () => {
+      const numDef = makeFieldRecord({ key: "score", type: "number" });
+      const dateDef = makeFieldRecord({ key: "release", type: "date" });
+      const boolDef = makeFieldRecord({ key: "flag", type: "checkbox" });
+
+      // Malformed number
+      assert.equal(
+        evaluateTaskCustomFieldFilter(
+          { score: "NOT_A_NUMBER" },
+          { fieldKey: "score", operator: "greater_than", value: 10 },
+          numDef,
+        ),
+        false,
+      );
+      assert.equal(
+        evaluateTaskCustomFieldFilter(
+          { score: "NOT_A_NUMBER" },
+          { fieldKey: "score", operator: "equals", value: 10 },
+          numDef,
+        ),
+        false,
+      );
+      assert.equal(
+        evaluateTaskCustomFieldFilter(
+          { score: "NOT_A_NUMBER" },
+          { fieldKey: "score", operator: "not_equals", value: 10 },
+          numDef,
+        ),
+        true,
+      );
+
+      // Malformed date
+      assert.equal(
+        evaluateTaskCustomFieldFilter(
+          { release: "NOT_A_DATE" },
+          { fieldKey: "release", operator: "before", value: "2026-08-25T00:00:00.000Z" },
+          dateDef,
+        ),
+        false,
+      );
+      assert.equal(
+        evaluateTaskCustomFieldFilter(
+          { release: "NOT_A_DATE" },
+          { fieldKey: "release", operator: "not_equals", value: "2026-08-25T00:00:00.000Z" },
+          dateDef,
+        ),
+        true,
+      );
+
+      // Malformed boolean
+      assert.equal(
+        evaluateTaskCustomFieldFilter(
+          { flag: "NOT_A_BOOLEAN" },
+          { fieldKey: "flag", operator: "equals", value: true },
+          boolDef,
+        ),
+        false,
+      );
+      assert.equal(
+        evaluateTaskCustomFieldFilter(
+          { flag: "NOT_A_BOOLEAN" },
+          { fieldKey: "flag", operator: "not_equals", value: true },
+          boolDef,
         ),
         true,
       );
