@@ -671,7 +671,7 @@ describe("Custom Field Query, Filtering, Sorting & View Integration Tests (CB-P1
       const cfRepo = createCustomFieldsRepository({ organizationId: orgId, workspaceId: ws1Id, actorId: userId });
 
       const allTasks = await taskRepo.list({ projectId: proj1Id });
-      const cfDefs = await cfRepo.list(proj1Id);
+      const cfDefs = await cfRepo.list();
       const defsByKey = new Map(cfDefs.map((d) => [d.key, d]));
 
       const testCases = [
