@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Badge, Btn, Field, Modal, ScreenHeader, ScreenState, inputCls, selectCls, selectSmCls } from "@/components/ui";
 import { IconBoard, IconFolder, IconList, IconMore, IconPlus, IconSearch } from "@/components/icons";
 import { EntityIcon } from "@/components/entity-icon";
+import { IconPicker } from "@/components/icon-picker";
 import type { Project, ViewCtx } from "@/lib/types";
 import { fmtNumber } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -721,6 +722,7 @@ function EditProjectModal({
               priority: String(form.get("priority")),
               progress,
               color: String(form.get("color")),
+              icon: String(form.get("icon") ?? project.icon ?? "folder"),
               startDate,
               endDate,
               ownerId: String(form.get("ownerId") ?? "") || null,
@@ -811,6 +813,9 @@ function EditProjectModal({
           </Field>
           <Field label={ctx.t("اللون", "Color")}>
             <input name="color" type="color" defaultValue={project.color || "#6366f1"} className="h-10 w-full" />
+          </Field>
+          <Field label={ctx.t("الأيقونة", "Icon")}>
+            <IconPicker name="icon" defaultValue={project.icon || "folder"} fallback="project" t={ctx.t} />
           </Field>
           <div className="flex items-end justify-end gap-2 sm:col-span-2">
             <Btn type="button" variant="outline" disabled={busy} onClick={onClose}>

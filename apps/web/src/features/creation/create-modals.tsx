@@ -6,6 +6,7 @@ import { PRIORITY_CONFIG, STATUS_CONFIG, fmtNumber } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Btn, Field, Modal, areaCls, inputCls, selectCls } from "@/components/ui";
 import { IconBolt, IconDoc, IconPlus, IconRocket, IconSave, IconTarget, IconUsers } from "@/components/icons";
+import { IconPicker } from "@/components/icon-picker";
 import { TaskAssigneeStack } from "@/features/tasks/task-assignee-stack";
 import { TaskAssigneePicker } from "@/features/tasks/task-assignee-picker";
 import {
@@ -16,105 +17,6 @@ import {
   createSavedViewFromForm,
   inviteMemberFromForm,
 } from "@/features/creation/operations";
-
-/* ================= Shared Emoji Selector ================= */
-
-function EmojiSelect({ name, t }: { name: string; t: (ar: string, en: string) => string }) {
-  const [open, setOpen] = useState(false);
-  const [value, setValue] = useState("🏢");
-  const containerRef = useRef<HTMLDivElement>(null);
-  const triggerRef = useRef<HTMLButtonElement>(null);
-  const EMOJIS = [
-    "🏢",
-    "🚀",
-    "💻",
-    "🔥",
-    "✨",
-    "🌟",
-    "💡",
-    "🎯",
-    "📊",
-    "📈",
-    "🛠️",
-    "⚙️",
-    "📁",
-    "📂",
-    "🎨",
-    "📝",
-    "🌐",
-    "📱",
-    "🔒",
-    "🔑",
-    "📦",
-    "📚",
-    "💼",
-    "🤝",
-  ];
-
-  useEffect(() => {
-    if (!open) return;
-    const handleClickOutside = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setOpen(false);
-        triggerRef.current?.focus();
-      }
-    };
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        setOpen(false);
-        triggerRef.current?.focus();
-      }
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    window.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-      window.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [open]);
-
-  return (
-    <div className="relative" ref={containerRef}>
-      <input type="hidden" name={name} value={value} />
-      <button
-        ref={triggerRef}
-        type="button"
-        onClick={() => setOpen(!open)}
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        aria-label={t("اختر أيقونة", "Choose an icon")}
-        className="flex h-10 w-full items-center gap-2.5 rounded-xl border border-line bg-surface px-3 transition-colors hover:bg-raised focus-ring"
-      >
-        <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-raised text-[14px]">{value}</div>
-        <span className="truncate text-[13px] text-ink-soft">{t("اختر أيقونة", "Choose an icon")}</span>
-      </button>
-
-      {open && (
-        <div className="absolute top-12 start-0 z-50 w-[min(16rem,calc(100vw-2rem))] rounded-xl border border-line bg-surface p-2 shadow-xl animate-pop">
-          <div className="grid grid-cols-6 gap-1">
-            {EMOJIS.map((emoji) => (
-              <button
-                key={emoji}
-                type="button"
-                onClick={() => {
-                  setValue(emoji);
-                  setOpen(false);
-                  triggerRef.current?.focus();
-                }}
-                className={cn(
-                  "grid h-10 w-10 place-items-center rounded-lg text-[16px] transition hover:bg-raised sm:h-9 sm:w-9",
-                  value === emoji && "bg-accent/10 text-accent font-bold",
-                )}
-              >
-                {emoji}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
 
 /* ================= Workspace Creation ================= */
 
@@ -200,8 +102,8 @@ export function NewWorkspaceModal({
               <span className="truncate text-[13px] text-ink-soft">{t("اختر اللون", "Pick a color")}</span>
             </div>
           </Field>
-          <Field label={t("الأيقونة (إيموجي)", "Icon (Emoji)")}>
-            <EmojiSelect name="icon" t={t} />
+          <Field label={t("الأيقونة", "Icon")}>
+            <IconPicker name="icon" defaultValue="briefcase" fallback="workspace" t={t} />
           </Field>
         </div>
 
@@ -539,26 +441,31 @@ export function NewProjectModal({
           </div>
         </Field>
 
-        <Field as="div" label={t("اللون المميز", "Color")}>
-          <div className="flex gap-2.5">
-            {["#6366f1", "#0ea5e9", "#10b981", "#f59e0b", "#ec4899", "#8b5cf6"].map((c) => (
-              <label key={c} className="cursor-pointer">
-                <input
-                  type="radio"
-                  name="color"
-                  value={c}
-                  disabled={submitting}
-                  defaultChecked={c === "#6366f1"}
-                  className="peer sr-only"
-                />
-                <span
-                  className="block h-8 w-8 rounded-full transition peer-checked:ring-2 peer-checked:ring-accent peer-checked:ring-offset-2"
-                  style={{ background: c }}
-                />
-              </label>
-            ))}
-          </div>
-        </Field>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <Field as="div" label={t("اللون المميز", "Color")}>
+            <div className="flex gap-2.5 items-center h-10">
+              {["#6366f1", "#0ea5e9", "#10b981", "#f59e0b", "#ec4899", "#8b5cf6"].map((c) => (
+                <label key={c} className="cursor-pointer">
+                  <input
+                    type="radio"
+                    name="color"
+                    value={c}
+                    disabled={submitting}
+                    defaultChecked={c === "#6366f1"}
+                    className="peer sr-only"
+                  />
+                  <span
+                    className="block h-7 w-7 rounded-full transition peer-checked:ring-2 peer-checked:ring-accent peer-checked:ring-offset-2"
+                    style={{ background: c }}
+                  />
+                </label>
+              ))}
+            </div>
+          </Field>
+          <Field label={t("الأيقونة", "Icon")}>
+            <IconPicker name="icon" defaultValue="folder" fallback="project" t={t} />
+          </Field>
+        </div>
 
         {error && (
           <p

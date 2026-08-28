@@ -15,6 +15,7 @@ export function createProjectFromForm(
     name: form.get("name"),
     description: form.get("description"),
     color: form.get("color") || "#6366f1",
+    icon: form.get("icon") || "folder",
     template: form.get("template") || "default",
     ...scope,
   });

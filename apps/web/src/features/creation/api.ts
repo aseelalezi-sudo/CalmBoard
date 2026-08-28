@@ -6,6 +6,7 @@ export function createProjectRecord(input: {
   description: FormDataEntryValue | null;
   color: FormDataEntryValue;
   template: FormDataEntryValue;
+  icon?: FormDataEntryValue;
   organizationId?: string;
   workspaceId?: string;
   ownerId?: string;

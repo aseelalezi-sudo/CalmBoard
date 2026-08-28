@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 const modals = readFileSync(new URL("./create-modals.tsx", import.meta.url), "utf8");
+const iconPicker = readFileSync(new URL("../../components/icon-picker.tsx", import.meta.url), "utf8");
 const taskOperations = readFileSync(new URL("../tasks/use-task-operations.ts", import.meta.url), "utf8");
 const types = readFileSync(new URL("../../lib/types.ts", import.meta.url), "utf8");
 
@@ -34,9 +35,8 @@ test("project creation is localized, failure-safe, and does not reload the appli
 });
 
 test("creation controls remain inside the viewport and restore emoji picker focus", () => {
-  assert.match(modals, /w-\[min\(16rem,calc\(100vw-2rem\)\)\]/);
-  assert.match(modals, /triggerRef\.current\?\.focus\(\)/);
-  assert.match(modals, /h-10 w-10[^"]*sm:h-9 sm:w-9/);
+  assert.match(iconPicker, /triggerRef\.current\?\.focus\(\)/);
+  assert.match(iconPicker, /grid grid-cols-6/);
   assert.match(modals, /flex flex-col-reverse gap-2[^"]*sm:flex-row/);
 });
 

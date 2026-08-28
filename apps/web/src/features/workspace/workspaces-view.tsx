@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { Btn, Field, Modal, ScreenHeader, ScreenState, inputCls } from "@/components/ui";
 import { EntityIcon } from "@/components/entity-icon";
+import { IconPicker } from "@/components/icon-picker";
 import { IconCheck, IconFolder, IconPlus, IconSearch, IconSettings, IconUsers } from "@/components/icons";
 import type { ViewCtx, Workspace } from "@/lib/types";
 
@@ -181,6 +182,7 @@ export function WorkspacesView({ ctx }: { ctx: ViewCtx }) {
                     name: String(form.get("name") ?? "").trim(),
                     description: String(form.get("description") ?? "").trim() || null,
                     color: String(form.get("color") ?? "#6366f1"),
+                    icon: String(form.get("icon") ?? workspaceToEdit.icon ?? "briefcase"),
                   },
                   workspaceToEdit,
                 );
@@ -208,14 +210,27 @@ export function WorkspacesView({ ctx }: { ctx: ViewCtx }) {
                 className={`${inputCls} h-auto py-2`}
               />
             </Field>
-            <Field label={ctx.t("اللون", "Color")}>
-              <input
-                name="color"
-                type="color"
-                defaultValue={workspaceToEdit.color || "#6366f1"}
-                className="h-10 w-full"
-              />
-            </Field>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label={ctx.t("اللون", "Color")}>
+                <div className="flex h-10 w-full items-center gap-2.5 rounded-xl border border-line bg-surface px-3">
+                  <input
+                    name="color"
+                    type="color"
+                    defaultValue={workspaceToEdit.color || "#6366f1"}
+                    className="h-5 w-5 shrink-0 cursor-pointer rounded-full border-0 bg-transparent outline-none"
+                  />
+                  <span className="truncate text-[13px] text-ink-soft">{ctx.t("اختر اللون", "Pick a color")}</span>
+                </div>
+              </Field>
+              <Field label={ctx.t("الأيقونة", "Icon")}>
+                <IconPicker
+                  name="icon"
+                  defaultValue={workspaceToEdit.icon || "briefcase"}
+                  fallback="workspace"
+                  t={ctx.t}
+                />
+              </Field>
+            </div>
             <div className="flex justify-end gap-2 pt-2">
               <Btn type="button" variant="outline" disabled={saving} onClick={() => setWorkspaceToEdit(null)}>
                 {ctx.t("إلغاء", "Cancel")}
