@@ -177,27 +177,27 @@ test("saved view validation accepts and parses customFields in filters", () => {
     /filters\.customFields\[0\]\.operator is invalid/,
   );
 
-  // Transport-level coercion to canonical types
-  const coerced = parseSavedViewFilters({
+  // Transport-level parsing preserves strings including "true" and "false"
+  const parsedTransport = parseSavedViewFilters({
     customFields: [
       { fieldKey: "cf_score", operator: "greater_than", value: "42" },
-      { fieldKey: "cf_active", operator: "equals", value: "true" },
-      { fieldKey: "cf_inactive", operator: "equals", value: "false" },
+      { fieldKey: "cf_text", operator: "equals", value: "true" },
+      { fieldKey: "cf_select", operator: "equals", value: "false" },
       { fieldKey: "cf_empty", operator: "is_empty", value: "anything" },
     ],
   });
-  const scoreFilter = coerced.customFields?.find((f) => f.fieldKey === "cf_score");
+  const scoreFilter = parsedTransport.customFields?.find((f) => f.fieldKey === "cf_score");
   assert.equal(scoreFilter?.value, 42);
   assert.equal(typeof scoreFilter?.value, "number");
 
-  const activeFilter = coerced.customFields?.find((f) => f.fieldKey === "cf_active");
-  assert.equal(activeFilter?.value, true);
-  assert.equal(typeof activeFilter?.value, "boolean");
+  const textFilter = parsedTransport.customFields?.find((f) => f.fieldKey === "cf_text");
+  assert.equal(textFilter?.value, "true");
+  assert.equal(typeof textFilter?.value, "string");
 
-  const inactiveFilter = coerced.customFields?.find((f) => f.fieldKey === "cf_inactive");
-  assert.equal(inactiveFilter?.value, false);
-  assert.equal(typeof inactiveFilter?.value, "boolean");
+  const selectFilter = parsedTransport.customFields?.find((f) => f.fieldKey === "cf_select");
+  assert.equal(selectFilter?.value, "false");
+  assert.equal(typeof selectFilter?.value, "string");
 
-  const emptyFilter = coerced.customFields?.find((f) => f.fieldKey === "cf_empty");
+  const emptyFilter = parsedTransport.customFields?.find((f) => f.fieldKey === "cf_empty");
   assert.equal(emptyFilter?.value, undefined);
 });

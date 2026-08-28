@@ -416,6 +416,117 @@ describe("Custom Field Query, Filtering, Sorting & View Integration Tests (CB-P1
         false,
       );
     });
+
+    it("preserves 'true' and 'false' strings for short_text and single_select and normalizes checkbox and number", async () => {
+      const taskRepo = createTasksRepository({ organizationId: orgId, workspaceId: ws1Id, actorId: userId });
+      const cfRepo = createCustomFieldsRepository({ organizationId: orgId, workspaceId: ws1Id, actorId: userId });
+
+      const cfSelectBool = await cfRepo.create({
+        name: "Feature Flag Select",
+        key: "cf_flag_select",
+        type: "single_select",
+        projectId: proj1Id,
+        options: [
+          { label: "Option True", value: "true" },
+          { label: "Option False", value: "false" },
+        ],
+      });
+
+      const tTextTrue = await taskRepo.create({
+        projectId: proj1Id,
+        title: "Text True Task",
+        customFields: { cf_env: "true", cf_flag_select: "false", cf_is_blocked: false, cf_score: 42 },
+      });
+      const tTextFalse = await taskRepo.create({
+        projectId: proj1Id,
+        title: "Text False Task",
+        customFields: { cf_env: "false", cf_flag_select: "true", cf_is_blocked: true, cf_score: 100 },
+      });
+
+      // A. short_text value "true"
+      const textTrueList = await taskRepo.list({
+        projectId: proj1Id,
+        customFieldFilters: [{ fieldKey: "cf_env", operator: "equals", value: "true" }],
+      });
+      assert.equal(
+        textTrueList.some((t) => t.id === tTextTrue.id),
+        true,
+      );
+      assert.equal(
+        textTrueList.some((t) => t.id === tTextFalse.id),
+        false,
+      );
+
+      // B. short_text value "false"
+      const textFalseList = await taskRepo.list({
+        projectId: proj1Id,
+        customFieldFilters: [{ fieldKey: "cf_env", operator: "equals", value: "false" }],
+      });
+      assert.equal(
+        textFalseList.some((t) => t.id === tTextFalse.id),
+        true,
+      );
+      assert.equal(
+        textFalseList.some((t) => t.id === tTextTrue.id),
+        false,
+      );
+
+      // C. single_select option value "false"
+      const selectFalseList = await taskRepo.list({
+        projectId: proj1Id,
+        customFieldFilters: [{ fieldKey: "cf_flag_select", operator: "equals", value: "false" }],
+      });
+      assert.equal(
+        selectFalseList.some((t) => t.id === tTextTrue.id),
+        true,
+      );
+      assert.equal(
+        selectFalseList.some((t) => t.id === tTextFalse.id),
+        false,
+      );
+
+      // D. single_select option value "true"
+      const selectTrueList = await taskRepo.list({
+        projectId: proj1Id,
+        customFieldFilters: [{ fieldKey: "cf_flag_select", operator: "equals", value: "true" }],
+      });
+      assert.equal(
+        selectTrueList.some((t) => t.id === tTextFalse.id),
+        true,
+      );
+      assert.equal(
+        selectTrueList.some((t) => t.id === tTextTrue.id),
+        false,
+      );
+
+      // E. checkbox value false / "false"
+      const checkFalseList = await taskRepo.list({
+        projectId: proj1Id,
+        customFieldFilters: [{ fieldKey: "cf_is_blocked", operator: "equals", value: "false" }],
+      });
+      assert.equal(
+        checkFalseList.some((t) => t.id === tTextTrue.id),
+        true,
+      );
+      assert.equal(
+        checkFalseList.some((t) => t.id === tTextFalse.id),
+        false,
+      );
+
+      // F. number value 42 / "42"
+      const numList = await taskRepo.list({
+        projectId: proj1Id,
+        customFieldFilters: [{ fieldKey: "cf_score", operator: "equals", value: "42" }],
+      });
+      assert.equal(
+        numList.some((t) => t.id === tTextTrue.id),
+        true,
+      );
+      assert.equal(
+        numList.some((t) => t.id === tTextFalse.id),
+        false,
+      );
+    });
   });
 
   describe("Additive Combined Filters", () => {

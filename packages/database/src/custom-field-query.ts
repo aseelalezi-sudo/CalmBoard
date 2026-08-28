@@ -175,10 +175,17 @@ export function validateAndNormalizeCustomFilterValue(
     }
 
     case "number": {
-      if (typeof value !== "number" || !Number.isFinite(value)) {
-        throw new TenantConflictError(`Query value for custom field '${def.key}' must be a finite number`);
+      if (typeof value === "number" && Number.isFinite(value)) {
+        return value;
       }
-      return value;
+      if (typeof value === "string") {
+        const trimmed = value.trim();
+        if (/^-?\d+(\.\d+)?$/.test(trimmed)) {
+          const num = Number(trimmed);
+          if (Number.isFinite(num)) return num;
+        }
+      }
+      throw new TenantConflictError(`Query value for custom field '${def.key}' must be a finite number`);
     }
 
     case "date": {
@@ -219,10 +226,15 @@ export function validateAndNormalizeCustomFilterValue(
     }
 
     case "checkbox": {
-      if (typeof value !== "boolean") {
-        throw new TenantConflictError(`Query value for custom field '${def.key}' must be a boolean`);
+      if (typeof value === "boolean") {
+        return value;
       }
-      return value;
+      if (typeof value === "string") {
+        const trimmed = value.trim().toLowerCase();
+        if (trimmed === "true") return true;
+        if (trimmed === "false") return false;
+      }
+      throw new TenantConflictError(`Query value for custom field '${def.key}' must be a boolean`);
     }
   }
 }

@@ -89,12 +89,21 @@ describe("Custom Field Query Domain - Unit Tests", () => {
       assert.equal(validateAndNormalizeCustomFilterValue(def, "is_not_empty", null), undefined);
     });
 
+    it("normalizes and validates short_text values preserving 'true' and 'false' strings", () => {
+      const def = makeFieldRecord({ type: "short_text", key: "cf_text" });
+      assert.equal(validateAndNormalizeCustomFilterValue(def, "equals", "true"), "true");
+      assert.equal(validateAndNormalizeCustomFilterValue(def, "equals", "false"), "false");
+      assert.equal(validateAndNormalizeCustomFilterValue(def, "equals", "hello world"), "hello world");
+      assert.throws(() => validateAndNormalizeCustomFilterValue(def, "equals", 123), TenantConflictError);
+      assert.throws(() => validateAndNormalizeCustomFilterValue(def, "equals", true), TenantConflictError);
+    });
+
     it("normalizes and validates number values", () => {
       const def = makeFieldRecord({ type: "number", key: "cf_score" });
       assert.equal(validateAndNormalizeCustomFilterValue(def, "equals", 42), 42);
       assert.equal(validateAndNormalizeCustomFilterValue(def, "greater_than", 100.5), 100.5);
       assert.equal(validateAndNormalizeCustomFilterValue(def, "less_than", 0), 0);
-      assert.throws(() => validateAndNormalizeCustomFilterValue(def, "equals", "100.5"), TenantConflictError);
+      assert.equal(validateAndNormalizeCustomFilterValue(def, "equals", "100.5"), 100.5);
       assert.throws(() => validateAndNormalizeCustomFilterValue(def, "equals", "abc"), TenantConflictError);
       assert.throws(() => validateAndNormalizeCustomFilterValue(def, "equals", NaN), TenantConflictError);
       assert.throws(() => validateAndNormalizeCustomFilterValue(def, "equals", Infinity), TenantConflictError);
@@ -110,27 +119,34 @@ describe("Custom Field Query Domain - Unit Tests", () => {
       assert.throws(() => validateAndNormalizeCustomFilterValue(def, "before", "invalid-date"), TenantConflictError);
     });
 
-    it("normalizes and validates single_select options", () => {
+    it("normalizes and validates single_select options preserving 'true' and 'false'", () => {
       const def = makeFieldRecord({
         type: "single_select",
         key: "cf_status",
         options: [
           { label: "In Review", value: "in_review" },
           { label: "Approved", value: "approved" },
+          { label: "Option True", value: "true" },
+          { label: "Option False", value: "false" },
         ],
       });
       assert.equal(validateAndNormalizeCustomFilterValue(def, "equals", "in_review"), "in_review");
       assert.equal(validateAndNormalizeCustomFilterValue(def, "equals", "Approved"), "approved");
+      assert.equal(validateAndNormalizeCustomFilterValue(def, "equals", "true"), "true");
+      assert.equal(validateAndNormalizeCustomFilterValue(def, "equals", "false"), "false");
       assert.throws(() => validateAndNormalizeCustomFilterValue(def, "equals", "rejected"), TenantConflictError);
+      assert.throws(() => validateAndNormalizeCustomFilterValue(def, "equals", true), TenantConflictError);
+      assert.throws(() => validateAndNormalizeCustomFilterValue(def, "equals", false), TenantConflictError);
     });
 
-    it("normalizes and validates checkbox values", () => {
+    it("normalizes and validates checkbox values from boolean and HTTP string", () => {
       const def = makeFieldRecord({ type: "checkbox", key: "cf_done" });
       assert.equal(validateAndNormalizeCustomFilterValue(def, "equals", true), true);
       assert.equal(validateAndNormalizeCustomFilterValue(def, "equals", false), false);
-      assert.throws(() => validateAndNormalizeCustomFilterValue(def, "equals", "true"), TenantConflictError);
-      assert.throws(() => validateAndNormalizeCustomFilterValue(def, "equals", "false"), TenantConflictError);
+      assert.equal(validateAndNormalizeCustomFilterValue(def, "equals", "true"), true);
+      assert.equal(validateAndNormalizeCustomFilterValue(def, "equals", "false"), false);
       assert.throws(() => validateAndNormalizeCustomFilterValue(def, "equals", "maybe"), TenantConflictError);
+      assert.throws(() => validateAndNormalizeCustomFilterValue(def, "equals", 123), TenantConflictError);
     });
   });
 
