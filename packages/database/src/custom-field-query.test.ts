@@ -11,6 +11,8 @@ import {
   evaluateTaskCustomFieldFilter,
   buildCustomFieldSqlCondition,
   buildCustomFieldSqlSortColumn,
+  SAFE_DATE_SQL_REGEX,
+  parseAndValidateIsoDate,
   type CustomFieldFilter,
 } from "./custom-field-query.js";
 import { TenantConflictError } from "./errors.js";
@@ -489,5 +491,90 @@ describe("Custom Field Query Domain - Unit Tests", () => {
       const sortCol = buildCustomFieldSqlSortColumn(numDef, tasks.customFields);
       assert.ok(sortCol);
     });
+  });
+
+  describe("Canonical Date Grammar & Parity", () => {
+    const safeDateRegex = new RegExp(SAFE_DATE_SQL_REGEX);
+    const dateDef = makeFieldRecord({ key: "deadline", type: "date" });
+
+    const testMatrix: Array<{
+      category: string;
+      value: string;
+      expectedValid: boolean;
+    }> = [
+      // 1. YYYY-MM-DD
+      { category: "1. YYYY-MM-DD", value: "2026-08-25", expectedValid: true },
+      // 2. ISO UTC datetime
+      { category: "2. ISO UTC datetime (with seconds)", value: "2026-08-25T10:00:00Z", expectedValid: true },
+      { category: "2. ISO UTC datetime (with millis)", value: "2026-08-25T10:00:00.000Z", expectedValid: true },
+      { category: "2. ISO UTC datetime (no seconds)", value: "2026-08-25T10:00Z", expectedValid: true },
+      // 3. ISO offset datetime
+      { category: "3. ISO offset datetime (+03:00)", value: "2026-08-25T10:00:00+03:00", expectedValid: true },
+      { category: "3. ISO offset datetime (-0500)", value: "2026-08-25T10:00:00-0500", expectedValid: true },
+      { category: "3. ISO offset datetime (no seconds)", value: "2026-08-25T10:00+02:00", expectedValid: true },
+      // 4. leap-year date
+      { category: "4. leap-year date (2024-02-29)", value: "2024-02-29", expectedValid: true },
+      { category: "4. leap-year datetime (2024-02-29T12:00:00Z)", value: "2024-02-29T12:00:00Z", expectedValid: true },
+      { category: "4. century leap-year (2000-02-29)", value: "2000-02-29", expectedValid: true },
+      // 5. non-leap Feb 29
+      { category: "5. non-leap Feb 29 (2026-02-29)", value: "2026-02-29", expectedValid: false },
+      { category: "5. non-leap century Feb 29 (1900-02-29)", value: "1900-02-29", expectedValid: false },
+      // 6. Feb 30
+      { category: "6. Feb 30 (2026-02-30)", value: "2026-02-30", expectedValid: false },
+      { category: "6. Feb 30 datetime", value: "2026-02-30T10:00:00Z", expectedValid: false },
+      // 7. Apr 31
+      { category: "7. Apr 31 (2026-04-31)", value: "2026-04-31", expectedValid: false },
+      { category: "7. Jun 31 (2026-06-31)", value: "2026-06-31", expectedValid: false },
+      // 8. datetime without timezone
+      {
+        category: "8. datetime without timezone (2026-08-25T10:00:00)",
+        value: "2026-08-25T10:00:00",
+        expectedValid: false,
+      },
+      { category: "8. datetime without timezone (no seconds)", value: "2026-08-25T10:00", expectedValid: false },
+      // 9. space-separated datetime
+      { category: "9. space-separated datetime", value: "2026-08-25 10:00:00Z", expectedValid: false },
+      { category: "9. space-separated without timezone", value: "2026-08-25 10:00:00", expectedValid: false },
+      // 10. invalid timezone
+      { category: "10. invalid timezone (+25:00)", value: "2026-08-25T12:00:00+25:00", expectedValid: false },
+      { category: "10. invalid timezone (+05:99)", value: "2026-08-25T12:00:00+05:99", expectedValid: false },
+      // 11. invalid time
+      { category: "11. invalid hour (24:00)", value: "2026-08-25T24:00:00Z", expectedValid: false },
+      { category: "11. invalid minute (12:60)", value: "2026-08-25T12:60:00Z", expectedValid: false },
+      { category: "11. invalid second (12:00:60)", value: "2026-08-25T12:00:60Z", expectedValid: false },
+      // Extra invalid inputs (slash / locale / garbage)
+      { category: "Extra. slash date", value: "08/25/2026", expectedValid: false },
+      { category: "Extra. month 13", value: "2026-13-01", expectedValid: false },
+      { category: "Extra. day 00", value: "2026-08-00", expectedValid: false },
+    ];
+
+    for (const item of testMatrix) {
+      it(`enforces unified grammar for [${item.category}]: "${item.value}"`, () => {
+        const inMemoryResult = parseAndValidateIsoDate(item.value);
+        const sqlRegexMatches = safeDateRegex.test(item.value);
+
+        assert.equal(
+          inMemoryResult !== null,
+          item.expectedValid,
+          `In-memory parseAndValidateIsoDate() expected ${item.expectedValid} for "${item.value}"`,
+        );
+        assert.equal(
+          sqlRegexMatches,
+          item.expectedValid,
+          `SQL regex SAFE_DATE_SQL_REGEX expected ${item.expectedValid} for "${item.value}"`,
+        );
+
+        // Filter evaluation parity:
+        // When value is invalid, equality to a valid date must evaluate false
+        const filterEvalEquals = evaluateTaskCustomFieldFilter(
+          { deadline: item.value },
+          { fieldKey: "deadline", operator: "equals", value: "2026-08-25T00:00:00.000Z" },
+          dateDef,
+        );
+        if (!item.expectedValid) {
+          assert.equal(filterEvalEquals, false, `Malformed date "${item.value}" must not falsely match equals filter`);
+        }
+      });
+    }
   });
 });

@@ -111,11 +111,11 @@ export type ValidateTaskCustomFieldsOptions = {
   existingCustomFields?: Record<string, unknown> | null;
 };
 
-const ISO_DATE_ONLY_REGEX = /^(\d{4})-(\d{2})-(\d{2})$/;
-const ISO_DATETIME_REGEX =
+export const ISO_DATE_ONLY_REGEX = /^(\d{4})-(\d{2})-(\d{2})$/;
+export const ISO_DATETIME_REGEX =
   /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,9}))?)?(?:Z|([+-]\d{2}(?::?\d{2})?))$/i;
 
-function parseAndValidateIsoDate(trimmed: string): string | null {
+export function parseAndValidateIsoDate(trimmed: string): string | null {
   const dateOnlyMatch = ISO_DATE_ONLY_REGEX.exec(trimmed);
   if (dateOnlyMatch) {
     const year = Number(dateOnlyMatch[1]);

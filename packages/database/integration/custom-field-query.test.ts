@@ -1283,6 +1283,93 @@ describe("Custom Field Query, Filtering, Sorting & View Integration Tests (CB-P1
       assert.ok(leapIdxDesc < feb29IdxDesc, "2024 leap date must sort before malformed Feb 29 in DESC");
       assert.ok(leapIdxDesc < apr31IdxDesc, "2024 leap date must sort before malformed Apr 31 in DESC");
     });
+
+    it("guarantees 100% SQL and in-memory parity across all 11 date grammar categories", async () => {
+      const taskRepo = createTasksRepository({ organizationId: orgId, workspaceId: ws1Id, actorId: userId });
+      const cfRepo = createCustomFieldsRepository({ organizationId: orgId, workspaceId: ws1Id, actorId: userId });
+      const cfDefs = await cfRepo.list();
+      const dateDef = cfDefs.find((d) => d.key === "cf_release_date")!;
+
+      const testDateItems = [
+        { label: "1. YYYY-MM-DD", val: "2026-08-25", expectedValid: true },
+        { label: "2. ISO UTC datetime", val: "2026-08-25T10:00:00Z", expectedValid: true },
+        { label: "3. ISO offset datetime", val: "2026-08-25T10:00:00+03:00", expectedValid: true },
+        { label: "4. leap-year date", val: "2024-02-29T12:00:00Z", expectedValid: true },
+        { label: "5. non-leap Feb 29", val: "2026-02-29", expectedValid: false },
+        { label: "6. Feb 30", val: "2026-02-30", expectedValid: false },
+        { label: "7. Apr 31", val: "2026-04-31", expectedValid: false },
+        { label: "8. datetime without timezone", val: "2026-08-25T10:00:00", expectedValid: false },
+        { label: "9. space-separated datetime", val: "2026-08-25 10:00:00Z", expectedValid: false },
+        { label: "10. invalid timezone", val: "2026-08-25T12:00:00+25:00", expectedValid: false },
+        { label: "11. invalid time", val: "2026-08-25T24:00:00Z", expectedValid: false },
+      ];
+
+      const createdTaskMap = new Map<string, string>();
+      for (const item of testDateItems) {
+        const created = await taskRepo.create({
+          projectId: proj1Id,
+          title: `DateParityTask: ${item.label}`,
+          status: "todo",
+        });
+        await db
+          .update(tasks)
+          .set({ customFields: { cf_release_date: item.val } })
+          .where(eq(tasks.id, created.id));
+        createdTaskMap.set(item.label, created.id);
+      }
+
+      const allTasks = await taskRepo.list({ projectId: proj1Id });
+
+      const filterQueries = [
+        { fieldKey: "cf_release_date", operator: "equals" as const, value: "2026-08-25T10:00:00.000Z" },
+        { fieldKey: "cf_release_date", operator: "equals" as const, value: "2024-02-29T12:00:00.000Z" },
+        { fieldKey: "cf_release_date", operator: "before" as const, value: "2026-09-01T00:00:00.000Z" },
+        { fieldKey: "cf_release_date", operator: "after" as const, value: "2026-01-01T00:00:00.000Z" },
+        { fieldKey: "cf_release_date", operator: "on_or_before" as const, value: "2026-08-25T10:00:00.000Z" },
+        { fieldKey: "cf_release_date", operator: "on_or_after" as const, value: "2026-08-25T00:00:00.000Z" },
+        { fieldKey: "cf_release_date", operator: "is_empty" as const },
+        { fieldKey: "cf_release_date", operator: "is_not_empty" as const },
+      ];
+
+      for (const query of filterQueries) {
+        const expectedIds = allTasks
+          .filter((t) => evaluateTaskCustomFieldFilter(t.customFields as any, query, dateDef))
+          .map((t) => t.id)
+          .sort();
+
+        const sqlPage = await taskRepo.listPage({
+          projectId: proj1Id,
+          customFieldFilters: [query],
+          limit: 100,
+        });
+        const sqlIds = sqlPage.items.map((t) => t.id).sort();
+
+        assert.deepEqual(
+          sqlIds,
+          expectedIds,
+          `Parity mismatch on date query ${query.operator} value=${query.value}: SQL=[${sqlIds}], Evaluator=[${expectedIds}]`,
+        );
+      }
+
+      // Verify no invalid date task falsely matches comparison operators
+      for (const item of testDateItems) {
+        if (!item.expectedValid) {
+          const taskId = createdTaskMap.get(item.label)!;
+          const matchingTasks = await taskRepo.listPage({
+            projectId: proj1Id,
+            customFieldFilters: [
+              { fieldKey: "cf_release_date", operator: "before", value: "2099-01-01T00:00:00.000Z" },
+            ],
+            limit: 100,
+          });
+          assert.equal(
+            matchingTasks.items.some((t) => t.id === taskId),
+            false,
+            `Malformed item ${item.label} ("${item.val}") must NOT match 'before' filter`,
+          );
+        }
+      }
+    });
   });
 
   describe("Strict Sort Direction Validation", () => {

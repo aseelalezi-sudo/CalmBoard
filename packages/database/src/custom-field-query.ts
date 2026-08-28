@@ -3,9 +3,12 @@ import { TenantConflictError } from "./errors.js";
 import type { CustomFieldOption, CustomFieldRecord } from "./repositories/custom-fields.js";
 import {
   normalizeCustomFieldType,
+  parseAndValidateIsoDate,
   validateCustomFieldKey,
   type SupportedCustomFieldType,
 } from "./custom-field-contract.js";
+
+export { parseAndValidateIsoDate };
 
 export const CUSTOM_FIELD_OPERATORS = [
   "equals",
@@ -55,72 +58,6 @@ export type CustomFieldSort = {
   fieldKey: string;
   direction: "asc" | "desc";
 };
-
-const ISO_DATE_ONLY_REGEX = /^(\d{4})-(\d{2})-(\d{2})$/;
-const ISO_DATETIME_REGEX =
-  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,9}))?)?(?:Z|([+-]\d{2}(?::?\d{2})?))$/i;
-
-function parseAndValidateIsoDate(trimmed: string): string | null {
-  const dateOnlyMatch = ISO_DATE_ONLY_REGEX.exec(trimmed);
-  if (dateOnlyMatch) {
-    const year = Number(dateOnlyMatch[1]);
-    const month = Number(dateOnlyMatch[2]);
-    const day = Number(dateOnlyMatch[3]);
-    if (month < 1 || month > 12 || day < 1 || day > 31) {
-      return null;
-    }
-    const parsed = new Date(`${dateOnlyMatch[1]}-${dateOnlyMatch[2]}-${dateOnlyMatch[3]}T00:00:00.000Z`);
-    if (
-      Number.isNaN(parsed.getTime()) ||
-      parsed.getUTCFullYear() !== year ||
-      parsed.getUTCMonth() + 1 !== month ||
-      parsed.getUTCDate() !== day
-    ) {
-      return null;
-    }
-    return parsed.toISOString();
-  }
-
-  const datetimeMatch = ISO_DATETIME_REGEX.exec(trimmed);
-  if (datetimeMatch) {
-    const year = Number(datetimeMatch[1]);
-    const month = Number(datetimeMatch[2]);
-    const day = Number(datetimeMatch[3]);
-    const hours = Number(datetimeMatch[4]);
-    const minutes = Number(datetimeMatch[5]);
-    const seconds = datetimeMatch[6] !== undefined ? Number(datetimeMatch[6]) : 0;
-    if (
-      month < 1 ||
-      month > 12 ||
-      day < 1 ||
-      day > 31 ||
-      hours < 0 ||
-      hours > 23 ||
-      minutes < 0 ||
-      minutes > 59 ||
-      seconds < 0 ||
-      seconds > 59
-    ) {
-      return null;
-    }
-    const calTest = new Date(`${datetimeMatch[1]}-${datetimeMatch[2]}-${datetimeMatch[3]}T00:00:00.000Z`);
-    if (
-      Number.isNaN(calTest.getTime()) ||
-      calTest.getUTCFullYear() !== year ||
-      calTest.getUTCMonth() + 1 !== month ||
-      calTest.getUTCDate() !== day
-    ) {
-      return null;
-    }
-    const parsed = new Date(trimmed);
-    if (Number.isNaN(parsed.getTime())) {
-      return null;
-    }
-    return parsed.toISOString();
-  }
-
-  return null;
-}
 
 export function validateAndNormalizeCustomFieldOperator(
   rawOperator: unknown,
@@ -326,7 +263,7 @@ export function buildCustomFieldSafeNumberSql(customFieldsColumn: SQL | any, key
 }
 
 export const SAFE_DATE_SQL_REGEX =
-  "^(?:[0-9]{4}-(?:(?:0[1-9]|1[0-2])-(?:0[1-9]|1[0-9]|2[0-8])|(?:0[13578]|1[02])-(?:29|30|31)|(?:0[469]|11)-(?:29|30))|(?:[0-9]{2}(?:[02468][48]|[2468]0|[13579][26])|(?:0[48]|[2468][048]|[13579][26])00)-02-29)(?:[T ](?:[01][0-9]|2[0-3]):[0-5][0-9](?::[0-5][0-9](?:\\.[0-9]+)?)?(?:Z|[+-](?:0[0-9]|1[0-4])(?::?[0-5][0-9])?)?)?$";
+  "^(?:[0-9]{4}-(?:(?:0[1-9]|1[0-2])-(?:0[1-9]|1[0-9]|2[0-8])|(?:0[13578]|1[02])-(?:29|30|31)|(?:0[469]|11)-(?:29|30))|(?:[0-9]{2}(?:[02468][48]|[2468]0|[13579][26])|(?:0[48]|[2468][048]|[13579][26])00)-02-29)(?:[Tt](?:[01][0-9]|2[0-3]):[0-5][0-9](?::[0-5][0-9](?:\\.[0-9]{1,9})?)?(?:[Zz]|[+-](?:0[0-9]|1[0-4])(?::?[0-5][0-9])?))?$";
 
 export function buildCustomFieldSafeDateSql(customFieldsColumn: SQL | any, key: string): SQL {
   return sql`(CASE WHEN ${customFieldsColumn}->>${key} ~ ${SAFE_DATE_SQL_REGEX} THEN (${customFieldsColumn}->>${key})::timestamptz ELSE NULL END)`;
