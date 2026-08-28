@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { cn } from "@/lib/utils";
 import { Project, Workspace, Organization } from "@/lib/types";
 import { IconFolder, IconSearch, IconPlus, IconCheck, IconChevron } from "@/components/icons";
+import { EntityIcon } from "@/components/entity-icon";
 
 type ProjectSwitcherDropdownProps = {
   activeOrg: Organization | null;
@@ -43,17 +44,13 @@ export function ProjectSwitcherDropdown({
     (p: Project) => {
       switchProject(p);
       setOpen(false);
-      triggerRef.current?.focus();
+      setSearch("");
     },
     [switchProject],
   );
 
   useEffect(() => {
-    if (!open) {
-      setSearch("");
-      setFocusedIndex(0);
-      return;
-    }
+    if (!open) return;
 
     const handleClickOutside = (e: MouseEvent) => {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
@@ -128,13 +125,7 @@ export function ProjectSwitcherDropdown({
             className="relative grid h-8 w-8 shrink-0 place-items-center rounded-xl text-white shadow-sm ring-1 ring-white/20 dark:ring-white/10 overflow-hidden"
             style={{ background: activeProject?.color || activeWorkspace?.color || "#6366f1" }}
           >
-            {activeProject?.icon ? (
-              <span className="text-[14px] truncate px-1 max-w-full text-center">
-                {activeProject.icon.length > 3 ? activeProject.icon.substring(0, 2) : activeProject.icon}
-              </span>
-            ) : (
-              <IconFolder size={14} />
-            )}
+            <EntityIcon value={activeProject?.icon} fallback="project" size={14} />
           </span>
         </div>
         <div className="min-w-0 flex-1">
@@ -206,13 +197,7 @@ export function ProjectSwitcherDropdown({
                     className="grid h-6 w-6 shrink-0 place-items-center rounded-md text-white text-[12px] shadow-sm ring-1 ring-black/10 dark:ring-white/10 overflow-hidden"
                     style={{ background: p.color || "#6366f1" }}
                   >
-                    {p.icon ? (
-                      <span className="truncate px-1 text-[11px] max-w-full text-center">
-                        {p.icon.length > 3 ? p.icon.substring(0, 2) : p.icon}
-                      </span>
-                    ) : (
-                      <IconFolder size={12} />
-                    )}
+                    <EntityIcon value={p.icon} fallback="project" size={12} />
                   </span>
                   <span className="truncate flex-1">{p.name}</span>
                   {activeProject?.id === p.id && <IconCheck size={14} className="text-accent shrink-0" />}

@@ -8,6 +8,12 @@ describe("stored entity icons", () => {
     assert.equal(resolveEntityIcon("briefcase", "workspace").type, "named");
     assert.equal(resolveEntityIcon("file_text", "document").type, "named");
     assert.equal(resolveEntityIcon("code-2", "project").type, "named");
+    assert.equal(resolveEntityIcon("megaphone", "project").type, "named");
+    assert.equal(resolveEntityIcon("smartphone", "project").type, "named");
+    assert.equal(resolveEntityIcon("trending-up", "project").type, "named");
+    assert.equal(resolveEntityIcon("palette", "project").type, "named");
+    assert.equal(resolveEntityIcon("map", "project").type, "named");
+    assert.equal(resolveEntityIcon("bell", "project").type, "named");
   });
 
   it("keeps emoji values and replaces unknown textual names", () => {

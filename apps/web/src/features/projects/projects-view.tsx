@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Badge, Btn, Field, Modal, ScreenHeader, ScreenState, inputCls, selectCls, selectSmCls } from "@/components/ui";
 import { IconBoard, IconFolder, IconList, IconMore, IconPlus, IconSearch } from "@/components/icons";
+import { EntityIcon } from "@/components/entity-icon";
 import type { Project, ViewCtx } from "@/lib/types";
 import { fmtNumber } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -44,12 +45,7 @@ function progressLabel(project: Project, locale: ViewCtx["locale"]) {
 }
 
 function projectIcon(project: Project, size = 16) {
-  if (!project.icon || project.icon === "folder") return <IconFolder size={size} />;
-  return (
-    <span className="max-w-full truncate px-0.5 leading-none" style={{ fontSize: size }}>
-      {project.icon}
-    </span>
-  );
+  return <EntityIcon value={project.icon} fallback="project" size={size} />;
 }
 
 function ProjectIconTile({ project, size = 18 }: { project: Project; size?: number }) {

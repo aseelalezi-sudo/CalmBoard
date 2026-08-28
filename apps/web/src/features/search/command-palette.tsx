@@ -17,6 +17,7 @@ import {
   IconSparkle,
   IconUsers,
 } from "@/components/icons";
+import { EntityIcon } from "@/components/entity-icon";
 import type { SearchScope } from "./api";
 import { useCommandSearch } from "./use-command-search";
 
@@ -147,7 +148,7 @@ export function CommandPalette({
                     className="grid h-7 w-7 place-items-center rounded-lg text-white"
                     style={{ background: project.color || "#6366f1" }}
                   >
-                    <IconFolder size={12} />
+                    <EntityIcon value={project.icon} fallback="project" size={12} />
                   </span>
                   <span className="text-[13px] text-slate-700 dark:text-zinc-300">{project.name}</span>
                 </button>
@@ -203,7 +204,7 @@ export function CommandPalette({
                     className="grid h-7 w-7 place-items-center rounded-lg text-white"
                     style={{ background: project.color || "#6366f1" }}
                   >
-                    <IconFolder size={12} />
+                    <EntityIcon value={project.icon} fallback="project" size={12} />
                   </span>
                   <span className="truncate text-[13px] text-slate-800 dark:text-zinc-200">{project.name}</span>
                 </button>
@@ -220,7 +221,7 @@ export function CommandPalette({
                   className={resultButtonClass}
                 >
                   <span className="grid h-7 w-7 place-items-center rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-600 dark:border-indigo-500/20 dark:bg-indigo-500/10 dark:text-indigo-300">
-                    {document.icon || <IconDoc size={13} />}
+                    <EntityIcon value={document.icon} fallback="document" size={13} />
                   </span>
                   <span className="truncate text-[13px] text-slate-800 dark:text-zinc-200">{document.title}</span>
                 </button>

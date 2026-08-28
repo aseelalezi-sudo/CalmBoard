@@ -7,6 +7,7 @@ import { Btn, Card, Modal, ScreenHeader, ScreenState, SectionTitle, selectCls } 
 import { confirmAction } from "@/components/feedback";
 import { TiptapEditor } from "@/components/tiptap-editor";
 import { IconChevron, IconClock, IconDoc, IconLock, IconPlus, IconRotateCw, IconSparkle } from "@/components/icons";
+import { EntityIcon } from "@/components/entity-icon";
 import { useDocumentVersions } from "@/features/docs/use-document-versions";
 import { documentTaskTitle } from "@/features/docs/document-content";
 import { flattenDocumentTree } from "@/features/docs/document-tree";
@@ -84,7 +85,7 @@ export function DocsView({ ctx }: { ctx: ViewCtx }) {
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line bg-raised/60 px-5 py-3.5">
           <div className="flex min-w-0 flex-1 items-center gap-3">
             <span className="grid h-9 w-9 place-items-center rounded-xl border border-line bg-surface text-[16px] shadow-sm">
-              {doc.icon}
+              <EntityIcon value={doc.icon} fallback="document" size={16} />
             </span>
             <input
               name="doc-title-input"
@@ -496,7 +497,7 @@ export function DocsView({ ctx }: { ctx: ViewCtx }) {
             style={{ paddingInlineStart: `${16 + Math.min(depth, 9) * 24}px` }}
           >
             <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-line bg-accent/10 text-[18px]">
-              {d.icon}
+              <EntityIcon value={d.icon} fallback="document" size={18} />
             </span>
             <div className="min-w-0 flex-1">
               <div className="truncate text-[14px] font-semibold text-ink group-hover:text-accent">{d.title}</div>
