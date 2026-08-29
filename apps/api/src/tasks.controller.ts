@@ -12,7 +12,14 @@ import {
   Req,
   UnauthorizedException,
 } from "@nestjs/common";
-import { createIdempotencyRepository, type CustomFieldFilter, type CustomFieldSort } from "@calmboard/database";
+import {
+  createIdempotencyRepository,
+  type CustomFieldFilter,
+  type CustomFieldSort,
+  type AdvancedFilterNode,
+  validateAndNormalizeAdvancedFilterAst,
+  canonicalizeAdvancedFilterAst,
+} from "@calmboard/database";
 import { createTaskService } from "./task.service.js";
 import { createTaskWatcherService } from "./task-watcher.service.js";
 import { type AuthenticatedRequest } from "./auth.guard.js";
@@ -116,6 +123,18 @@ function parseCustomFieldFiltersQuery(value?: string): CustomFieldFilter[] | und
   }
 }
 
+function parseAdvancedFilterQuery(value?: string): AdvancedFilterNode | undefined {
+  if (!value) return undefined;
+  try {
+    const parsed = JSON.parse(value);
+    const normalized = validateAndNormalizeAdvancedFilterAst(parsed);
+    return canonicalizeAdvancedFilterAst(normalized);
+  } catch (error) {
+    if (error instanceof BadRequestException) throw error;
+    throw new BadRequestException(error instanceof Error ? error.message : "advancedFilter must be valid JSON AST");
+  }
+}
+
 function parseCustomSort(fieldKey?: string, direction?: string, customSortJson?: string): CustomFieldSort | undefined {
   if (customSortJson) {
     try {
@@ -179,6 +198,8 @@ export class TasksController {
     @Query("customSortDirection") customSortDirection?: string,
     @Query("customSort") customSort?: string,
     @Query("customFieldFilters") customFieldFilters?: string,
+    @Query("advancedFilter") advancedFilter?: string,
+    @Query("filterAst") filterAst?: string,
     @Query("includeSubtasks") includeSubtasks?: string,
     @Query("limit") limit?: string,
     @Query("cursor") cursor?: string,
@@ -200,6 +221,7 @@ export class TasksController {
       sortDirection: parseSortDirection(sortDirection),
       customSort: parseCustomSort(customSortField, customSortDirection, customSort),
       customFieldFilters: parseCustomFieldFiltersQuery(customFieldFilters),
+      advancedFilter: parseAdvancedFilterQuery(advancedFilter ?? filterAst),
       includeSubtasks: includeSubtasks === "true",
     };
     const service = createTaskService(tenantContext(organizationId, workspaceId, actorId));

@@ -4,11 +4,13 @@ import { TenantConflictError, TenantPermissionDeniedError, TenantResourceNotFoun
 import { projects, savedViews, tasks, workspaces } from "../schema.js";
 import { assertWorkspaceTenantContext, type DatabaseTenantContext } from "../tenant-context.js";
 import type { CustomFieldFilter } from "../custom-field-query.js";
+import { canonicalizeAdvancedFilterAst, type AdvancedFilterNode } from "../advanced-filter.js";
 
 export type SavedViewType = "board" | "list" | "table" | "calendar" | "timeline" | "workload";
 
 export type SavedViewFilters = Partial<Record<"search" | "status" | "priority" | "assignee" | "assigneeId", string>> & {
   customFields?: CustomFieldFilter[];
+  advancedFilter?: AdvancedFilterNode;
 };
 
 export type SavedViewTableConfiguration = {
@@ -66,12 +68,20 @@ export function canonicalizeValue(value: unknown): unknown {
   if (value === null || value === undefined) return value;
   if (Array.isArray(value)) return value.map(canonicalizeValue);
   if (typeof value === "object") {
-    const sortedKeys = Object.keys(value as Record<string, unknown>).sort();
+    const obj = value as Record<string, unknown>;
+    if ((obj.kind === "group" || obj.kind === "predicate") && ("operator" in obj || "field" in obj)) {
+      return canonicalizeAdvancedFilterAst(obj as any);
+    }
+    const sortedKeys = Object.keys(obj).sort();
     const result: Record<string, unknown> = {};
     for (const key of sortedKeys) {
-      const v = (value as Record<string, unknown>)[key];
+      const v = obj[key];
       if (v !== undefined) {
-        result[key] = canonicalizeValue(v);
+        if (key === "advancedFilter" && v && typeof v === "object") {
+          result[key] = canonicalizeAdvancedFilterAst(v as any);
+        } else {
+          result[key] = canonicalizeValue(v);
+        }
       }
     }
     return result;

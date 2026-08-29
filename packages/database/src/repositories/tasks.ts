@@ -63,6 +63,12 @@ import {
   type CustomFieldFilter,
   type CustomFieldSort,
 } from "../custom-field-query.js";
+import {
+  extractCustomFieldKeysFromAst,
+  validateAndNormalizeAdvancedFilterAst,
+  buildAdvancedFilterSql,
+  type AdvancedFilterNode,
+} from "../advanced-filter.js";
 import type { CustomFieldRecord } from "./custom-fields.js";
 
 export type TaskRecord = typeof tasks.$inferSelect;
@@ -135,6 +141,7 @@ export type TaskListFilters = {
   sortDirection?: "asc" | "desc";
   customSort?: CustomFieldSort;
   customFieldFilters?: CustomFieldFilter[];
+  advancedFilter?: AdvancedFilterNode;
   includeSubtasks?: boolean;
 };
 
@@ -844,6 +851,11 @@ export function createTasksRepository(context: DatabaseTenantContext) {
         if (f.fieldKey) referencedKeys.add(f.fieldKey);
       }
     }
+    if (filters.advancedFilter) {
+      for (const key of extractCustomFieldKeysFromAst(filters.advancedFilter)) {
+        referencedKeys.add(key);
+      }
+    }
     if (referencedKeys.size === 0) {
       return new Map<string, CustomFieldRecord>();
     }
@@ -894,30 +906,19 @@ export function createTasksRepository(context: DatabaseTenantContext) {
         });
       }
     }
+    if (filters.advancedFilter) {
+      validateAndNormalizeAdvancedFilterAst(filters.advancedFilter, defsByKey, {
+        organizationId,
+        workspaceId,
+        projectId: filters.projectId,
+      });
+    }
     return defsByKey;
   }
 
   function buildListConditions(filters: TaskListFilters, defsByKey: Map<string, CustomFieldRecord> = new Map()) {
     const conditions: SQL[] = [tenantScope, isNull(tasks.deletedAt)];
     if (filters.projectId) conditions.push(eq(tasks.projectId, filters.projectId));
-    if (filters.status) conditions.push(eq(tasks.status, filters.status));
-    if (filters.priority) conditions.push(eq(tasks.priority, filters.priority));
-    if (filters.sectionId) conditions.push(eq(tasks.sectionId, filters.sectionId));
-    if (filters.assigneeId) {
-      conditions.push(
-        sql`exists (
-          select 1 from ${taskAssignees} participant
-          where participant.task_id = ${tasks.id}
-            and participant.organization_id = ${organizationId}
-            and participant.workspace_id = ${workspaceId}
-            and participant.user_id = ${filters.assigneeId}
-            and participant.unassigned_at is null
-        )`,
-      );
-    }
-    if (filters.tag) conditions.push(sql`${tasks.tags} @> ${JSON.stringify([filters.tag])}::jsonb`);
-    if (filters.dueFrom) conditions.push(gte(tasks.dueDate, filters.dueFrom));
-    if (filters.dueTo) conditions.push(lte(tasks.dueDate, filters.dueTo));
     if (filters.calendarFrom && filters.calendarTo) {
       conditions.push(
         and(
@@ -941,8 +942,43 @@ export function createTasksRepository(context: DatabaseTenantContext) {
         )!,
       );
     }
+
     if (filters.parentId) conditions.push(eq(tasks.parentId, filters.parentId));
     else if (!filters.includeSubtasks) conditions.push(isNull(tasks.parentId));
+
+    if (filters.advancedFilter) {
+      const normalizedAst = validateAndNormalizeAdvancedFilterAst(filters.advancedFilter, defsByKey, {
+        organizationId,
+        workspaceId,
+        projectId: filters.projectId,
+      });
+      const astCondition = buildAdvancedFilterSql(normalizedAst, defsByKey, {
+        organizationId,
+        workspaceId,
+        projectId: filters.projectId,
+      });
+      conditions.push(astCondition);
+      return conditions;
+    }
+
+    if (filters.status) conditions.push(eq(tasks.status, filters.status));
+    if (filters.priority) conditions.push(eq(tasks.priority, filters.priority));
+    if (filters.sectionId) conditions.push(eq(tasks.sectionId, filters.sectionId));
+    if (filters.assigneeId) {
+      conditions.push(
+        sql`exists (
+          select 1 from ${taskAssignees} participant
+          where participant.task_id = ${tasks.id}
+            and participant.organization_id = ${organizationId}
+            and participant.workspace_id = ${workspaceId}
+            and participant.user_id = ${filters.assigneeId}
+            and participant.unassigned_at is null
+        )`,
+      );
+    }
+    if (filters.tag) conditions.push(sql`${tasks.tags} @> ${JSON.stringify([filters.tag])}::jsonb`);
+    if (filters.dueFrom) conditions.push(gte(tasks.dueDate, filters.dueFrom));
+    if (filters.dueTo) conditions.push(lte(tasks.dueDate, filters.dueTo));
     if (filters.search) {
       const pattern = `%${filters.search}%`;
       const searchCondition = or(ilike(tasks.title, pattern), ilike(tasks.serial, pattern));

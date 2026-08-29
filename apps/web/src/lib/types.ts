@@ -405,7 +405,7 @@ export type SavedView = {
   projectId?: string | null;
   name: string;
   viewType: string;
-  filters: Record<string, string | undefined>;
+  filters: Record<string, any>;
   configuration: SavedViewConfiguration;
   isShared: boolean;
   isDefault: boolean;

@@ -1,7 +1,10 @@
 import { BadRequestException } from "@nestjs/common";
 import {
   canonicalizeCustomFieldFilters,
+  canonicalizeAdvancedFilterAst,
+  validateAndNormalizeAdvancedFilterAst,
   CUSTOM_FIELD_OPERATORS,
+  type AdvancedFilterNode,
   type CreateSavedViewInput,
   type CustomFieldFilter,
   type CustomFieldOperator,
@@ -18,7 +21,15 @@ import {
 import { isJsonObject, requiredString, type JsonObject } from "./request-validation.js";
 
 const viewTypes = new Set<SavedViewType>(["board", "list", "table", "calendar", "timeline", "workload"]);
-const filterKeys = new Set<string>(["search", "status", "priority", "assignee", "assigneeId", "customFields"]);
+const filterKeys = new Set<string>([
+  "search",
+  "status",
+  "priority",
+  "assignee",
+  "assigneeId",
+  "customFields",
+  "advancedFilter",
+]);
 const customFieldOpsSet = new Set<string>(CUSTOM_FIELD_OPERATORS);
 const taskStatuses = new Set(["backlog", "todo", "in_progress", "review", "done", "canceled"]);
 const taskPriorities = new Set(["low", "medium", "high", "urgent"]);
@@ -97,6 +108,15 @@ export function parseSavedViewFilters(value: unknown): SavedViewFilters {
     if (entry === undefined || entry === null || entry === "") continue;
     if (key === "customFields") {
       filters.customFields = canonicalizeCustomFieldFilters(parseCustomFieldFiltersArray(entry));
+      continue;
+    }
+    if (key === "advancedFilter") {
+      try {
+        const normalized = validateAndNormalizeAdvancedFilterAst(entry);
+        filters.advancedFilter = canonicalizeAdvancedFilterAst(normalized);
+      } catch (err: any) {
+        throw new BadRequestException(err?.message ?? "filters.advancedFilter is invalid");
+      }
       continue;
     }
     const parsed = requiredString(entry, `filters.${key}`);
