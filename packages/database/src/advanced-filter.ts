@@ -32,6 +32,7 @@ import {
   type CustomFieldOperator,
 } from "./custom-field-query.js";
 import type { CustomFieldRecord } from "./repositories/custom-fields.js";
+import { VALID_TASK_STATUSES, VALID_TASK_PRIORITIES } from "./repositories/task-states.js";
 
 export const MAX_AST_DEPTH = 10;
 export const MAX_AST_NODES = 100;
@@ -185,8 +186,8 @@ const FIELD_ALIASES: Record<string, CommonTaskField> = {
   storypoints: "storyPoints",
 };
 
-const TASK_STATUSES = new Set(["todo", "in_progress", "done", "blocked", "backlog", "canceled"]);
-const TASK_PRIORITIES = new Set(["urgent", "high", "medium", "low"]);
+const TASK_STATUSES = VALID_TASK_STATUSES as ReadonlySet<string>;
+const TASK_PRIORITIES = VALID_TASK_PRIORITIES as ReadonlySet<string>;
 
 function escapeLike(str: string): string {
   return str.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_");
@@ -937,23 +938,29 @@ export function evaluateTaskAdvancedFilter(
     case "title":
     case "description":
     case "timezone": {
-      const str = typeof rawVal === "string" ? rawVal : rawVal === null || rawVal === undefined ? "" : String(rawVal);
+      const isNullVal = rawVal === null || rawVal === undefined;
+      const str = typeof rawVal === "string" ? rawVal : isNullVal ? "" : String(rawVal);
       const target = String(predicate.value ?? "");
       switch (predicate.operator) {
         case "equals":
-          return str.toLowerCase() === target.toLowerCase();
+          if (isNullVal) return false;
+          return str === target;
         case "not_equals":
-          return str.toLowerCase() !== target.toLowerCase();
+          if (isNullVal) return true;
+          return str !== target;
         case "contains":
+          if (isNullVal) return false;
           return str.toLowerCase().includes(target.toLowerCase());
         case "starts_with":
+          if (isNullVal) return false;
           return str.toLowerCase().startsWith(target.toLowerCase());
         case "ends_with":
+          if (isNullVal) return false;
           return str.toLowerCase().endsWith(target.toLowerCase());
         case "is_empty":
-          return str === "";
+          return isNullVal || str === "";
         case "is_not_empty":
-          return str !== "";
+          return !isNullVal && str !== "";
       }
       break;
     }

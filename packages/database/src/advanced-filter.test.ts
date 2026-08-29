@@ -210,7 +210,64 @@ describe("Advanced Filter AST Validation & Safety Limits", () => {
     );
   });
 
-  it("rejects invalid values for enum, id, number, and boolean fields", () => {
+  it("strictly enforces canonical Task State status enum (CB-P0-002)", () => {
+    // review is accepted
+    assert.doesNotThrow(() =>
+      validateAndNormalizeAdvancedFilterAst({
+        kind: "predicate",
+        field: "status",
+        operator: "equals",
+        value: "review",
+      }),
+    );
+
+    // in [review, done] is accepted
+    assert.doesNotThrow(() =>
+      validateAndNormalizeAdvancedFilterAst({
+        kind: "predicate",
+        field: "status",
+        operator: "in",
+        value: ["review", "done"],
+      }),
+    );
+
+    // all 6 canonical statuses accepted: backlog, todo, in_progress, review, done, canceled
+    const canonicalStatuses = ["backlog", "todo", "in_progress", "review", "done", "canceled"];
+    for (const st of canonicalStatuses) {
+      assert.doesNotThrow(() =>
+        validateAndNormalizeAdvancedFilterAst({
+          kind: "predicate",
+          field: "status",
+          operator: "equals",
+          value: st,
+        }),
+      );
+    }
+
+    // blocked is rejected
+    assert.throws(
+      () =>
+        validateAndNormalizeAdvancedFilterAst({
+          kind: "predicate",
+          field: "status",
+          operator: "equals",
+          value: "blocked",
+        }),
+      TenantConflictError,
+    );
+
+    // array containing blocked is rejected
+    assert.throws(
+      () =>
+        validateAndNormalizeAdvancedFilterAst({
+          kind: "predicate",
+          field: "status",
+          operator: "in",
+          value: ["review", "blocked"],
+        }),
+      TenantConflictError,
+    );
+
     assert.throws(
       () =>
         validateAndNormalizeAdvancedFilterAst({
@@ -221,6 +278,9 @@ describe("Advanced Filter AST Validation & Safety Limits", () => {
         }),
       TenantConflictError,
     );
+  });
+
+  it("rejects invalid values for enum, id, number, and boolean fields", () => {
     assert.throws(
       () =>
         validateAndNormalizeAdvancedFilterAst({
@@ -536,6 +596,170 @@ describe("In-Memory Evaluator Parity", () => {
       ],
     };
     assert.equal(evaluateTaskAdvancedFilter(taskA, noMatchAst, defs), false);
+  });
+
+  it("evaluates text equals and not_equals with exact case-sensitive parity to SQL", () => {
+    // Exact case match
+    assert.equal(
+      evaluateTaskAdvancedFilter(taskA, {
+        kind: "predicate",
+        field: "title",
+        operator: "equals",
+        value: "Implement SSO login",
+      }),
+      true,
+    );
+
+    // Different case (lowercase) - MUST be false to match SQL eq()
+    assert.equal(
+      evaluateTaskAdvancedFilter(taskA, {
+        kind: "predicate",
+        field: "title",
+        operator: "equals",
+        value: "implement sso login",
+      }),
+      false,
+    );
+
+    // Mixed case - MUST be false
+    assert.equal(
+      evaluateTaskAdvancedFilter(taskA, {
+        kind: "predicate",
+        field: "title",
+        operator: "equals",
+        value: "Implement SSO Login",
+      }),
+      false,
+    );
+
+    // not_equals with exact case -> false
+    assert.equal(
+      evaluateTaskAdvancedFilter(taskA, {
+        kind: "predicate",
+        field: "title",
+        operator: "not_equals",
+        value: "Implement SSO login",
+      }),
+      false,
+    );
+
+    // not_equals with different case -> true
+    assert.equal(
+      evaluateTaskAdvancedFilter(taskA, {
+        kind: "predicate",
+        field: "title",
+        operator: "not_equals",
+        value: "implement sso login",
+      }),
+      true,
+    );
+
+    // Description text equality parity
+    assert.equal(
+      evaluateTaskAdvancedFilter(taskA, {
+        kind: "predicate",
+        field: "description",
+        operator: "equals",
+        value: "OAuth2 and SAML authentication flows",
+      }),
+      true,
+    );
+    assert.equal(
+      evaluateTaskAdvancedFilter(taskA, {
+        kind: "predicate",
+        field: "description",
+        operator: "equals",
+        value: "oauth2 and saml authentication flows",
+      }),
+      false,
+    );
+
+    // Timezone text equality parity
+    const taskWithTz = { ...taskA, timezone: "Asia/Riyadh" };
+    assert.equal(
+      evaluateTaskAdvancedFilter(taskWithTz, {
+        kind: "predicate",
+        field: "timezone",
+        operator: "equals",
+        value: "Asia/Riyadh",
+      }),
+      true,
+    );
+    assert.equal(
+      evaluateTaskAdvancedFilter(taskWithTz, {
+        kind: "predicate",
+        field: "timezone",
+        operator: "equals",
+        value: "asia/riyadh",
+      }),
+      false,
+    );
+
+    // Substring operators (contains, starts_with, ends_with) remain case-insensitive matching ILIKE
+    assert.equal(
+      evaluateTaskAdvancedFilter(taskA, {
+        kind: "predicate",
+        field: "title",
+        operator: "contains",
+        value: "sso",
+      }),
+      true,
+    );
+    assert.equal(
+      evaluateTaskAdvancedFilter(taskA, {
+        kind: "predicate",
+        field: "title",
+        operator: "starts_with",
+        value: "implement",
+      }),
+      true,
+    );
+    assert.equal(
+      evaluateTaskAdvancedFilter(taskA, {
+        kind: "predicate",
+        field: "title",
+        operator: "ends_with",
+        value: "LOGIN",
+      }),
+      true,
+    );
+
+    // Null text field handling
+    const taskNullDesc = { ...taskA, description: null };
+    assert.equal(
+      evaluateTaskAdvancedFilter(taskNullDesc, {
+        kind: "predicate",
+        field: "description",
+        operator: "equals",
+        value: "anything",
+      }),
+      false,
+    );
+    assert.equal(
+      evaluateTaskAdvancedFilter(taskNullDesc, {
+        kind: "predicate",
+        field: "description",
+        operator: "not_equals",
+        value: "anything",
+      }),
+      true,
+    );
+    assert.equal(
+      evaluateTaskAdvancedFilter(taskNullDesc, {
+        kind: "predicate",
+        field: "description",
+        operator: "is_empty",
+      }),
+      true,
+    );
+    assert.equal(
+      evaluateTaskAdvancedFilter(taskNullDesc, {
+        kind: "predicate",
+        field: "description",
+        operator: "is_not_empty",
+      }),
+      false,
+    );
   });
 
   it("evaluates empty groups according to canonical boolean semantics", () => {

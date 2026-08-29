@@ -45,6 +45,7 @@ describe("Canonical Advanced Search & Filters Integration Tests (CB-P1-004)", ()
   let task3Id: string;
   let task4Id: string;
   let task5Id: string;
+  let task6Id: string;
 
   before(async () => {
     await db.delete(tasks).where(eq(tasks.organizationId, orgId));
@@ -241,6 +242,17 @@ describe("Canonical Advanced Search & Filters Integration Tests (CB-P1-004)", ()
         },
       })
       .where(eq(tasks.id, task5Id));
+
+    // Task 6: Review status with explicit timezone
+    const t6 = await taskRepo.create({
+      projectId: proj1Id,
+      title: "Review OAuth2 Provider Spec",
+      description: "Architecture review document",
+      status: "review",
+      priority: "high",
+      timezone: "Asia/Riyadh",
+    });
+    task6Id = t6.id;
   });
 
   after(async () => {
@@ -252,7 +264,7 @@ describe("Canonical Advanced Search & Filters Integration Tests (CB-P1-004)", ()
   });
 
   describe("Common Task Field Queries & Filtering", () => {
-    it("filters by status (equals, not_equals, in, not_in)", async () => {
+    it("filters by status (equals, not_equals, in, not_in, canonical review/blocked)", async () => {
       const taskRepo = createTasksRepository({ organizationId: orgId, workspaceId: ws1Id, actorId: userId });
 
       const pageInProgress = await taskRepo.listPage({
@@ -262,6 +274,35 @@ describe("Canonical Advanced Search & Filters Integration Tests (CB-P1-004)", ()
       });
       assert.equal(pageInProgress.items.length, 1);
       assert.equal(pageInProgress.items[0].id, task1Id);
+
+      // Canonical status 'review' works
+      const pageReview = await taskRepo.listPage({
+        projectId: proj1Id,
+        advancedFilter: { kind: "predicate", field: "status", operator: "equals", value: "review" },
+        limit: 10,
+      });
+      assert.equal(pageReview.items.length, 1);
+      assert.equal(pageReview.items[0].id, task6Id);
+
+      // 'review' in array works
+      const pageReviewDone = await taskRepo.listPage({
+        projectId: proj1Id,
+        advancedFilter: { kind: "predicate", field: "status", operator: "in", value: ["review", "done"] },
+        limit: 10,
+      });
+      const rdIds = pageReviewDone.items.map((t) => t.id).sort();
+      assert.deepEqual(rdIds, [task2Id, task6Id].sort());
+
+      // 'blocked' is rejected with TenantConflictError
+      await assert.rejects(
+        () =>
+          taskRepo.listPage({
+            projectId: proj1Id,
+            advancedFilter: { kind: "predicate", field: "status", operator: "equals", value: "blocked" },
+            limit: 10,
+          }),
+        TenantConflictError,
+      );
 
       const pageInArray = await taskRepo.listPage({
         projectId: proj1Id,
@@ -385,6 +426,124 @@ describe("Canonical Advanced Search & Filters Integration Tests (CB-P1-004)", ()
       });
       assert.equal(pageSearch.items.length, 1);
       assert.equal(pageSearch.items[0].id, task1Id);
+    });
+
+    it("guarantees exact case-sensitive equality and parity for title, description, and timezone across SQL and in-memory", async () => {
+      const taskRepo = createTasksRepository({ organizationId: orgId, workspaceId: ws1Id, actorId: userId });
+
+      // 1. Title exact case matches in SQL
+      const pageExact = await taskRepo.listPage({
+        projectId: proj1Id,
+        advancedFilter: { kind: "predicate", field: "title", operator: "equals", value: "Implement OAuth2 Provider" },
+        limit: 10,
+      });
+      assert.equal(pageExact.items.length, 1);
+      assert.equal(pageExact.items[0].id, task1Id);
+
+      // 2. Title different case (lowercase) returns 0 in SQL (case-sensitive)
+      const pageLower = await taskRepo.listPage({
+        projectId: proj1Id,
+        advancedFilter: { kind: "predicate", field: "title", operator: "equals", value: "implement oauth2 provider" },
+        limit: 10,
+      });
+      assert.equal(pageLower.items.length, 0);
+
+      // 3. Title not_equals lowercase matches task 1 in SQL
+      const pageNotEqLower = await taskRepo.listPage({
+        projectId: proj1Id,
+        advancedFilter: {
+          kind: "predicate",
+          field: "title",
+          operator: "not_equals",
+          value: "implement oauth2 provider",
+        },
+        limit: 50,
+      });
+      assert.ok(pageNotEqLower.items.some((t) => t.id === task1Id));
+
+      // 4. Title not_equals exact case does NOT match task 1
+      const pageNotEqExact = await taskRepo.listPage({
+        projectId: proj1Id,
+        advancedFilter: {
+          kind: "predicate",
+          field: "title",
+          operator: "not_equals",
+          value: "Implement OAuth2 Provider",
+        },
+        limit: 50,
+      });
+      assert.equal(
+        pageNotEqExact.items.some((t) => t.id === task1Id),
+        false,
+      );
+
+      // 5. Description exact case vs different case
+      const pageDescExact = await taskRepo.listPage({
+        projectId: proj1Id,
+        advancedFilter: {
+          kind: "predicate",
+          field: "description",
+          operator: "equals",
+          value: "Secure login flow with PKCE and token rotation",
+        },
+        limit: 10,
+      });
+      assert.equal(pageDescExact.items.length, 1);
+      assert.equal(pageDescExact.items[0].id, task1Id);
+
+      const pageDescLower = await taskRepo.listPage({
+        projectId: proj1Id,
+        advancedFilter: {
+          kind: "predicate",
+          field: "description",
+          operator: "equals",
+          value: "secure login flow with pkce and token rotation",
+        },
+        limit: 10,
+      });
+      assert.equal(pageDescLower.items.length, 0);
+
+      // 6. Timezone exact case vs different case
+      const pageTzExact = await taskRepo.listPage({
+        projectId: proj1Id,
+        advancedFilter: { kind: "predicate", field: "timezone", operator: "equals", value: "Asia/Riyadh" },
+        limit: 10,
+      });
+      assert.equal(pageTzExact.items.length, 1);
+      assert.equal(pageTzExact.items[0].id, task6Id);
+
+      const pageTzLower = await taskRepo.listPage({
+        projectId: proj1Id,
+        advancedFilter: { kind: "predicate", field: "timezone", operator: "equals", value: "asia/riyadh" },
+        limit: 10,
+      });
+      assert.equal(pageTzLower.items.length, 0);
+
+      // 7. Full SQL vs In-Memory Parity on the task dataset
+      const allTasks = (await taskRepo.listPage({ projectId: proj1Id, limit: 100 })).items;
+      const testAsts = [
+        { kind: "predicate", field: "title", operator: "equals", value: "Implement OAuth2 Provider" },
+        { kind: "predicate", field: "title", operator: "equals", value: "implement oauth2 provider" },
+        { kind: "predicate", field: "title", operator: "not_equals", value: "Implement OAuth2 Provider" },
+        { kind: "predicate", field: "description", operator: "equals", value: "Architecture review document" },
+        { kind: "predicate", field: "description", operator: "equals", value: "architecture review document" },
+        { kind: "predicate", field: "timezone", operator: "equals", value: "Asia/Riyadh" },
+        { kind: "predicate", field: "timezone", operator: "equals", value: "asia/riyadh" },
+        { kind: "predicate", field: "title", operator: "contains", value: "oauth2" },
+        { kind: "predicate", field: "title", operator: "starts_with", value: "implement" },
+        { kind: "predicate", field: "title", operator: "ends_with", value: "PROVIDER" },
+      ] as const;
+
+      for (const ast of testAsts) {
+        const sqlResult = await taskRepo.listPage({ projectId: proj1Id, advancedFilter: ast as any, limit: 100 });
+        const sqlIds = new Set(sqlResult.items.map((t) => t.id));
+        const inMemoryIds = new Set(allTasks.filter((t) => evaluateTaskAdvancedFilter(t, ast as any)).map((t) => t.id));
+        assert.deepEqual(
+          [...sqlIds].sort(),
+          [...inMemoryIds].sort(),
+          `SQL and In-memory parity mismatch for predicate ${JSON.stringify(ast)}`,
+        );
+      }
     });
   });
 
