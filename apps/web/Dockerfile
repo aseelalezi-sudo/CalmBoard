@@ -1,13 +1,13 @@
 # syntax=docker/dockerfile:1.7
 FROM node:22-alpine AS builder
-RUN apk add --no-cache libc6-compat
+RUN apk upgrade --no-cache && apk add --no-cache libc6-compat
 WORKDIR /app
 RUN npm install -g turbo@2.10.7
 COPY . .
 RUN turbo prune @calmboard/web --docker
 
 FROM node:22-alpine AS installer
-RUN apk add --no-cache libc6-compat python3 make g++
+RUN apk upgrade --no-cache && apk add --no-cache libc6-compat python3 make g++
 WORKDIR /app
 COPY .gitignore .gitignore
 COPY --from=builder /app/out/json/ .
@@ -41,7 +41,8 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
-RUN apk add --no-cache dumb-init \
+RUN apk upgrade --no-cache \
+    && apk add --no-cache dumb-init \
     && rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
 RUN addgroup --system --gid 1001 nodejs && adduser --system --uid 1001 nextjs
 
