@@ -12,8 +12,10 @@ export type UpdateAutomationInput = Partial<
 >;
 export type CreateAutomationRunInput = {
   automationId: string;
+  eventId?: string | null;
   taskId?: string | null;
   status: "success" | "failed" | "skipped";
+  attempt?: number;
   message?: string;
   durationMs?: number;
 };
@@ -65,9 +67,27 @@ export function createAutomationsRepository(context: DatabaseTenantContext) {
     if (!membership) throw new TenantPermissionDeniedError("automation management requires manager access");
   }
 
+  async function requireMember() {
+    if (!actorId) throw new TenantPermissionDeniedError("actorId is required to access automations");
+    const [membership] = await db
+      .select({ id: memberships.id })
+      .from(memberships)
+      .where(
+        and(
+          eq(memberships.userId, actorId),
+          eq(memberships.organizationId, organizationId),
+          eq(memberships.status, "active"),
+          or(isNull(memberships.workspaceId), eq(memberships.workspaceId, workspaceId)),
+        ),
+      )
+      .limit(1);
+    if (!membership) throw new TenantPermissionDeniedError("automation access requires active membership");
+  }
+
   return {
     async list() {
       await requireWorkspace();
+      await requireMember();
       const rules = await db.select().from(automations).where(workspaceScope).orderBy(desc(automations.createdAt));
       const automationIds = rules.map((rule) => rule.id);
       const runs = automationIds.length
@@ -129,8 +149,10 @@ export function createAutomationsRepository(context: DatabaseTenantContext) {
           organizationId,
           workspaceId,
           automationId: input.automationId,
+          eventId: input.eventId ?? null,
           taskId: input.taskId ?? null,
           status: input.status,
+          attempt: input.attempt ?? 1,
           message: input.message,
           durationMs: input.durationMs ?? 0,
         })

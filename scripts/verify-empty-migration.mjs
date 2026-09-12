@@ -127,6 +127,8 @@ try {
       cwd: process.cwd(),
       env: {
         ...process.env,
+        DATABASE_URL: targetUrl.toString(),
+        DATABASE_APP_URL: targetUrl.toString(),
         DATABASE_MAINTENANCE_URL: targetUrl.toString(),
         TSX_TSCONFIG_PATH: resolve("apps/worker/tsconfig.json"),
       },
@@ -147,6 +149,8 @@ try {
       cwd: process.cwd(),
       env: {
         ...process.env,
+        DATABASE_URL: targetUrl.toString(),
+        DATABASE_APP_URL: targetUrl.toString(),
         DATABASE_MAINTENANCE_URL: targetUrl.toString(),
         TSX_TSCONFIG_PATH: resolve("apps/worker/tsconfig.json"),
       },

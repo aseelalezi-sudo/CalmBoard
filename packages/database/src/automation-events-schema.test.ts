@@ -36,4 +36,11 @@ describe("automation event outbox schema", () => {
       assert.ok(columns[name], `${name} must be persisted`);
     }
   });
+
+  it("uses dedicated automation_event_status enum with canonical lifecycle values", () => {
+    const columns = getTableColumns(automationEvents);
+    assert.equal(columns.status.dataType, "string");
+    const enumValues = columns.status.enumValues;
+    assert.deepEqual(enumValues, ["pending", "processing", "sent", "skipped", "dead"]);
+  });
 });

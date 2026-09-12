@@ -127,6 +127,13 @@ export const notificationEmailStatusEnum = pgEnum("notification_email_status", [
   "skipped",
   "dead",
 ]);
+export const automationEventStatusEnum = pgEnum("automation_event_status", [
+  "pending",
+  "processing",
+  "sent",
+  "skipped",
+  "dead",
+]);
 export const exportJobStatusEnum = pgEnum("export_job_status", [
   "pending",
   "processing",
@@ -1643,7 +1650,7 @@ export const automationEvents = pgTable(
     depth: integer("depth").default(0).notNull(),
     parentEventId: uuid("parent_event_id"),
     deduplicationKey: varchar("deduplication_key", { length: 256 }).notNull(),
-    status: notificationEmailStatusEnum("status").default("pending").notNull(),
+    status: automationEventStatusEnum("status").default("pending").notNull(),
     attempts: integer("attempts").default(0).notNull(),
     maxAttempts: integer("max_attempts").default(8).notNull(),
     availableAt: timestamp("available_at", { withTimezone: true }).defaultNow().notNull(),

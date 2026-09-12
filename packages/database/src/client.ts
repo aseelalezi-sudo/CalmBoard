@@ -7,7 +7,7 @@ import { databasePoolMax } from "./pool-config.js";
 import { assertTenantContext, type DatabaseTenantContext } from "./tenant-context.js";
 
 function readDatabaseUrl() {
-  const databaseUrl = process.env.DATABASE_APP_URL ?? process.env.DATABASE_URL;
+  const databaseUrl = process.env.DATABASE_APP_URL ?? process.env.DATABASE_URL ?? process.env.DATABASE_MAINTENANCE_URL;
   if (!databaseUrl) {
     throw new Error("DATABASE_APP_URL or DATABASE_URL is required");
   }
