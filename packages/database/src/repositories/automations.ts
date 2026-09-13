@@ -16,6 +16,7 @@ export type CreateAutomationRunInput = {
   taskId?: string | null;
   status: "success" | "failed" | "skipped";
   attempt?: number;
+  claimToken?: string | null;
   message?: string;
   durationMs?: number;
 };
@@ -153,6 +154,7 @@ export function createAutomationsRepository(context: DatabaseTenantContext) {
           taskId: input.taskId ?? null,
           status: input.status,
           attempt: input.attempt ?? 1,
+          claimToken: input.claimToken ?? null,
           message: input.message,
           durationMs: input.durationMs ?? 0,
         })

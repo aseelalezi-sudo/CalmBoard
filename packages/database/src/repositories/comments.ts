@@ -14,6 +14,7 @@ export type CreateCommentInput = {
   content: string;
   parentId?: string | null;
   mentionedUserIds?: string[];
+  deduplicationKey?: string | null;
 };
 
 export type UpdateCommentInput = {
@@ -264,6 +265,24 @@ export function createCommentsRepository(context: DatabaseTenantContext) {
       const parent = input.parentId ? await requireTopLevelParent(input.parentId, input.taskId, task.projectId) : null;
       const mentionedUserIds = await eligibleMentionIds(input.mentionedUserIds ?? [], input.userId);
       return db.transaction(async (transaction) => {
+        if (input.deduplicationKey) {
+          const [existing] = await transaction
+            .select()
+            .from(comments)
+            .where(
+              and(
+                eq(comments.organizationId, organizationId),
+                eq(comments.workspaceId, workspaceId),
+                eq(comments.deduplicationKey, input.deduplicationKey),
+                isNull(comments.deletedAt),
+              ),
+            )
+            .limit(1);
+          if (existing) {
+            return { ...existing, alreadyExisted: true };
+          }
+        }
+
         const [comment] = await transaction
           .insert(comments)
           .values({
@@ -273,9 +292,28 @@ export function createCommentsRepository(context: DatabaseTenantContext) {
             userId: input.userId,
             content: input.content,
             parentId: input.parentId,
+            deduplicationKey: input.deduplicationKey ?? null,
           })
+          .onConflictDoNothing()
           .returning();
-        if (!comment) throw new Error("Comment insert did not return a row");
+        if (!comment) {
+          if (input.deduplicationKey) {
+            const [existing] = await transaction
+              .select()
+              .from(comments)
+              .where(
+                and(
+                  eq(comments.organizationId, organizationId),
+                  eq(comments.workspaceId, workspaceId),
+                  eq(comments.deduplicationKey, input.deduplicationKey),
+                  isNull(comments.deletedAt),
+                ),
+              )
+              .limit(1);
+            if (existing) return { ...existing, alreadyExisted: true };
+          }
+          throw new Error("Comment insert did not return a row");
+        }
         await insertMentionRelations(
           {
             commentId: comment.id,

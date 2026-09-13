@@ -1,10 +1,14 @@
 import type { Pool, PoolClient } from "pg";
+import { sql } from "drizzle-orm";
 import {
   createCommentsRepository,
   createNotificationsRepository,
   createTasksRepository,
+  withTenantTransaction,
+  db,
   VALID_TASK_PRIORITIES,
   VALID_TASK_STATUSES,
+  type DatabaseTenantContext,
   type TaskPriority,
   type TaskStatus,
 } from "@calmboard/database";
@@ -185,25 +189,28 @@ function matchesConditions(conditions: Record<string, unknown>, task: TaskState)
   return true;
 }
 
-async function saveRun(
-  client: PoolClient,
+export async function saveRun(
+  client: PoolClient | Pool,
   event: AutomationEventCandidate,
   ruleId: string,
   status: "success" | "failed" | "skipped",
   message: string,
   durationMs: number,
-) {
-  await client.query(
+): Promise<boolean> {
+  const result = await client.query(
     `insert into automation_runs (
        organization_id, workspace_id, automation_id, event_id, task_id,
-       status, attempt, message, duration_ms
-     ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       status, attempt, claim_token, message, duration_ms
+     ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
      on conflict (event_id, automation_id) do update
      set status = excluded.status,
          attempt = excluded.attempt,
+         claim_token = excluded.claim_token,
          message = excluded.message,
          duration_ms = excluded.duration_ms,
-         updated_at = now()`,
+         updated_at = now()
+     where automation_runs.claim_token = excluded.claim_token
+       and automation_runs.status not in ('success', 'skipped')`,
     [
       event.organizationId,
       event.workspaceId,
@@ -212,334 +219,319 @@ async function saveRun(
       event.taskId,
       status,
       event.attempt,
+      event.claimToken,
       message.slice(0, 2000),
       durationMs,
     ],
   );
+  return Boolean(result.rowCount && result.rowCount > 0);
 }
 
-async function executeRule(pool: Pool, event: AutomationEventCandidate, ruleId: string) {
-  const client = await pool.connect();
+export async function executeRule(pool: Pool, event: AutomationEventCandidate, ruleId: string) {
   const started = Date.now();
+
+  const tenantContext: DatabaseTenantContext = {
+    organizationId: event.organizationId,
+    workspaceId: event.workspaceId,
+    actorId: event.actorId ?? undefined,
+    automation: {
+      depth: event.depth,
+      parentEventId: event.id,
+    },
+  };
+
   try {
-    await client.query("begin");
-
-    // 1. FENCE: verify this worker's claim token is still authoritative
-    const fenceCheck = await client.query<{ id: string }>(
-      `select id
-       from automation_events
-       where id = $1 and status = 'processing' and claim_token = $2
-       for update`,
-      [event.id, event.claimToken],
-    );
-    if (!fenceCheck.rowCount) {
-      await client.query("rollback");
-      throw new Error("Automation event claim has expired or was superseded");
-    }
-
-    // 2. IDEMPOTENCY GATE: DB-backed execution gate BEFORE any irreversible effects
-    const gateResult = await client.query<{ id: string }>(
-      `insert into automation_runs (
-         organization_id, workspace_id, automation_id, event_id, task_id,
-         status, attempt, message, duration_ms
-       ) values ($1, $2, $3, $4, $5, 'running', $6, 'Executing automation rule', 0)
-       on conflict (event_id, automation_id) do update
-       set status = 'running',
-           attempt = excluded.attempt,
-           message = 'Executing automation rule',
-           updated_at = now()
-       where automation_runs.status not in ('success', 'skipped')
-         and (automation_runs.status != 'running' or excluded.attempt > automation_runs.attempt)
-       returning id`,
-      [event.organizationId, event.workspaceId, ruleId, event.id, event.taskId, event.attempt],
-    );
-
-    if (!gateResult.rowCount) {
-      const existingRun = await client.query<{ status: string }>(
-        `select status
-         from automation_runs
-         where event_id = $1 and automation_id = $2`,
-        [event.id, ruleId],
-      );
-      await client.query("commit");
-      return existingRun.rows[0]?.status ?? "skipped";
-    }
-
-    // 3. TENANT SCOPE: load rule and task strictly within (organizationId, workspaceId)
-    const result = await client.query<{ rule: AutomationRule; task: TaskState }>(
-      `select row_to_json(rule.*) as rule, row_to_json(task.*) as task
-       from automations rule
-       join tasks task
-         on task.id = $2
-        and task.organization_id = rule.organization_id
-        and task.workspace_id = rule.workspace_id
-       where rule.id = $1
-         and rule.organization_id = $3
-         and rule.workspace_id = $4
-         and rule.deleted_at is null
-         and task.deleted_at is null
-       for update of rule, task`,
-      [ruleId, event.taskId, event.organizationId, event.workspaceId],
-    );
-    const row = result.rows[0];
-    if (!row || !row.rule.enabled || row.rule.trigger !== event.trigger) {
-      await saveRun(
-        client,
-        event,
-        ruleId,
-        "skipped",
-        "Rule is disabled or no longer matches the event",
-        Date.now() - started,
-      );
-      await client.query("commit");
-      return "skipped";
-    }
-
-    const conditions = row.rule.conditions ?? {};
-    const actions = row.rule.actions ?? {};
-    const eventTask = {
-      ...row.task,
-      status: event.current.status,
-      priority: event.current.priority,
-      project_id: event.current.projectId,
-      assignee_id: event.current.assigneeId,
-      tags: event.current.tags,
-      version: event.current.version,
-    };
-    if (!matchesConditions(conditions, eventTask)) {
-      await saveRun(client, event, ruleId, "skipped", "Conditions did not match", Date.now() - started);
-      await client.query("commit");
-      return "skipped";
-    }
-
-    // 4. VALIDATE ACTIONS AGAINST CANONICAL CONTRACTS
-    const setStatus = stringAction(actions, "setStatus", 30);
-    const setPriority = stringAction(actions, "setPriority", 30);
-    const assignTo = stringAction(actions, "assignTo", 64);
-    const addTag = stringAction(actions, "addTag", 100);
-    const addComment = stringAction(actions, "addComment", 10_000);
-    const notify = stringAction(actions, "notify", 20);
-    const notifyTitle = stringAction(actions, "notifyTitle", 500);
-
-    if (setStatus && !VALID_TASK_STATUSES.has(setStatus as TaskStatus)) {
-      throw new Error("Automation status action is invalid");
-    }
-    if (setPriority && !VALID_TASK_PRIORITIES.has(setPriority as TaskPriority)) {
-      throw new Error("Automation priority action is invalid");
-    }
-    if (notify && !["assignee", "reporter", "all"].includes(notify)) {
-      throw new Error("Automation notification target is invalid");
-    }
-    if (assignTo) {
-      const member = await client.query(
-        `select 1 from memberships
-         where user_id = $1 and organization_id = $2
-           and (workspace_id = $3 or workspace_id is null)
-           and status = 'active'
-         limit 1`,
-        [assignTo, event.organizationId, event.workspaceId],
-      );
-      if (!member.rowCount) throw new Error("Automation assignee is not an active tenant member");
-    }
-
-    // Commit the inspection lock before invoking canonical repositories that manage their own transactions
-    await client.query("commit");
-
-    // 5. CANONICAL TASK MUTATION
-    const hasTaskMutation = Boolean(setStatus || setPriority || assignTo || addTag);
-    let taskChanged = false;
-    let latestAssigneeId = row.task.assignee_id;
-
-    if (hasTaskMutation) {
-      const claimCheck = await pool.query(
-        `select 1 from automation_events
-         where id = $1 and status = 'processing' and claim_token = $2`,
-        [event.id, event.claimToken],
-      );
+    return await withTenantTransaction(tenantContext, async () => {
+      // 1. FENCE: atomically verify and lock the claim row
+      const claimCheck = await db.execute(sql`
+        select id, claim_token, status
+        from automation_events
+        where id = ${event.id}
+          and status = 'processing'
+          and claim_token = ${event.claimToken}
+        for update
+      `);
       if (!claimCheck.rowCount) {
         throw new Error("Automation event claim has expired or was superseded");
       }
 
-      const nextTags = addTag ? [...new Set([...row.task.tags, addTag])] : row.task.tags;
-      const tagsChanged = JSON.stringify(nextTags) !== JSON.stringify(row.task.tags);
+      // 2. IDEMPOTENCY GATE: DB-backed execution gate BEFORE any irreversible effects
+      const gateResult = await db.execute(sql`
+        insert into automation_runs (
+          organization_id, workspace_id, automation_id, event_id, task_id,
+          status, attempt, claim_token, message, duration_ms
+        ) values (
+          ${event.organizationId}, ${event.workspaceId}, ${ruleId}, ${event.id}, ${event.taskId},
+          'running', ${event.attempt}, ${event.claimToken}, 'Executing automation rule', 0
+        )
+        on conflict (event_id, automation_id) do update
+        set status = 'running',
+            attempt = excluded.attempt,
+            claim_token = excluded.claim_token,
+            message = 'Executing automation rule',
+            updated_at = now()
+        where automation_runs.status not in ('success', 'skipped')
+          and (automation_runs.status != 'running' or excluded.attempt > automation_runs.attempt)
+        returning id
+      `);
 
-      const tasksRepo = createTasksRepository({
-        organizationId: event.organizationId,
-        workspaceId: event.workspaceId,
-        actorId: event.actorId ?? undefined,
-        automation: {
-          depth: event.depth,
-          parentEventId: event.id,
-        },
-      });
-
-      const updateResult = await tasksRepo.update(event.taskId, {
-        expectedVersion: row.task.version,
-        status: setStatus ? (setStatus as TaskStatus) : undefined,
-        priority: setPriority ? (setPriority as TaskPriority) : undefined,
-        assigneeId: assignTo !== undefined ? assignTo : undefined,
-        tags: tagsChanged ? nextTags : undefined,
-      });
-
-      taskChanged = updateResult.task.version !== updateResult.before.version;
-      latestAssigneeId = updateResult.task.assigneeId;
-    }
-
-    // 6. CANONICAL COMMENT CREATION
-    let commentCreated = false;
-    if (addComment) {
-      if (!event.actorId) {
-        throw new Error("Automation comment action requires an authenticated actor");
-      }
-      const memberCheck = await pool.query(
-        `select 1 from memberships
-         where user_id = $1 and organization_id = $2
-           and (workspace_id = $3 or workspace_id is null)
-           and status = 'active'
-         limit 1`,
-        [event.actorId, event.organizationId, event.workspaceId],
-      );
-      if (!memberCheck.rowCount) {
-        throw new Error("Automation comment actor is not an active tenant member");
+      if (!gateResult.rowCount) {
+        const existingRun = await db.execute(sql`
+          select status
+          from automation_runs
+          where event_id = ${event.id} and automation_id = ${ruleId}
+        `);
+        return ((existingRun.rows[0]?.status as string) ?? "skipped") as "success" | "skipped" | "failed";
       }
 
-      const claimCheck = await pool.query(
-        `select 1 from automation_events
-         where id = $1 and status = 'processing' and claim_token = $2`,
-        [event.id, event.claimToken],
-      );
-      if (!claimCheck.rowCount) {
-        throw new Error("Automation event claim has expired or was superseded");
-      }
-
-      const commentsRepo = createCommentsRepository({
-        organizationId: event.organizationId,
-        workspaceId: event.workspaceId,
-        actorId: event.actorId,
-        automation: {
-          depth: event.depth,
-          parentEventId: event.id,
-        },
-      });
-
-      await commentsRepo.create({
-        taskId: event.taskId,
-        userId: event.actorId,
-        content: addComment,
-      });
-      commentCreated = true;
-    }
-
-    // 7. NOTIFICATION CREATION (DEDUPLICATED & TENANT-SAFE)
-    let notificationSent = false;
-    if (notify) {
-      const recipients =
-        notify === "assignee"
-          ? [latestAssigneeId]
-          : notify === "reporter"
-            ? [row.task.reporter_id]
-            : [latestAssigneeId, row.task.reporter_id];
-
-      const validRecipients = [...new Set(recipients.filter((r): r is string => Boolean(r)))];
-      const notificationsRepo = createNotificationsRepository({
-        organizationId: event.organizationId,
-        workspaceId: event.workspaceId,
-        actorId: event.actorId ?? undefined,
-      });
-
-      for (const recipient of validRecipients) {
-        const eligible = await pool.query(
-          `select 1 from memberships
-           where user_id = $1 and organization_id = $2
-             and (workspace_id = $3 or workspace_id is null)
-             and status = 'active'
-           limit 1`,
-          [recipient, event.organizationId, event.workspaceId],
-        );
-        if (!eligible.rowCount) continue;
-
-        const notifResult = await pool.query(
-          `insert into notifications (
-             organization_id, workspace_id, user_id, type, title, body, entity_type, entity_id, deduplication_key, is_read
-           )
-           select $1, $2, $3, 'automation', $4, $5, 'task', $6, $7, false
-           where exists (
-             select 1 from automation_events
-             where id = $8 and status = 'processing' and claim_token = $9
-           )
-           on conflict (organization_id, user_id, deduplication_key) where deduplication_key is not null do nothing
-           returning id`,
-          [
-            event.organizationId,
-            event.workspaceId,
-            recipient,
-            notifyTitle ?? `أتمتة: ${row.rule.name}`,
-            `نُفذت قاعدة الأتمتة للمهمة ${row.task.serial}`,
-            event.taskId,
-            `automation-run/${event.id}/${ruleId}/${recipient}`,
-            event.id,
-            event.claimToken,
-          ],
-        );
-        if (notifResult.rowCount && notifResult.rowCount > 0) {
-          notificationSent = true;
-        }
-      }
-    }
-
-    // 8. TRUE NO-OP & EXECUTION ACCOUNTING
-    const hasAnyGenuineEffect = taskChanged || commentCreated || notificationSent;
-    const saveClient = await pool.connect();
-    try {
-      if (!hasAnyGenuineEffect && hasTaskMutation && !addComment && !notify) {
-        await saveRun(
-          saveClient,
-          event,
-          ruleId,
-          "skipped",
-          "No-op: task state already matches action",
-          Date.now() - started,
-        );
+      // 3. TENANT SCOPE: load rule and task strictly within (organizationId, workspaceId)
+      const result = await db.execute(sql`
+        select row_to_json(rule.*) as rule, row_to_json(task.*) as task
+        from automations rule
+        join tasks task
+          on task.id = ${event.taskId}
+         and task.organization_id = rule.organization_id
+         and task.workspace_id = rule.workspace_id
+        where rule.id = ${ruleId}
+          and rule.organization_id = ${event.organizationId}
+          and rule.workspace_id = ${event.workspaceId}
+          and rule.deleted_at is null
+          and task.deleted_at is null
+        for update of rule, task
+      `);
+      const row = result.rows[0] as { rule: AutomationRule; task: TaskState } | undefined;
+      if (!row || !row.rule.enabled || row.rule.trigger !== event.trigger) {
+        await db.execute(sql`
+          update automation_runs
+          set status = 'skipped',
+              message = 'Rule is disabled or no longer matches the event',
+              duration_ms = ${Date.now() - started},
+              updated_at = now()
+          where event_id = ${event.id}
+            and automation_id = ${ruleId}
+            and claim_token = ${event.claimToken}
+            and status = 'running'
+        `);
         return "skipped";
       }
 
-      await saveRun(
-        saveClient,
-        event,
-        ruleId,
-        "success",
-        `Executed actions (taskChanged: ${taskChanged}, comment: ${commentCreated}, notification: ${notificationSent})`,
-        Date.now() - started,
-      );
+      const conditions = row.rule.conditions ?? {};
+      const actions = row.rule.actions ?? {};
+      const eventTask = {
+        ...row.task,
+        status: event.current.status,
+        priority: event.current.priority,
+        project_id: event.current.projectId,
+        assignee_id: event.current.assigneeId,
+        tags: event.current.tags,
+        version: event.current.version,
+      };
+      if (!matchesConditions(conditions, eventTask)) {
+        await db.execute(sql`
+          update automation_runs
+          set status = 'skipped',
+              message = 'Conditions did not match',
+              duration_ms = ${Date.now() - started},
+              updated_at = now()
+          where event_id = ${event.id}
+            and automation_id = ${ruleId}
+            and claim_token = ${event.claimToken}
+            and status = 'running'
+        `);
+        return "skipped";
+      }
+
+      // 4. VALIDATE ACTIONS AGAINST CANONICAL CONTRACTS
+      const setStatus = stringAction(actions, "setStatus", 30);
+      const setPriority = stringAction(actions, "setPriority", 30);
+      const assignTo = stringAction(actions, "assignTo", 64);
+      const addTag = stringAction(actions, "addTag", 100);
+      const addComment = stringAction(actions, "addComment", 10_000);
+      const notify = stringAction(actions, "notify", 20);
+      const notifyTitle = stringAction(actions, "notifyTitle", 500);
+
+      if (setStatus && !VALID_TASK_STATUSES.has(setStatus as TaskStatus)) {
+        throw new Error("Automation status action is invalid");
+      }
+      if (setPriority && !VALID_TASK_PRIORITIES.has(setPriority as TaskPriority)) {
+        throw new Error("Automation priority action is invalid");
+      }
+      if (notify && !["assignee", "reporter", "all"].includes(notify)) {
+        throw new Error("Automation notification target is invalid");
+      }
+      if (assignTo) {
+        const member = await db.execute(sql`
+          select 1 from memberships
+          where user_id = ${assignTo} and organization_id = ${event.organizationId}
+            and (workspace_id = ${event.workspaceId} or workspace_id is null)
+            and status = 'active'
+          limit 1
+        `);
+        if (!member.rowCount) throw new Error("Automation assignee is not an active tenant member");
+      }
+
+      // 5. CANONICAL TASK MUTATION
+      const hasTaskMutation = Boolean(setStatus || setPriority || assignTo || addTag);
+      let taskChanged = false;
+      let latestAssigneeId = row.task.assignee_id;
+
+      if (hasTaskMutation) {
+        const nextTags = addTag ? [...new Set([...row.task.tags, addTag])] : row.task.tags;
+        const tagsChanged = JSON.stringify(nextTags) !== JSON.stringify(row.task.tags);
+
+        const tasksRepo = createTasksRepository(tenantContext);
+        const updateResult = await tasksRepo.update(event.taskId, {
+          expectedVersion: row.task.version,
+          status: setStatus ? (setStatus as TaskStatus) : undefined,
+          priority: setPriority ? (setPriority as TaskPriority) : undefined,
+          assigneeId: assignTo !== undefined ? assignTo : undefined,
+          tags: tagsChanged ? nextTags : undefined,
+        });
+
+        taskChanged = updateResult.task.version !== updateResult.before.version;
+        latestAssigneeId = updateResult.task.assigneeId;
+      }
+
+      // 6. CANONICAL COMMENT CREATION (DEDUPLICATED & FENCED)
+      let commentCreated = false;
+      if (addComment) {
+        if (!event.actorId) {
+          throw new Error("Automation comment action requires an authenticated actor");
+        }
+        const memberCheck = await db.execute(sql`
+          select 1 from memberships
+          where user_id = ${event.actorId} and organization_id = ${event.organizationId}
+            and (workspace_id = ${event.workspaceId} or workspace_id is null)
+            and status = 'active'
+          limit 1
+        `);
+        if (!memberCheck.rowCount) {
+          throw new Error("Automation comment actor is not an active tenant member");
+        }
+
+        const commentsRepo = createCommentsRepository(tenantContext);
+        const commentDeduplicationKey = `automation-comment/${event.id}/${ruleId}/comment`;
+        const commentResult = await commentsRepo.create({
+          taskId: event.taskId,
+          userId: event.actorId,
+          content: addComment,
+          deduplicationKey: commentDeduplicationKey,
+        });
+        commentCreated = !("alreadyExisted" in commentResult && commentResult.alreadyExisted);
+      }
+
+      // 7. NOTIFICATION CREATION (DEDUPLICATED & TENANT-SAFE)
+      let notificationSent = false;
+      if (notify) {
+        const recipients =
+          notify === "assignee"
+            ? [latestAssigneeId]
+            : notify === "reporter"
+              ? [row.task.reporter_id]
+              : [latestAssigneeId, row.task.reporter_id];
+
+        const validRecipients = [...new Set(recipients.filter((r): r is string => Boolean(r)))];
+
+        for (const recipient of validRecipients) {
+          const eligible = await db.execute(sql`
+            select 1 from memberships
+            where user_id = ${recipient} and organization_id = ${event.organizationId}
+              and (workspace_id = ${event.workspaceId} or workspace_id is null)
+              and status = 'active'
+            limit 1
+          `);
+          if (!eligible.rowCount) continue;
+
+          const notifResult = await db.execute(sql`
+            insert into notifications (
+              organization_id, workspace_id, user_id, type, title, body, entity_type, entity_id, deduplication_key, is_read
+            )
+            select ${event.organizationId}, ${event.workspaceId}, ${recipient}, 'automation',
+                   ${notifyTitle ?? `أتمتة: ${row.rule.name}`}, ${`نُفذت قاعدة الأتمتة للمهمة ${row.task.serial}`},
+                   'task', ${event.taskId}, ${`automation-run/${event.id}/${ruleId}/${recipient}`}, false
+            where exists (
+              select 1 from automation_events
+              where id = ${event.id} and status = 'processing' and claim_token = ${event.claimToken}
+            )
+            on conflict (organization_id, user_id, deduplication_key) where deduplication_key is not null do nothing
+            returning id
+          `);
+          if (notifResult.rowCount && notifResult.rowCount > 0) {
+            notificationSent = true;
+          }
+        }
+      }
+
+      // 8. TRUE NO-OP & EXECUTION ACCOUNTING
+      const hasAnyGenuineEffect = taskChanged || commentCreated || notificationSent;
+      if (!hasAnyGenuineEffect && hasTaskMutation && !addComment && !notify) {
+        await db.execute(sql`
+          update automation_runs
+          set status = 'skipped',
+              message = 'No-op: task state already matches action',
+              duration_ms = ${Date.now() - started},
+              updated_at = now()
+          where event_id = ${event.id}
+            and automation_id = ${ruleId}
+            and claim_token = ${event.claimToken}
+            and status = 'running'
+        `);
+        return "skipped";
+      }
+
+      await db.execute(sql`
+        update automation_runs
+        set status = 'success',
+            message = ${`Executed actions (taskChanged: ${taskChanged}, comment: ${commentCreated}, notification: ${notificationSent})`},
+            duration_ms = ${Date.now() - started},
+            updated_at = now()
+        where event_id = ${event.id}
+          and automation_id = ${ruleId}
+          and claim_token = ${event.claimToken}
+          and status = 'running'
+      `);
 
       if (hasAnyGenuineEffect) {
-        await saveClient.query(
-          `update automations
-           set runs = coalesce(runs, 0) + 1, last_run_at = now(), updated_at = now()
-           where id = $1
-             and exists (
-               select 1 from automation_events
-               where id = $2 and status = 'processing' and claim_token = $3
-             )`,
-          [ruleId, event.id, event.claimToken],
-        );
+        await db.execute(sql`
+          update automations
+          set runs = coalesce(runs, 0) + 1, last_run_at = now(), updated_at = now()
+          where id = ${ruleId}
+            and exists (
+              select 1 from automation_runs
+              where event_id = ${event.id}
+                and automation_id = ${ruleId}
+                and claim_token = ${event.claimToken}
+                and status = 'success'
+            )
+            and exists (
+              select 1 from automation_events
+              where id = ${event.id}
+                and status = 'processing'
+                and claim_token = ${event.claimToken}
+            )
+        `);
       }
       return "success";
-    } finally {
-      saveClient.release();
-    }
+    });
   } catch (error) {
-    await client.query("rollback").catch(() => undefined);
     const message = error instanceof Error ? error.message : "Unknown automation error";
-    const failClient = await pool.connect();
-    try {
-      await saveRun(failClient, event, ruleId, "failed", message, Date.now() - started).catch(() => undefined);
-    } finally {
-      failClient.release();
+    if (!message.includes("claim has expired or was superseded")) {
+      await pool
+        .query(
+          `update automation_runs
+         set status = 'failed',
+             message = $3,
+             duration_ms = $4,
+             updated_at = now()
+         where event_id = $1
+           and automation_id = $2
+           and claim_token = $5
+           and status = 'running'`,
+          [event.id, ruleId, message.slice(0, 2000), Date.now() - started, event.claimToken],
+        )
+        .catch(() => undefined);
     }
     throw error;
-  } finally {
-    client.release();
   }
 }
 

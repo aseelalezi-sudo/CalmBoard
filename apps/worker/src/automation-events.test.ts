@@ -7,8 +7,11 @@ import {
   claimAutomationEventBatch,
   completeEvent,
   enqueueDailyAutomationEvents,
+  executeRule,
   processAutomationEvents,
   readAutomationEventOptions,
+  releaseEvent,
+  saveRun,
   MAX_AUTOMATION_DEPTH,
   type AutomationEventCandidate,
 } from "./automation-events.js";
@@ -681,4 +684,637 @@ describe("automation event worker", () => {
       }
     },
   );
+
+  describe("concurrency, fencing, and idempotency guarantees", () => {
+    it(
+      "CASE A: stale worker attempts task mutation after claim token superseded -> no side effect committed",
+      { skip: !process.env.DATABASE_MAINTENANCE_URL },
+      async () => {
+        const pool = new Pool({ connectionString: process.env.DATABASE_MAINTENANCE_URL, max: 4 });
+        const tenant = await setupTestTenant(pool);
+        const automationId = randomUUID();
+        const taskId = randomUUID();
+        const eventId = randomUUID();
+        const tokenA = randomUUID();
+        const tokenB = randomUUID();
+
+        try {
+          await pool.query(
+            `insert into automations (id, organization_id, workspace_id, name, trigger, conditions, actions, enabled)
+             values ($1, $2, $3, 'Mutate Status', 'task_created', '{}'::jsonb, $4::jsonb, true)`,
+            [
+              automationId,
+              tenant.organizationId,
+              tenant.workspaceId,
+              JSON.stringify({ setStatus: "in_progress", setPriority: "urgent" }),
+            ],
+          );
+          await pool.query(
+            `insert into tasks (id, organization_id, workspace_id, project_id, title, serial, status, priority, reporter_id, version)
+             values ($1, $2, $3, $4, 'Task A', $5, 'todo', 'low', $6, 1)`,
+            [
+              taskId,
+              tenant.organizationId,
+              tenant.workspaceId,
+              tenant.projectId,
+              `AUTO-${taskId.slice(0, 8)}`,
+              tenant.userId,
+            ],
+          );
+          await pool.query(
+            `insert into automation_events (
+               id, organization_id, workspace_id, task_id, trigger, task_version,
+               actor_id, current, depth, deduplication_key, status, claim_token, claimed_at, attempts
+             ) values ($1, $2, $3, $4, 'task_created', 1, $5, $6::jsonb, 0, $7, 'processing', $8, now(), 1)`,
+            [
+              eventId,
+              tenant.organizationId,
+              tenant.workspaceId,
+              taskId,
+              tenant.userId,
+              JSON.stringify({
+                status: "todo",
+                priority: "low",
+                projectId: tenant.projectId,
+                assigneeId: null,
+                tags: [],
+                version: 1,
+              }),
+              `case-a-event-${eventId}`,
+              tokenA,
+            ],
+          );
+
+          // Worker B takes over with token B
+          await pool.query(
+            `update automation_events set claim_token = $1, attempts = 2, claimed_at = now() where id = $2`,
+            [tokenB, eventId],
+          );
+
+          // Worker A attempts task mutation with stale token A
+          const candidateA: AutomationEventCandidate = {
+            id: eventId,
+            organizationId: tenant.organizationId,
+            workspaceId: tenant.workspaceId,
+            taskId,
+            trigger: "task_created",
+            taskVersion: 1,
+            actorId: tenant.userId,
+            previous: null,
+            current: {
+              status: "todo",
+              priority: "low",
+              projectId: tenant.projectId,
+              assigneeId: null,
+              tags: [],
+              version: 1,
+            },
+            depth: 0,
+            attempt: 1,
+            maxAttempts: 8,
+            claimToken: tokenA,
+          };
+
+          await assert.rejects(
+            () => executeRule(pool, candidateA, automationId),
+            /claim has expired or was superseded/,
+          );
+
+          // Verify no task side effect was committed
+          const taskCheck = await pool.query<{ status: string; priority: string; version: number }>(
+            `select status, priority, version from tasks where id = $1`,
+            [taskId],
+          );
+          assert.equal(taskCheck.rows[0]?.status, "todo");
+          assert.equal(taskCheck.rows[0]?.priority, "low");
+          assert.equal(taskCheck.rows[0]?.version, 1);
+        } finally {
+          await tenant.cleanup();
+          await pool.end();
+        }
+      },
+    );
+
+    it(
+      "CASE B: stale worker loses claim before comment creation -> no comment created",
+      { skip: !process.env.DATABASE_MAINTENANCE_URL },
+      async () => {
+        const pool = new Pool({ connectionString: process.env.DATABASE_MAINTENANCE_URL, max: 4 });
+        const tenant = await setupTestTenant(pool);
+        const automationId = randomUUID();
+        const taskId = randomUUID();
+        const eventId = randomUUID();
+        const tokenA = randomUUID();
+        const tokenB = randomUUID();
+
+        try {
+          await pool.query(
+            `insert into automations (id, organization_id, workspace_id, name, trigger, conditions, actions, enabled)
+             values ($1, $2, $3, 'Add Comment Rule', 'task_created', '{}'::jsonb, $4::jsonb, true)`,
+            [
+              automationId,
+              tenant.organizationId,
+              tenant.workspaceId,
+              JSON.stringify({ addComment: "Automated test comment" }),
+            ],
+          );
+          await pool.query(
+            `insert into tasks (id, organization_id, workspace_id, project_id, title, serial, status, priority, reporter_id, version)
+             values ($1, $2, $3, $4, 'Task B', $5, 'todo', 'low', $6, 1)`,
+            [
+              taskId,
+              tenant.organizationId,
+              tenant.workspaceId,
+              tenant.projectId,
+              `AUTO-${taskId.slice(0, 8)}`,
+              tenant.userId,
+            ],
+          );
+          await pool.query(
+            `insert into automation_events (
+               id, organization_id, workspace_id, task_id, trigger, task_version,
+               actor_id, current, depth, deduplication_key, status, claim_token, claimed_at, attempts
+             ) values ($1, $2, $3, $4, 'task_created', 1, $5, $6::jsonb, 0, $7, 'processing', $8, now(), 1)`,
+            [
+              eventId,
+              tenant.organizationId,
+              tenant.workspaceId,
+              taskId,
+              tenant.userId,
+              JSON.stringify({
+                status: "todo",
+                priority: "low",
+                projectId: tenant.projectId,
+                assigneeId: null,
+                tags: [],
+                version: 1,
+              }),
+              `case-b-event-${eventId}`,
+              tokenA,
+            ],
+          );
+
+          // Worker B takes over with token B
+          await pool.query(
+            `update automation_events set claim_token = $1, attempts = 2, claimed_at = now() where id = $2`,
+            [tokenB, eventId],
+          );
+
+          // Worker A attempts to execute rule and create comment with stale token A
+          const candidateA: AutomationEventCandidate = {
+            id: eventId,
+            organizationId: tenant.organizationId,
+            workspaceId: tenant.workspaceId,
+            taskId,
+            trigger: "task_created",
+            taskVersion: 1,
+            actorId: tenant.userId,
+            previous: null,
+            current: {
+              status: "todo",
+              priority: "low",
+              projectId: tenant.projectId,
+              assigneeId: null,
+              tags: [],
+              version: 1,
+            },
+            depth: 0,
+            attempt: 1,
+            maxAttempts: 8,
+            claimToken: tokenA,
+          };
+
+          await assert.rejects(
+            () => executeRule(pool, candidateA, automationId),
+            /claim has expired or was superseded/,
+          );
+
+          // Verify no comment was created in database
+          const commentCheck = await pool.query<{ count: number }>(
+            `select count(*)::int as count from comments where task_id = $1`,
+            [taskId],
+          );
+          assert.equal(commentCheck.rows[0]?.count, 0);
+        } finally {
+          await tenant.cleanup();
+          await pool.end();
+        }
+      },
+    );
+
+    it(
+      "CASE C: worker loses claim before run completion -> cannot overwrite newer worker's run result",
+      { skip: !process.env.DATABASE_MAINTENANCE_URL },
+      async () => {
+        const pool = new Pool({ connectionString: process.env.DATABASE_MAINTENANCE_URL, max: 4 });
+        const tenant = await setupTestTenant(pool);
+        const automationId = randomUUID();
+        const taskId = randomUUID();
+        const eventId = randomUUID();
+        const tokenA = randomUUID();
+        const tokenB = randomUUID();
+
+        try {
+          await pool.query(
+            `insert into automations (id, organization_id, workspace_id, name, trigger, conditions, actions, enabled)
+             values ($1, $2, $3, 'Run Fencing', 'task_created', '{}'::jsonb, $4::jsonb, true)`,
+            [automationId, tenant.organizationId, tenant.workspaceId, JSON.stringify({ setPriority: "urgent" })],
+          );
+          await pool.query(
+            `insert into tasks (id, organization_id, workspace_id, project_id, title, serial, status, priority, reporter_id, version)
+             values ($1, $2, $3, $4, 'Task C', $5, 'todo', 'low', $6, 1)`,
+            [
+              taskId,
+              tenant.organizationId,
+              tenant.workspaceId,
+              tenant.projectId,
+              `AUTO-${taskId.slice(0, 8)}`,
+              tenant.userId,
+            ],
+          );
+          await pool.query(
+            `insert into automation_events (
+               id, organization_id, workspace_id, task_id, trigger, task_version,
+               actor_id, current, depth, deduplication_key, status, claim_token, claimed_at, attempts
+             ) values ($1, $2, $3, $4, 'task_created', 1, $5, $6::jsonb, 0, $7, 'processing', $8, now(), 2)`,
+            [
+              eventId,
+              tenant.organizationId,
+              tenant.workspaceId,
+              taskId,
+              tenant.userId,
+              JSON.stringify({
+                status: "todo",
+                priority: "low",
+                projectId: tenant.projectId,
+                assigneeId: null,
+                tags: [],
+                version: 1,
+              }),
+              `case-c-event-${eventId}`,
+              tokenB,
+            ],
+          );
+
+          // Worker B successfully recorded a run
+          await pool.query(
+            `insert into automation_runs (
+               organization_id, workspace_id, automation_id, event_id, task_id,
+               status, attempt, claim_token, message, duration_ms
+             ) values ($1, $2, $3, $4, $5, 'success', 2, $6, 'Completed successfully by Worker B', 25)`,
+            [tenant.organizationId, tenant.workspaceId, automationId, eventId, taskId, tokenB],
+          );
+
+          // Worker A (stale with tokenA) attempts to overwrite the run
+          const staleCandidate: AutomationEventCandidate = {
+            id: eventId,
+            organizationId: tenant.organizationId,
+            workspaceId: tenant.workspaceId,
+            taskId,
+            trigger: "task_created",
+            taskVersion: 1,
+            actorId: tenant.userId,
+            previous: null,
+            current: {
+              status: "todo",
+              priority: "low",
+              projectId: tenant.projectId,
+              assigneeId: null,
+              tags: [],
+              version: 1,
+            },
+            depth: 0,
+            attempt: 1,
+            maxAttempts: 8,
+            claimToken: tokenA,
+          };
+
+          const overwritten = await saveRun(pool, staleCandidate, automationId, "failed", "Stale failure message", 999);
+          assert.equal(overwritten, false, "Stale worker must not update run");
+
+          // Verify Worker B's record was untouched
+          const runRow = await pool.query<{ status: string; claim_token: string; message: string; attempt: number }>(
+            `select status, claim_token, message, attempt from automation_runs where event_id = $1 and automation_id = $2`,
+            [eventId, automationId],
+          );
+          assert.equal(runRow.rows[0]?.status, "success");
+          assert.equal(runRow.rows[0]?.claim_token, tokenB);
+          assert.equal(runRow.rows[0]?.message, "Completed successfully by Worker B");
+          assert.equal(runRow.rows[0]?.attempt, 2);
+        } finally {
+          await tenant.cleanup();
+          await pool.end();
+        }
+      },
+    );
+
+    it(
+      "CASE D: retry after successful comment creation -> exactly one automation comment",
+      { skip: !process.env.DATABASE_MAINTENANCE_URL },
+      async () => {
+        const pool = new Pool({ connectionString: process.env.DATABASE_MAINTENANCE_URL, max: 4 });
+        const tenant = await setupTestTenant(pool);
+        const automationId = randomUUID();
+        const taskId = randomUUID();
+        const eventId = randomUUID();
+
+        try {
+          await pool.query(
+            `insert into automations (id, organization_id, workspace_id, name, trigger, conditions, actions, enabled)
+             values ($1, $2, $3, 'Comment Rule', 'task_created', '{}'::jsonb, $4::jsonb, true)`,
+            [
+              automationId,
+              tenant.organizationId,
+              tenant.workspaceId,
+              JSON.stringify({ addComment: "Idempotent comment" }),
+            ],
+          );
+          await pool.query(
+            `insert into tasks (id, organization_id, workspace_id, project_id, title, serial, status, priority, reporter_id, version)
+             values ($1, $2, $3, $4, 'Task D', $5, 'todo', 'low', $6, 1)`,
+            [
+              taskId,
+              tenant.organizationId,
+              tenant.workspaceId,
+              tenant.projectId,
+              `AUTO-${taskId.slice(0, 8)}`,
+              tenant.userId,
+            ],
+          );
+          await pool.query(
+            `insert into automation_events (
+               id, organization_id, workspace_id, task_id, trigger, task_version,
+               actor_id, current, depth, deduplication_key, status
+             ) values ($1, $2, $3, $4, 'task_created', 1, $5, $6::jsonb, 0, $7, 'pending')`,
+            [
+              eventId,
+              tenant.organizationId,
+              tenant.workspaceId,
+              taskId,
+              tenant.userId,
+              JSON.stringify({
+                status: "todo",
+                priority: "low",
+                projectId: tenant.projectId,
+                assigneeId: null,
+                tags: [],
+                version: 1,
+              }),
+              `case-d-event-${eventId}`,
+            ],
+          );
+
+          // First run: claim event and execute rule (creates comment)
+          const claimClient = await pool.connect();
+          let claimedEvents: AutomationEventCandidate[];
+          try {
+            claimedEvents = await claimAutomationEventBatch(claimClient, { batchSize: 25, claimTimeoutMinutes: 15 });
+          } finally {
+            claimClient.release();
+          }
+          const candidateD = claimedEvents.find((e) => e.id === eventId)!;
+          assert.ok(candidateD, "Event should be claimed");
+
+          await executeRule(pool, candidateD, automationId);
+
+          const initialCommentCount = await pool.query<{ count: number }>(
+            `select count(*)::int as count from comments where task_id = $1 and deleted_at is null`,
+            [taskId],
+          );
+          assert.equal(initialCommentCount.rows[0]?.count, 1);
+
+          // Simulate worker crash before calling completeEvent: release the event for retry
+          const releaseClient = await pool.connect();
+          try {
+            await releaseEvent(releaseClient, candidateD, new Error("Simulated worker crash before completeEvent"));
+          } finally {
+            releaseClient.release();
+          }
+
+          // Make event immediately available for retry
+          await pool.query(`update automation_events set available_at = now() where id = $1`, [eventId]);
+
+          // Second run: retries execution via processAutomationEvents
+          await processAutomationEvents(pool, { batchSize: 25, claimTimeoutMinutes: 15 });
+
+          // Verify exactly ONE comment still exists
+          const finalCommentCount = await pool.query<{ count: number }>(
+            `select count(*)::int as count from comments where task_id = $1 and deleted_at is null`,
+            [taskId],
+          );
+          assert.equal(finalCommentCount.rows[0]?.count, 1);
+        } finally {
+          await tenant.cleanup();
+          await pool.end();
+        }
+      },
+    );
+
+    it(
+      "CASE E: two workers race for the same event/rule -> exactly one successful execution effect",
+      { skip: !process.env.DATABASE_MAINTENANCE_URL },
+      async () => {
+        const pool = new Pool({ connectionString: process.env.DATABASE_MAINTENANCE_URL, max: 4 });
+        const tenant = await setupTestTenant(pool);
+        const automationId = randomUUID();
+        const taskId = randomUUID();
+        const eventId = randomUUID();
+
+        try {
+          await pool.query(
+            `insert into automations (id, organization_id, workspace_id, name, trigger, conditions, actions, enabled)
+             values ($1, $2, $3, 'Race Rule', 'task_created', '{}'::jsonb, $4::jsonb, true)`,
+            [
+              automationId,
+              tenant.organizationId,
+              tenant.workspaceId,
+              JSON.stringify({ setStatus: "done", addComment: "Race comment", notify: "reporter" }),
+            ],
+          );
+          await pool.query(
+            `insert into tasks (id, organization_id, workspace_id, project_id, title, serial, status, priority, reporter_id, version)
+             values ($1, $2, $3, $4, 'Task E', $5, 'todo', 'low', $6, 1)`,
+            [
+              taskId,
+              tenant.organizationId,
+              tenant.workspaceId,
+              tenant.projectId,
+              `AUTO-${taskId.slice(0, 8)}`,
+              tenant.userId,
+            ],
+          );
+          await pool.query(
+            `insert into automation_events (
+               id, organization_id, workspace_id, task_id, trigger, task_version,
+               actor_id, current, depth, deduplication_key, status
+             ) values ($1, $2, $3, $4, 'task_created', 1, $5, $6::jsonb, 0, $7, 'pending')`,
+            [
+              eventId,
+              tenant.organizationId,
+              tenant.workspaceId,
+              taskId,
+              tenant.userId,
+              JSON.stringify({
+                status: "todo",
+                priority: "low",
+                projectId: tenant.projectId,
+                assigneeId: null,
+                tags: [],
+                version: 1,
+              }),
+              `case-e-event-${eventId}`,
+            ],
+          );
+
+          // Two workers race concurrently to process events
+          const [res1, res2] = await Promise.all([
+            processAutomationEvents(pool, { batchSize: 25, claimTimeoutMinutes: 15 }),
+            processAutomationEvents(pool, { batchSize: 25, claimTimeoutMinutes: 15 }),
+          ]);
+
+          assert.equal(res1.completed + res2.completed, 1);
+
+          // Verify task version incremented exactly once (1 -> 2)
+          const taskRow = await pool.query<{ status: string; version: number }>(
+            `select status, version from tasks where id = $1`,
+            [taskId],
+          );
+          assert.equal(taskRow.rows[0]?.status, "done");
+          assert.equal(taskRow.rows[0]?.version, 2);
+
+          // Verify exactly one comment
+          const commentRow = await pool.query<{ count: number }>(
+            `select count(*)::int as count from comments where task_id = $1 and deleted_at is null`,
+            [taskId],
+          );
+          assert.equal(commentRow.rows[0]?.count, 1);
+
+          // Verify exactly one notification
+          const notifRow = await pool.query<{ count: number }>(
+            `select count(*)::int as count from notifications where entity_id = $1 and type = 'automation'`,
+            [taskId],
+          );
+          assert.equal(notifRow.rows[0]?.count, 1);
+
+          // Verify automations.runs incremented exactly once
+          const ruleRow = await pool.query<{ runs: number }>(
+            `select coalesce(runs, 0)::int as runs from automations where id = $1`,
+            [automationId],
+          );
+          assert.equal(ruleRow.rows[0]?.runs, 1);
+
+          // Verify automation_runs has exactly one successful record
+          const runsRow = await pool.query<{ count: number }>(
+            `select count(*)::int as count from automation_runs where event_id = $1 and status = 'success'`,
+            [eventId],
+          );
+          assert.equal(runsRow.rows[0]?.count, 1);
+        } finally {
+          await tenant.cleanup();
+          await pool.end();
+        }
+      },
+    );
+
+    it(
+      "CASE F: no-op automation -> no task version/timestamp/event churn and no automations.runs increment",
+      { skip: !process.env.DATABASE_MAINTENANCE_URL },
+      async () => {
+        const pool = new Pool({ connectionString: process.env.DATABASE_MAINTENANCE_URL, max: 4 });
+        const tenant = await setupTestTenant(pool);
+        const automationId = randomUUID();
+        const taskId = randomUUID();
+        const eventId = randomUUID();
+
+        try {
+          await pool.query(
+            `insert into automations (id, organization_id, workspace_id, name, trigger, conditions, actions, enabled)
+             values ($1, $2, $3, 'Noop Rule', 'task_created', '{}'::jsonb, $4::jsonb, true)`,
+            [automationId, tenant.organizationId, tenant.workspaceId, JSON.stringify({ setStatus: "done" })],
+          );
+          await pool.query(
+            `insert into tasks (id, organization_id, workspace_id, project_id, title, serial, status, progress, priority, reporter_id, version, updated_at)
+             values ($1, $2, $3, $4, 'Task F', $5, 'done', 100, 'low', $6, 7, now() - interval '2 hours')`,
+            [
+              taskId,
+              tenant.organizationId,
+              tenant.workspaceId,
+              tenant.projectId,
+              `AUTO-${taskId.slice(0, 8)}`,
+              tenant.userId,
+            ],
+          );
+
+          const taskBefore = await pool.query<{ version: number; updated_at: string }>(
+            `select version, updated_at::text from tasks where id = $1`,
+            [taskId],
+          );
+
+          await pool.query(
+            `insert into automation_events (
+               id, organization_id, workspace_id, task_id, trigger, task_version,
+               actor_id, current, depth, deduplication_key, status
+             ) values ($1, $2, $3, $4, 'task_created', 7, $5, $6::jsonb, 0, $7, 'pending')`,
+            [
+              eventId,
+              tenant.organizationId,
+              tenant.workspaceId,
+              taskId,
+              tenant.userId,
+              JSON.stringify({
+                status: "done",
+                progress: 100,
+                priority: "low",
+                projectId: tenant.projectId,
+                assigneeId: null,
+                tags: [],
+                version: 7,
+              }),
+              `case-f-event-${eventId}`,
+            ],
+          );
+
+          const eventsBefore = await pool.query<{ count: number }>(
+            `select count(*)::int as count from automation_events where task_id = $1`,
+            [taskId],
+          );
+
+          await processAutomationEvents(pool, { batchSize: 25, claimTimeoutMinutes: 15 });
+
+          // Verify task version and updated_at are completely unchanged
+          const taskAfter = await pool.query<{ status: string; version: number; updated_at: string }>(
+            `select status, version, updated_at::text from tasks where id = $1`,
+            [taskId],
+          );
+          assert.equal(taskAfter.rows[0]?.version, taskBefore.rows[0]?.version);
+          assert.equal(taskAfter.rows[0]?.updated_at, taskBefore.rows[0]?.updated_at);
+          assert.equal(taskAfter.rows[0]?.status, "done");
+
+          // Verify no new automation events were enqueued
+          const eventsAfter = await pool.query<{ count: number }>(
+            `select count(*)::int as count from automation_events where task_id = $1`,
+            [taskId],
+          );
+          assert.equal(eventsAfter.rows[0]?.count, eventsBefore.rows[0]?.count);
+
+          // Verify automations.runs was NOT incremented
+          const ruleRow = await pool.query<{ runs: number }>(
+            `select coalesce(runs, 0)::int as runs from automations where id = $1`,
+            [automationId],
+          );
+          assert.equal(ruleRow.rows[0]?.runs, 0);
+
+          // Verify automation_runs recorded skipped
+          const runRow = await pool.query<{ status: string }>(
+            `select status from automation_runs where event_id = $1 and automation_id = $2`,
+            [eventId, automationId],
+          );
+          assert.equal(runRow.rows[0]?.status, "skipped");
+        } finally {
+          await tenant.cleanup();
+          await pool.end();
+        }
+      },
+    );
+  });
 });

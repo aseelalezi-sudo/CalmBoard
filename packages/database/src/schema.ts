@@ -972,6 +972,7 @@ export const comments = pgTable(
     parentId: uuid("parent_id"),
     reactions: jsonb("reactions").$type<Record<string, string[]>>().default({}),
     isPinned: boolean("is_pinned").default(false),
+    deduplicationKey: varchar("deduplication_key", { length: 256 }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
@@ -984,6 +985,9 @@ export const comments = pgTable(
       table.deletedAt,
       table.createdAt,
     ),
+    uniqueIndex("comments_tenant_deduplication_unique")
+      .on(table.organizationId, table.workspaceId, table.deduplicationKey)
+      .where(sql`${table.deduplicationKey} is not null`),
   ],
 );
 
@@ -1617,6 +1621,7 @@ export const automationRuns = pgTable(
     taskId: uuid("task_id"),
     status: varchar("status", { length: 20 }).notNull(),
     attempt: integer("attempt").default(1).notNull(),
+    claimToken: varchar("claim_token", { length: 128 }),
     message: text("message"),
     durationMs: integer("duration_ms").default(0),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
