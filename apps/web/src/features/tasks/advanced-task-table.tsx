@@ -37,7 +37,7 @@ import { buildCsv, downloadCsv } from "@/lib/csv";
 import { useModifierKeyLabel } from "@/lib/modifier-key";
 import { useBulkTaskActions } from "./use-bulk-task-actions";
 import { parseTaskClipboard, serializeTasksForClipboard, type TaskClipboardUpdate } from "./task-table-clipboard";
-import { moveTableColumn } from "./task-table-state";
+import { keyboardColumnSize, moveTableColumn } from "./task-table-state";
 import { useTaskViewStateStore } from "@/stores/task-view-state-store";
 import { TaskAssignmentControl } from "./task-assignment-control";
 import {
@@ -1434,6 +1434,20 @@ export function AdvancedTaskTable({ ctx }: { ctx: ViewCtx }) {
                       onDoubleClick={() => header.column.resetSize()}
                       onMouseDown={header.getResizeHandler()}
                       onTouchStart={header.getResizeHandler()}
+                      aria-keyshortcuts="ArrowLeft ArrowRight"
+                      onKeyDown={(event) => {
+                        const next = keyboardColumnSize(
+                          header.column.getSize(),
+                          event.key,
+                          ctx.locale === "ar",
+                          header.column.columnDef.minSize ?? 40,
+                          header.column.columnDef.maxSize ?? 1000,
+                          event.shiftKey ? 48 : 16,
+                        );
+                        if (next === undefined) return;
+                        event.preventDefault();
+                        table.setColumnSizing((previous) => ({ ...previous, [header.column.id]: next }));
+                      }}
                       className={cn(
                         "absolute inset-y-0 end-0 w-1 cursor-col-resize touch-none bg-transparent hover:bg-accent/50",
                         header.column.getIsResizing() && "bg-accent",

@@ -35,3 +35,20 @@ export function normalizeTableColumnOrder(order: string[]) {
   }
   return normalized;
 }
+
+// Keyboard equivalent of dragging a column's resize handle. The handle sits on the end edge of the cell, so the
+// arrow that moves that edge outward widens the column: right in left-to-right layouts, left in right-to-left ones.
+export function keyboardColumnSize(
+  currentSize: number,
+  key: string,
+  rtl: boolean,
+  minSize: number,
+  maxSize: number,
+  step = 16,
+) {
+  const widen = rtl ? "ArrowLeft" : "ArrowRight";
+  const narrow = rtl ? "ArrowRight" : "ArrowLeft";
+  if (key !== widen && key !== narrow) return undefined;
+  const next = currentSize + (key === widen ? step : -step);
+  return Math.min(maxSize, Math.max(minSize, next));
+}
