@@ -614,9 +614,18 @@ export async function processAutomationEvents(
         skipped += 1;
         continue;
       }
+      // A failing rule must not starve the rules after it: run them all, then retry the event once if any failed.
+      // Succeeded and skipped rules are gated by the per-(event, rule) idempotency run, so retries stay exactly-once.
+      let ruleError: unknown;
       for (const rule of rules.rows) {
-        await executeRule(pool, event, rule.id);
+        try {
+          await executeRule(pool, event, rule.id);
+        } catch (error) {
+          if (error instanceof Error && error.message.includes("claim has expired or was superseded")) throw error;
+          ruleError ??= error;
+        }
       }
+      if (ruleError !== undefined) throw ruleError;
       await completeEvent(stateClient, event, "sent");
       completed += 1;
     } catch (error) {
