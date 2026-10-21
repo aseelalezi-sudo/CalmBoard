@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Patch, Post, Query, Req } from "@nestjs/common";
+import { Body, Controller, Get, Optional, Patch, Post, Query, Req } from "@nestjs/common";
 import { createAutomationsRepository } from "@calmboard/database";
 import type { AuthenticatedRequest } from "./auth.guard.js";
 import {
@@ -12,7 +12,7 @@ import { RequirePermission, TenantMember } from "./permission.guard.js";
 
 @Controller("automations")
 export class AutomationsController {
-  constructor(private readonly repositoryFactory = createAutomationsRepository) {}
+  constructor(@Optional() private readonly repositoryFactory = createAutomationsRepository) {}
 
   @Get()
   @TenantMember()
