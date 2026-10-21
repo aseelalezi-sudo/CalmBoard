@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Sprint, Task, ViewCtx } from "@/lib/types";
 import { fmtDate, fmtNumber } from "@/lib/types";
-import { Btn, Modal, inputCls, areaCls } from "@/components/ui";
+import { Btn, Ltr, Modal, inputCls, areaCls } from "@/components/ui";
 import type { CompleteSprintDestination, SprintFormInput } from "./api";
 import { sprintSummary, validateSprintForm } from "./sprint-domain";
 
@@ -214,7 +214,9 @@ export function CompleteSprintDialog({
             </div>
           </div>
           <p>
-            {fmtNumber(summary.completedStoryPoints, ctx.locale)} / {fmtNumber(summary.storyPoints, ctx.locale)} pts{" "}
+            <Ltr>
+              {fmtNumber(summary.completedStoryPoints, ctx.locale)} / {fmtNumber(summary.storyPoints, ctx.locale)} pts
+            </Ltr>{" "}
             {ctx.t("مكتملة", "completed")}
           </p>
           <fieldset disabled={pending} className="space-y-2">

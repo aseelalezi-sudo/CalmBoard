@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Task, User, ViewCtx, WorkloadSettings, WorkloadTimeOff } from "@/lib/types";
 import { fmtMinutes, fmtNumber } from "@/lib/types";
-import { Avatar, Badge, Btn, Card, ScreenState, SectionTitle } from "@/components/ui";
+import { Avatar, Badge, Btn, Card, Ltr, ScreenState, SectionTitle } from "@/components/ui";
 import { promptAction } from "@/components/feedback";
 import { cn } from "@/lib/utils";
 import {
@@ -349,8 +349,11 @@ export function AdvancedWorkload({ ctx }: { ctx: ViewCtx }) {
                   </div>
                   <div className="mt-3 flex items-center justify-between text-[11.5px] text-ink-soft">
                     <span>
-                      {minutesLabel(row.allocatedMinutes, ctx.locale)} /{" "}
-                      {minutesLabel(row.effectiveCapacityMinutes, ctx.locale)} {ctx.t("متاحة", "available")}
+                      <Ltr>
+                        {minutesLabel(row.allocatedMinutes, ctx.locale)} /{" "}
+                        {minutesLabel(row.effectiveCapacityMinutes, ctx.locale)}
+                      </Ltr>{" "}
+                      {ctx.t("متاحة", "available")}
                     </span>
                     <span className="font-bold tabular-nums">{fmtNumber(row.utilizationPercent, ctx.locale)}%</span>
                   </div>

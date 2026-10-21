@@ -4,7 +4,7 @@ import { useState } from "react";
 import { goalStatusLabel } from "@/lib/display-labels";
 import type { Goal, ViewCtx } from "@/lib/types";
 import { fmtNumber } from "@/lib/types";
-import { Avatar, Badge, Btn, Card, Modal, Ring, ScreenHeader, ScreenState } from "@/components/ui";
+import { Avatar, Badge, Btn, Card, Ltr, Modal, Ring, ScreenHeader, ScreenState } from "@/components/ui";
 import { IconPlus, IconTarget } from "@/components/icons";
 
 function goalTone(status: Goal["status"]) {
@@ -91,7 +91,8 @@ export function GoalsView({ ctx }: { ctx: ViewCtx }) {
             </div>
             <h4 className="mt-2 text-[13.5px] font-semibold text-ink">{goal.title}</h4>
             <p className="mt-1 text-[11px] text-ink-soft">
-              {measurementSummary(goal, ctx)} • {ctx.t("الوزن", "weight")} {fmtNumber(goal.weight, ctx.locale)}
+              <Ltr>{measurementSummary(goal, ctx)}</Ltr> • {ctx.t("الوزن", "weight")}{" "}
+              {fmtNumber(goal.weight, ctx.locale)}
             </p>
           </div>
           <Ring

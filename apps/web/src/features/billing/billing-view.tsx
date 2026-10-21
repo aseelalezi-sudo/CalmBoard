@@ -4,7 +4,7 @@ import { useState } from "react";
 import { invoiceStatusLabel } from "@/lib/display-labels";
 import type { ViewCtx } from "@/lib/types";
 import { fmtNumber } from "@/lib/types";
-import { Badge, Bar, Btn, Card, ScreenHeader, ScreenState, SectionTitle } from "@/components/ui";
+import { Badge, Bar, Btn, Card, Ltr, ScreenHeader, ScreenState, SectionTitle } from "@/components/ui";
 import { IconCheck, IconDoc, IconShield } from "@/components/icons";
 import { useBillingCheckout } from "@/features/billing/use-billing-checkout";
 
@@ -123,11 +123,13 @@ export function BillingView({ ctx }: { ctx: ViewCtx }) {
           </div>
           <div className="text-end">
             <div className="mono text-[24px] font-bold text-ink tabular">
-              {formatBillingAmount(plans.find((p) => p.id === current)?.price ?? 16, ctx.locale, "USD")}
+              <Ltr>{formatBillingAmount(plans.find((p) => p.id === current)?.price ?? 16, ctx.locale, "USD")}</Ltr>
               <span className="text-[12px] text-ink-faint">/{ctx.t("عضو/شهر", "seat/mo")}</span>
             </div>
             <div className="text-[11px] text-ink-faint">
-              {fmtNumber(usedSeats, ctx.locale)} / {fmtNumber(totalSeats, ctx.locale)}{" "}
+              <Ltr>
+                {fmtNumber(usedSeats, ctx.locale)} / {fmtNumber(totalSeats, ctx.locale)}
+              </Ltr>{" "}
               {ctx.t("مقعد مستخدم", "seats used")}
             </div>
           </div>
@@ -176,7 +178,7 @@ export function BillingView({ ctx }: { ctx: ViewCtx }) {
               {p.id === current && <Badge tone="cyan">{ctx.t("الحالية", "Current")}</Badge>}
             </div>
             <div className="mono mt-2 text-[24px] font-bold text-ink tabular">
-              {formatBillingAmount(p.price, ctx.locale, "USD")}
+              <Ltr>{formatBillingAmount(p.price, ctx.locale, "USD")}</Ltr>
               <span className="text-[11px] font-normal text-ink-faint">/{ctx.t("عضو/شهر", "seat/mo")}</span>
             </div>
             <ul className="mt-3 space-y-1.5">
@@ -219,7 +221,7 @@ export function BillingView({ ctx }: { ctx: ViewCtx }) {
                   </bdi>
                 </div>
                 <span className="mono font-bold text-ink tabular">
-                  {formatBillingAmount(inv.amount, ctx.locale, inv.currency || "USD")}
+                  <Ltr>{formatBillingAmount(inv.amount, ctx.locale, inv.currency || "USD")}</Ltr>
                 </span>
                 <Badge tone={inv.status === "paid" ? "emerald" : "amber"}>
                   {invoiceStatusLabel(inv.status, ctx.t)}

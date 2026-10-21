@@ -111,6 +111,16 @@ export function Avatar({
   );
 }
 
+/* ---------- Ltr ---------- */
+// Numbers, money and fractions keep their reading order inside right-to-left text.
+export function Ltr({ children, className }: { children: ReactNode; className?: string }) {
+  return (
+    <bdi dir="ltr" className={className}>
+      {children}
+    </bdi>
+  );
+}
+
 /* ---------- Kbd ---------- */
 export function Kbd({ children, className }: { children: ReactNode; className?: string }) {
   return (
