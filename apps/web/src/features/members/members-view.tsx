@@ -214,6 +214,7 @@ export function MembersView({ ctx }: { ctx: ViewCtx }) {
                     <div className="flex items-center gap-2">
                       <select
                         id={`sk-add-${m.userId}`}
+                        aria-label={ctx.t("إضافة مهارة", "Add skill")}
                         disabled={pendingMemberAction === `${m.userId}:skills`}
                         onChange={(e) => {
                           if (e.target.value && !skills.includes(e.target.value)) {

@@ -290,7 +290,7 @@ export function ProjectsView({ ctx }: { ctx: ViewCtx }) {
               aria-pressed={status === value}
               className={cn(
                 "shrink-0 rounded-lg px-3 py-2 text-[11.5px] font-medium transition",
-                status === value ? "bg-accent text-white" : "bg-raised text-ink-soft hover:text-ink",
+                status === value ? "bg-accent text-on-accent" : "bg-raised text-ink-soft hover:text-ink",
               )}
             >
               {value === "all" ? ctx.t("الكل", "All") : statusLabel(value, ctx.t)}

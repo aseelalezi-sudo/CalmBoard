@@ -16,6 +16,7 @@
   --color-ink-faint: var(--color-ink-faint);
   --color-accent: var(--color-accent);
   --color-accent-2: var(--color-accent-2);
+  --color-on-accent: var(--color-on-accent);
 }
 
 :root {
@@ -28,6 +29,7 @@
   --color-ink-faint: #64748b;
   --color-accent: #4f46e5;
   --color-accent-2: #7c3aed;
+  --color-on-accent: #ffffff;
 }
 
 .dark {
@@ -40,6 +42,7 @@
   --color-ink-faint: #8b8ba0;
   --color-accent: #818cf8;
   --color-accent-2: #a78bfa;
+  --color-on-accent: #0b0b14;
 }
 
 @custom-variant dark (&:where(.dark, .dark *));

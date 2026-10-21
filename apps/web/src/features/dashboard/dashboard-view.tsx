@@ -60,6 +60,36 @@ const widthClasses: Record<DashboardWidgetWidth, string> = {
   full: "col-span-12",
 };
 
+const CHART_CONTROL_LABELS = {
+  groupBy: ["تجميع حسب", "Group by"],
+  metric: ["المقياس", "Metric"],
+  chartType: ["نوع الرسم", "Chart type"],
+} as const;
+
+const CHART_OPTION_LABELS: Record<string, [string, string]> = {
+  priority: ["الأولوية", "Priority"],
+  status: ["الحالة", "Status"],
+  assignee: ["المسؤول", "Assignee"],
+  tag: ["الوسم", "Tag"],
+  count: ["عدد المهام", "Task count"],
+  points: ["النقاط", "Points"],
+  estimate: ["التقدير", "Estimate"],
+  logged: ["الوقت المسجل", "Logged time"],
+  bar: ["أعمدة", "Bars"],
+  rank: ["ترتيب", "Ranking"],
+  donut: ["حلقي", "Donut"],
+};
+
+function chartControlLabel(key: keyof typeof CHART_CONTROL_LABELS, t: (ar: string, en: string) => string) {
+  const [ar, en] = CHART_CONTROL_LABELS[key];
+  return t(ar, en);
+}
+
+function chartOptionLabel(option: string, t: (ar: string, en: string) => string) {
+  const label = CHART_OPTION_LABELS[option];
+  return label ? t(label[0], label[1]) : option;
+}
+
 export function DashboardView({ ctx }: { ctx: ViewCtx }) {
   const [range, setRange] = useState<"all" | "7d" | "30d">("all");
   const [editing, setEditing] = useState(false);
@@ -480,6 +510,7 @@ function CustomChartWidget({
             <select
               name="auto-field-k7n478v"
               key={key}
+              aria-label={chartControlLabel(key, ctx.t)}
               value={settings[key]}
               onChange={(event) => onChange({ settings: { ...settings, [key]: event.target.value } })}
               className={`${selectSmCls} h-7.5 text-[11px]`}
@@ -490,7 +521,9 @@ function CustomChartWidget({
                   ? ["count", "points", "estimate", "logged"]
                   : ["bar", "rank", "donut"]
               ).map((option) => (
-                <option key={option}>{option}</option>
+                <option key={option} value={option}>
+                  {chartOptionLabel(option, ctx.t)}
+                </option>
               ))}
             </select>
           ))}

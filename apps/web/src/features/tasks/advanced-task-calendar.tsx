@@ -491,7 +491,7 @@ export function AdvancedTaskCalendar({ ctx, calendarTimezone = "UTC" }: { ctx: V
                     <button
                       disabled={!ctx.can("tasks.create")}
                       onClick={() => void createTaskForDay(days[0]!)}
-                      className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-[11.5px] font-bold text-white transition hover:brightness-110 disabled:hidden"
+                      className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-[11.5px] font-bold text-on-accent transition hover:brightness-110 disabled:hidden"
                     >
                       <IconPlus size={12} />
                       {ctx.t("إضافة مهمة", "Add task")}
@@ -541,7 +541,7 @@ export function AdvancedTaskCalendar({ ctx, calendarTimezone = "UTC" }: { ctx: V
                         <span
                           className={cn(
                             "grid h-6 w-6 place-items-center rounded-lg text-[12px] font-bold",
-                            isSameDay(day, today) ? "bg-accent text-white" : "bg-raised text-ink",
+                            isSameDay(day, today) ? "bg-accent text-on-accent" : "bg-raised text-ink",
                           )}
                         >
                           {fmtNumber(day.getDate(), ctx.locale)}
@@ -640,7 +640,7 @@ export function AdvancedTaskCalendar({ ctx, calendarTimezone = "UTC" }: { ctx: V
                       className={cn(
                         "flex flex-col items-center rounded-xl p-1.5 text-center transition",
                         !inMonth && "opacity-30",
-                        isSameDay(day, today) ? "bg-accent text-white" : "hover:bg-raised text-ink",
+                        isSameDay(day, today) ? "bg-accent text-on-accent" : "hover:bg-raised text-ink",
                       )}
                     >
                       <span className="text-[11px] font-bold">{fmtNumber(day.getDate(), ctx.locale)}</span>
@@ -688,7 +688,7 @@ export function AdvancedTaskCalendar({ ctx, calendarTimezone = "UTC" }: { ctx: V
                             className={cn(
                               "grid h-6 w-6 place-items-center rounded-lg text-[11px] font-semibold",
                               inMonth ? "text-ink" : "text-ink-faint",
-                              isSameDay(day, today) && "bg-accent text-white",
+                              isSameDay(day, today) && "bg-accent text-on-accent",
                             )}
                           >
                             {fmtNumber(day.getDate(), ctx.locale)}

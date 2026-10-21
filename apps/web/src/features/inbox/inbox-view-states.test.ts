@@ -24,7 +24,8 @@ test("mark-all is serialized and notification failures cannot become unhandled p
 });
 
 test("notification feed exposes position and uses semantic theme surfaces", () => {
-  assert.match(view, /role="feed"/);
+  // An empty feed must not expose role=feed: ARIA requires feed to contain articles.
+  assert.match(view, /role=\{visibleNotifications\.length > 0 \? "feed" : undefined\}/);
   assert.match(view, /role="article"/);
   assert.match(view, /aria-posinset=\{index \+ 1\}/);
   assert.match(view, /aria-setsize=\{visibleNotifications\.length\}/);

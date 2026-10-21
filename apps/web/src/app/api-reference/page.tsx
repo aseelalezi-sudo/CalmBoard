@@ -103,7 +103,7 @@ export default function ApiReferencePage() {
       <header className="sticky top-0 z-30 border-b border-line bg-surface/95 px-3 py-3 backdrop-blur-xl sm:px-6">
         <div className="mx-auto flex max-w-[1200px] flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex min-w-0 items-start gap-3">
-            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-accent text-white">
+            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-accent text-on-accent">
               <LogoMark size={25} />
             </span>
             <div className="min-w-0">

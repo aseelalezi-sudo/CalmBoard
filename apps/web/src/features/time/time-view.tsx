@@ -106,6 +106,7 @@ export function TimeView({ ctx }: { ctx: ViewCtx }) {
             )}
             <select
               name="auto-field-350iea9"
+              aria-label={ctx.t("المهمة المراد تتبع وقتها", "Task to track time for")}
               value={ctx.timerTask || ""}
               disabled={ctx.timerRunning || savingTimer}
               onChange={(event) => ctx.setTimerTask(event.target.value || null)}

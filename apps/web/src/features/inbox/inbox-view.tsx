@@ -62,7 +62,11 @@ export function InboxView({ ctx }: { ctx: ViewCtx }) {
         ]}
       />
 
-      <div role="feed" aria-label={ctx.t("قائمة الإشعارات", "Notifications feed")} className="space-y-3">
+      <div
+        role={visibleNotifications.length > 0 ? "feed" : undefined}
+        aria-label={visibleNotifications.length > 0 ? ctx.t("قائمة الإشعارات", "Notifications feed") : undefined}
+        className="space-y-3"
+      >
         {visibleNotifications.map((n, index) => (
           <article
             key={n.id}

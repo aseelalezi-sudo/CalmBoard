@@ -80,7 +80,7 @@ export default function PublicFormPage({ params }: { params: Promise<{ id: strin
     return (
       <Shell>
         <div className="text-center">
-          <div className="mx-auto grid h-16 w-16 place-items-center rounded-2xl bg-accent text-white shadow-lg">
+          <div className="mx-auto grid h-16 w-16 place-items-center rounded-2xl bg-accent text-on-accent shadow-lg">
             <IconCheck size={28} />
           </div>
           <h1 className="mt-5 text-[20px] font-bold text-ink">شكراً! تم استلام ردك</h1>

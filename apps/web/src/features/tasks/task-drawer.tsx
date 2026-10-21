@@ -663,7 +663,7 @@ export function TaskDrawer({
                             );
                           }
                         }}
-                        className="rounded-lg bg-accent px-3 py-1.5 text-[11.5px] font-bold text-white shadow-sm hover:brightness-110 active:scale-95 transition-all"
+                        className="rounded-lg bg-accent px-3 py-1.5 text-[11.5px] font-bold text-on-accent shadow-sm hover:brightness-110 active:scale-95 transition-all"
                       >
                         ✨ {ctx.t("تعيين تلقائي (AI Match)", "AI Match Assignee")}
                       </button>
@@ -1009,7 +1009,7 @@ export function TaskDrawer({
                           const m = Number(v);
                           if (m > 0) logTime(task.id, m, task.title);
                         }}
-                        className="flex items-center gap-1 rounded-lg bg-accent/10 border border-accent/25 px-2 py-1 text-[10.5px] font-semibold text-accent hover:bg-accent hover:text-white transition-all active:scale-95"
+                        className="flex items-center gap-1 rounded-lg bg-accent/10 border border-accent/25 px-2 py-1 text-[10.5px] font-semibold text-accent hover:bg-accent hover:text-on-accent transition-all active:scale-95"
                       >
                         <IconClock size={11} />
                         {ctx.t("تسجيل", "Log")}
@@ -1032,7 +1032,7 @@ export function TaskDrawer({
                       </span>
                       <button
                         onClick={() => ctx.updateTask(task.id, { isRecurring: !task.isRecurring })}
-                        className={`px-2 py-0.5 rounded-md text-[10.5px] font-bold border transition-all active:scale-90 ${task.isRecurring ? "bg-accent text-white border-accent" : "bg-raised border-line text-ink-soft hover:text-ink"}`}
+                        className={`px-2 py-0.5 rounded-md text-[10.5px] font-bold border transition-all active:scale-90 ${task.isRecurring ? "bg-accent text-on-accent border-accent" : "bg-raised border-line text-ink-soft hover:text-ink"}`}
                       >
                         {task.isRecurring ? "✓" : "+"}
                       </button>

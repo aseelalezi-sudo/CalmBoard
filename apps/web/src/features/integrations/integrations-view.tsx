@@ -128,7 +128,7 @@ export function IntegrationsView({ ctx }: { ctx: ViewCtx }) {
             return (
               <Card
                 key={item.id}
-                className={`bg-surface p-5 transition ${connected ? "border-indigo-500/30 shadow-sm" : "opacity-80"}`}
+                className={`bg-surface p-5 transition ${connected ? "border-indigo-500/30 shadow-sm" : ""}`}
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex items-center gap-3.5">

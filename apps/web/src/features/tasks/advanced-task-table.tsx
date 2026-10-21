@@ -1406,7 +1406,7 @@ export function AdvancedTaskTable({ ctx }: { ctx: ViewCtx }) {
 
         <div ref={scrollRef} className="max-h-[620px] overflow-x-auto overflow-y-auto">
           <div style={{ width: table.getTotalSize(), minWidth: "100%" }}>
-            <div className="sticky top-0 z-20 flex border-b border-line bg-raised text-[10.5px] uppercase tracking-wider text-ink-faint">
+            <div className="sticky top-0 z-20 flex border-b border-line bg-raised text-[10.5px] uppercase tracking-wider text-ink-soft">
               {table.getHeaderGroups()[0]?.headers.map((header) => (
                 <div
                   key={header.id}
@@ -1416,17 +1416,24 @@ export function AdvancedTaskTable({ ctx }: { ctx: ViewCtx }) {
                     header.column.getIsPinned() && "bg-raised",
                   )}
                 >
-                  <button
-                    disabled={!header.column.getCanSort()}
-                    onClick={header.column.getToggleSortingHandler()}
-                    className="flex min-w-0 flex-1 items-center gap-1 text-start disabled:cursor-default"
-                  >
-                    <span className="truncate">
-                      {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
-                    </span>
-                    {header.column.getIsSorted() === "asc" && <span className="text-accent">↑</span>}
-                    {header.column.getIsSorted() === "desc" && <span className="text-accent">↓</span>}
-                  </button>
+                  {header.column.getCanSort() ? (
+                    <button
+                      onClick={header.column.getToggleSortingHandler()}
+                      className="flex min-w-0 flex-1 items-center gap-1 text-start"
+                    >
+                      <span className="truncate">
+                        {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
+                      </span>
+                      {header.column.getIsSorted() === "asc" && <span className="text-accent">↑</span>}
+                      {header.column.getIsSorted() === "desc" && <span className="text-accent">↓</span>}
+                    </button>
+                  ) : (
+                    <div className="flex min-w-0 flex-1 items-center gap-1 text-start">
+                      <span className="truncate">
+                        {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
+                      </span>
+                    </div>
+                  )}
                   {header.column.getCanResize() && (
                     <button
                       aria-label={ctx.t("تغيير حجم العمود", "Resize column")}

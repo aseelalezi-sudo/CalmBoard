@@ -437,7 +437,7 @@ export function TaskAssigneePicker({
 
                   <div className="shrink-0">
                     {isAssigned ? (
-                      <span className="grid h-4 w-4 place-items-center rounded-md bg-accent text-white shadow-xs">
+                      <span className="grid h-4 w-4 place-items-center rounded-md bg-accent text-on-accent shadow-xs">
                         <IconCheck size={10} />
                       </span>
                     ) : (
@@ -486,7 +486,7 @@ export function TaskAssigneePicker({
         <button
           type="button"
           onClick={handleCloseWithFocusRestore}
-          className="rounded-xl bg-accent px-3 py-1 text-[11.5px] font-bold text-white shadow-xs hover:brightness-105 active:scale-95 transition"
+          className="rounded-xl bg-accent px-3 py-1 text-[11.5px] font-bold text-on-accent shadow-xs hover:brightness-105 active:scale-95 transition"
         >
           {t("تم", "Done")}
         </button>
