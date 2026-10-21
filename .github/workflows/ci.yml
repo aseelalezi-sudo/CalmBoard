@@ -69,18 +69,33 @@ jobs:
       - name: User-facing source encoding scan
         run: pnpm run check:encoding
 
+      # MinIO no longer publishes public container images (minio/minio was removed from Docker Hub and quay.io now
+      # requires authentication), so build the same pinned release from source and cache the binary.
+      - name: Setup Go (MinIO build)
+        uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache: false
+      - name: Cache MinIO binary
+        id: minio-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/minio-bin
+          key: minio-${{ runner.os }}-RELEASE.2025-09-07T16-13-09Z
+      - name: Build MinIO integration service
+        if: steps.minio-cache.outputs.cache-hit != 'true'
+        run: GOBIN="$HOME/minio-bin" go install github.com/minio/minio@RELEASE.2025-09-07T16-13-09Z
       - name: Start MinIO integration service
         run: |
-          docker run --detach --name calmboard-ci-minio \
-            --publish 9000:9000 \
-            --env MINIO_ROOT_USER="$S3_ACCESS_KEY_ID" \
-            --env MINIO_ROOT_PASSWORD="$S3_SECRET_ACCESS_KEY" \
-            minio/minio:RELEASE.2025-09-07T16-13-09Z server /data
+          mkdir -p "$RUNNER_TEMP/minio-data"
+          MINIO_ROOT_USER="$S3_ACCESS_KEY_ID" MINIO_ROOT_PASSWORD="$S3_SECRET_ACCESS_KEY" \
+            nohup "$HOME/minio-bin/minio" server "$RUNNER_TEMP/minio-data" --address 127.0.0.1:9000 \
+            > /tmp/calmboard-ci-minio.log 2>&1 &
           for attempt in {1..30}; do
             curl --fail --silent http://127.0.0.1:9000/minio/health/ready && exit 0
             sleep 2
           done
-          docker logs calmboard-ci-minio
+          cat /tmp/calmboard-ci-minio.log
           exit 1
       - name: Validate environment
         run: pnpm run check:env
