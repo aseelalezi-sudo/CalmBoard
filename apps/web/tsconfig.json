@@ -13,7 +13,6 @@
     "isolatedModules": true,
     "jsx": "react-jsx",
     "incremental": true,
-    "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"],
       "@calmboard/database": ["../../packages/database/src/index.ts"],
