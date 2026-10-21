@@ -10,7 +10,7 @@ ARG MINIO_RELEASE=RELEASE.2025-09-07T16-13-09Z
 ENV CGO_ENABLED=0
 RUN go install -trimpath -ldflags "-s -w" "github.com/minio/minio@${MINIO_RELEASE}"
 
-FROM alpine:3.22
+FROM alpine:3.24
 # Runs as root like the upstream image did, so volumes created by earlier containers stay writable.
 RUN apk add --no-cache ca-certificates curl && mkdir /data
 COPY --from=build /go/bin/minio /usr/bin/minio
