@@ -72,7 +72,7 @@ jobs:
       # MinIO no longer publishes public container images (minio/minio was removed from Docker Hub and quay.io now
       # requires authentication), so build the same pinned release from source and cache the binary.
       - name: Setup Go (MinIO build)
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           go-version: stable
           cache: false
