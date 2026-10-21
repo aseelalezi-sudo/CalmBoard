@@ -13,3 +13,5 @@ packages/database/migrations/meta/
 *.tsbuildinfo
 .env
 .env.*
+.vscode/
+.claude/settings.local.json
