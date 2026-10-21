@@ -97,9 +97,8 @@ export function useTaskOperations(input: TaskOperationsInput) {
         actorId: currentUser?.id,
       });
       setTasks((previous) => previous.map((task) => (task.id === id ? canonical : task)));
-      if (taskDetail?.id === id) {
-        setTaskDetail(canonical);
-      }
+      // The drawer may have been closed while the request was in flight; only refresh it if it still shows this task.
+      setTaskDetail((previous) => (previous?.id === id ? canonical : previous));
       setSubtasks((previous) => previous.map((task) => (task.id === id ? canonical : task)));
 
       if (
@@ -123,7 +122,7 @@ export function useTaskOperations(input: TaskOperationsInput) {
       return true;
     } catch {
       setTasks(snapshotTasks);
-      setTaskDetail(snapshotTaskDetail);
+      setTaskDetail((previous) => (previous?.id === snapshotTaskDetail?.id ? snapshotTaskDetail : previous));
       setSubtasks((previous) =>
         previous.map((task) =>
           task.id === id
@@ -215,7 +214,8 @@ export function useTaskOperations(input: TaskOperationsInput) {
     setAttachments([]);
     try {
       const details = await getTaskDetailBundle(task);
-      setTaskDetail(details.task);
+      // Do not reopen a drawer the user already closed (or replaced) while the details were loading.
+      setTaskDetail((previous) => (optimisticTask && previous?.id !== optimisticTask.id ? previous : details.task));
       setComments(details.comments);
       setAttachments(details.attachments);
       setSubtasks(details.subtasks);
