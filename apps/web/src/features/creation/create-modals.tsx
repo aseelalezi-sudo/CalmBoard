@@ -417,7 +417,7 @@ export function NewProjectModal({
           className={areaCls}
         />
 
-        <Field as="div" label={t("قالب البداية الذكي (Starter Kit Template)", "Starter Kit Template")}>
+        <Field as="div" label={t("قالب البداية الذكي", "Starter Kit Template")}>
           <div className="grid grid-cols-1 gap-2 mt-1 sm:grid-cols-2">
             {PROJECT_TEMPLATES.map(({ val, label, desc }) => (
               <label
@@ -878,7 +878,7 @@ export function NewAutomationModal({
           className={inputCls}
         />
         <div className="rounded-xl border border-accent/25 bg-accent-soft p-3.5">
-          <span className="text-[10.5px] font-bold text-accent">{t("عندما (Trigger)", "When (Trigger)")}</span>
+          <span className="text-[10.5px] font-bold text-accent">{t("عندما", "When (Trigger)")}</span>
           <select name="trigger" disabled={submitting} className={cn(selectCls, "mt-1.5")}>
             <option value="task_created">{t("إنشاء مهمة", "Task created")}</option>
             <option value="task_status_changed">{t("تغيّر الحالة", "Status changed")}</option>
@@ -887,7 +887,7 @@ export function NewAutomationModal({
         </div>
         <div className="rounded-xl border border-amber-500/25 bg-amber-500/10 p-3.5">
           <span className="text-[10.5px] font-bold text-amber-600 dark:text-amber-300">
-            {t("إذا (Condition)", "If (Condition)")}
+            {t("إذا", "If (Condition)")}
           </span>
           <div className="mt-1.5 grid grid-cols-2 gap-2">
             <select name="condField" disabled={submitting} className={selectCls}>
@@ -900,7 +900,7 @@ export function NewAutomationModal({
         </div>
         <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/10 p-3.5">
           <span className="text-[10.5px] font-bold text-emerald-600 dark:text-emerald-300">
-            {t("ثم (Action)", "Then (Action)")}
+            {t("ثم", "Then (Action)")}
           </span>
           <div className="mt-1.5 grid grid-cols-2 gap-2">
             <select name="actField" disabled={submitting} className={selectCls}>

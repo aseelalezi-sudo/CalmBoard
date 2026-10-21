@@ -197,7 +197,7 @@ function TaskCard({
               {...dragHandle.listeners}
               onClick={(event) => event.stopPropagation()}
               aria-label={ctx.t(`اسحب ${task.title}`, `Drag ${task.title}`)}
-              className="touch-none rounded-md px-1 py-0.5 text-sm leading-none text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 active:cursor-grabbing dark:text-zinc-500 dark:hover:bg-white/[0.07] dark:hover:text-zinc-200"
+              className="grid h-7 w-7 touch-none place-items-center rounded-md text-sm leading-none text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 active:cursor-grabbing dark:text-zinc-500 dark:hover:bg-white/[0.07] dark:hover:text-zinc-200"
             >
               ⠿
             </button>

@@ -121,7 +121,7 @@ export function DocsView({ ctx }: { ctx: ViewCtx }) {
                   </div>
                   {[
                     [
-                      ctx.t("محضر اجتماع (Meeting Notes)", "Meeting Notes"),
+                      ctx.t("محضر اجتماع", "Meeting Notes"),
                       `# محضر اجتماع\n- **التاريخ:** ${new Date().toLocaleDateString(dateLocale(ctx.locale))}\n- **الحاضرون:** @الفريق\n\n## جدول الأعمال\n1. مراجعة إنجازات الأسبوع\n2. التحديات الحالية\n\n## عناصر العمل (Action Items)\n- [ ] مراجعة الكود النهائي\n- [ ] اعتماد الميزانية`,
                     ],
                     [
@@ -129,7 +129,7 @@ export function DocsView({ ctx }: { ctx: ViewCtx }) {
                       `# وثيقة متطلبات المنتج (PRD)\n## الهدف الاستراتيجي\nتطوير وتوسيع المنصة لتلبي احتياجات المؤسسات الكبرى.\n\n## المتطلبات الوظيفية\n- [ ] واجهة المستخدم التفاعلية\n- [ ] نقاط الـ API والمصادقة\n\n## مقاييس النجاح (KPIs)\n- زيادة التفاعل بنسبة 20%`,
                     ],
                     [
-                      ctx.t("مواصفات فنية (Technical Spec)", "Technical Spec"),
+                      ctx.t("مواصفات فنية", "Technical Spec"),
                       `# المواصفات الفنية\n## المعمارية المعتمدة\n\`\`\`typescript\ninterface TenantConfig {\n  tenantId: string;\n  ssl: boolean;\n}\n\`\`\`\n\n## الأمان وعزل المستأجرين\nيتم فحص الصلاحية في الخادم لكل طلب مع RLS.`,
                     ],
                   ].map(([label, content]) => (

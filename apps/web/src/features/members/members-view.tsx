@@ -88,7 +88,7 @@ export function MembersView({ ctx }: { ctx: ViewCtx }) {
   return (
     <div className="screen-container-standard space-y-6">
       <ScreenHeader
-        title={ctx.t("الأعضاء، الصلاحيات، ومصفوفة المهارات (Skills Matrix)", "Members, Roles & Skills Matrix")}
+        title={ctx.t("الأعضاء، الصلاحيات، ومصفوفة المهارات", "Members, Roles & Skills Matrix")}
         description={ctx.t(
           "إدارة صلاحيات RBAC وإضافة وسوم المهارات لاقتراح المسؤول الأمثل بناءً على الخبرة والعبء.",
           "Manage RBAC roles and skill tags for balanced team allocation.",

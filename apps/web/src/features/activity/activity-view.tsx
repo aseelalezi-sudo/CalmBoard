@@ -76,7 +76,7 @@ export function ActivityView({ ctx }: { ctx: ViewCtx }) {
   return (
     <div className="screen-container-standard space-y-6">
       <ScreenHeader
-        title={ctx.t("سجل التدقيق الأمني والنشاط (Security Audit Trail)", "Security Audit Log & Activity Trail")}
+        title={ctx.t("سجل التدقيق الأمني والنشاط", "Security Audit Log & Activity Trail")}
         description={ctx.t(
           "تتبّع كامل لكل العمليات والتعديلات مع أرقام الـ IP (القسم 27)",
           "Full traceability of all operations, mutations and IPs (Section 27)",

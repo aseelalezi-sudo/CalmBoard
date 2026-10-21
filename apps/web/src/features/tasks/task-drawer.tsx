@@ -454,7 +454,7 @@ export function TaskDrawer({
                         <span className="text-amber-500" aria-hidden="true">
                           ★
                         </span>
-                        <span>{ctx.t("المسؤول الرئيسي (Lead)", "Lead Assignee")}</span>
+                        <span>{ctx.t("المسؤول الرئيسي", "Lead Assignee")}</span>
                       </div>
                       {leadPerson ? (
                         <div className="flex items-center justify-between rounded-xl border border-amber-500/20 bg-amber-500/5 px-3 py-2">
@@ -486,7 +486,7 @@ export function TaskDrawer({
                         id={contributorsHeadingId}
                         className="text-[10.5px] font-bold uppercase tracking-wider text-ink-faint"
                       >
-                        {ctx.t("المشاركون في التنفيذ (Contributors)", "Contributors")} ({contributorPeople.length})
+                        {ctx.t("المشاركون في التنفيذ", "Contributors")} ({contributorPeople.length})
                       </div>
                       {contributorPeople.length > 0 ? (
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -575,7 +575,7 @@ export function TaskDrawer({
                       <div className="flex items-center justify-between">
                         <span className="text-[11.5px] font-bold text-ink flex items-center gap-1.5">
                           <IconSubtask size={14} className="text-accent" />
-                          {ctx.t("المهمة الرئيسية والتبعية (Parent Task)", "Parent Task & Hierarchy")}
+                          {ctx.t("المهمة الرئيسية والتبعية", "Parent Task & Hierarchy")}
                         </span>
                         {parentTask ? (
                           <Badge tone="indigo">{ctx.t("مهمة فرعية", "Subtask")}</Badge>
@@ -665,7 +665,7 @@ export function TaskDrawer({
                         }}
                         className="rounded-lg bg-accent px-3 py-1.5 text-[11.5px] font-bold text-on-accent shadow-sm hover:brightness-110 active:scale-95 transition-all"
                       >
-                        ✨ {ctx.t("تعيين تلقائي (AI Match)", "AI Match Assignee")}
+                        ✨ {ctx.t("تعيين تلقائي", "AI Match Assignee")}
                       </button>
                     </div>
                   </div>
@@ -718,9 +718,7 @@ export function TaskDrawer({
                       className={`flex h-10 w-full items-center justify-between rounded-xl border px-3 text-[12px] font-semibold transition-all active:scale-[0.99] disabled:opacity-40 ${task.isMilestone ? "border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-300" : "border-line bg-surface text-ink-soft hover:bg-raised"}`}
                     >
                       <span>
-                        {task.isMilestone
-                          ? ctx.t("علامة فارقة (Milestone)", "Milestone")
-                          : ctx.t("مهمة عادية (Task)", "Regular task")}
+                        {task.isMilestone ? ctx.t("علامة فارقة", "Milestone") : ctx.t("مهمة عادية", "Regular task")}
                       </span>
                       <span className={task.isMilestone ? "rotate-45 text-amber-500 font-bold" : "text-ink-faint"}>
                         ◆
@@ -1280,7 +1278,7 @@ export function TaskDrawer({
                         if (!title) return;
                         const url = await promptAction({
                           title: ctx.t("رابط المرجع", "Reference URL"),
-                          label: ctx.t("الرابط (URL)", "URL"),
+                          label: ctx.t("الرابط", "URL"),
                           defaultValue: "https://figma.com/design/calmboard-v2",
                           inputMode: "url",
                           type: "url",

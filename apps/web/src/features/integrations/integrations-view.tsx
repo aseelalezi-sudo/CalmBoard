@@ -187,9 +187,7 @@ export function IntegrationsView({ ctx }: { ctx: ViewCtx }) {
       <Card className="bg-surface p-5">
         <div className="flex items-center gap-2 text-accent">
           <IconShield size={15} />
-          <span className="text-[13px] font-semibold">
-            {ctx.t("أمان التكاملات (OAuth Token & Webhooks)", "Security & Webhook Reliability")}
-          </span>
+          <span className="text-[13px] font-semibold">{ctx.t("أمان التكاملات", "Security & Webhook Reliability")}</span>
         </div>
         <p className="mt-2 text-[11.5px] leading-relaxed text-ink-soft">
           {ctx.t(

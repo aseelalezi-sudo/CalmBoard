@@ -72,7 +72,7 @@ export function BurndownView({ ctx }: { ctx: ViewCtx }) {
         <IconTimeline className="mx-auto text-accent mb-3" size={32} />
         <h3 className="font-semibold text-ink">{ctx.t("لا يوجد سبرنتات حالية", "No current sprints")}</h3>
         <p className="mt-2 text-sm text-ink-faint max-w-md mx-auto">
-          {ctx.t("ابدأ سبرنت لرؤية مخطط الإنجاز (Burndown).", "Start a sprint to see the burndown chart.")}
+          {ctx.t("ابدأ سبرنت لرؤية مخطط الإنجاز.", "Start a sprint to see the burndown chart.")}
         </p>
       </Card>
     );

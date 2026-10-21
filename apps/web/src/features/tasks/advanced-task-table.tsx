@@ -757,7 +757,7 @@ export function AdvancedTaskTable({ ctx }: { ctx: ViewCtx }) {
           const sections = [
             {
               id: "true",
-              label: ctx.t("مكتمل / نعم (Yes)", "Yes / True"),
+              label: ctx.t("مكتمل / نعم", "Yes / True"),
               dotColor: "bg-emerald-500",
               borderColor: "border-emerald-500/30 bg-emerald-500/5",
               accentBar: "bg-emerald-500",
@@ -769,7 +769,7 @@ export function AdvancedTaskTable({ ctx }: { ctx: ViewCtx }) {
             },
             {
               id: "false",
-              label: ctx.t("غير محدد / لا (No)", "No / False"),
+              label: ctx.t("غير محدد / لا", "No / False"),
               dotColor: "bg-amber-500",
               borderColor: "border-amber-500/30 bg-amber-500/5",
               accentBar: "bg-amber-500",
