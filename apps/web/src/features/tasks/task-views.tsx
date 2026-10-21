@@ -27,6 +27,7 @@ import { CSS } from "@dnd-kit/utilities";
 import type { ViewCtx, Task } from "@/lib/types";
 import { STATUS_CONFIG, PRIORITY_CONFIG, STATUS_ORDER, fmtDate, fmtNumber } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { buildCsv, downloadCsv } from "@/lib/csv";
 import { Badge, Avatar, Bar, Card, Empty, SectionTitle, Btn, Toggle, ScreenState } from "@/components/ui";
 import { confirmAction, promptAction } from "@/components/feedback";
 import { useBulkTaskActions } from "@/features/tasks/use-bulk-task-actions";
@@ -1221,27 +1222,19 @@ export function LegacyTableView({ ctx }: { ctx: ViewCtx }) {
                 "Progress",
                 "Due",
               ];
-              const rows = ctx.tasks.map((x) =>
-                [
-                  x.serial,
-                  `"${(x.title || "").replace(/"/g, '""')}"`,
-                  x.status,
-                  x.priority,
-                  x.assignee?.name || "",
-                  x.storyPoints ?? "",
-                  x.estimatedHours ?? "",
-                  x.loggedHours ?? "",
-                  `${x.progress}%`,
-                  x.dueDate ? new Date(x.dueDate).toISOString().split("T")[0] : "",
-                ].join(","),
-              );
-              const csv = "\uFEFF" + [head.join(","), ...rows].join("\n");
-              const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-              const a = document.createElement("a");
-              a.href = URL.createObjectURL(blob);
-              a.download = `calmboard-tasks-${new Date().toISOString().split("T")[0]}.csv`;
-              a.click();
-              URL.revokeObjectURL(a.href);
+              const rows = ctx.tasks.map((x) => [
+                x.serial,
+                x.title || "",
+                x.status,
+                x.priority,
+                x.assignee?.name || "",
+                x.storyPoints ?? "",
+                x.estimatedHours ?? "",
+                x.loggedHours ?? "",
+                `${x.progress}%`,
+                x.dueDate ? new Date(x.dueDate).toISOString().split("T")[0] : "",
+              ]);
+              downloadCsv(`calmboard-tasks-${new Date().toISOString().split("T")[0]}.csv`, buildCsv(head, rows));
             }}
           >
             <IconTrend size={13} />

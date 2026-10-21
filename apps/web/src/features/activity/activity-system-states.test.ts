@@ -12,10 +12,9 @@ test("audit activity is permission-aware and does not expose empty exports", () 
 });
 
 test("audit CSV escapes every heading and persisted value", () => {
-  assert.match(source, /export function escapeCsvCell/);
-  assert.match(source, /\.map\(escapeCsvCell\)/);
-  assert.match(source, /head\.map\(escapeCsvCell\)/);
-  assert.match(source, /replace\(\/"\/g, '""'\)/);
+  assert.match(source, /buildCsv\(head, rows\)/);
+  assert.match(source, /downloadCsv\(/);
+  assert.doesNotMatch(source, /new Blob\(\[csv\]/);
 });
 
 test("audit metadata uses accessible icons and directional isolation", () => {

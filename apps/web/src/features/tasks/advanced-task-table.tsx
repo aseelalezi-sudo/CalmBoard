@@ -33,6 +33,7 @@ import { confirmAction } from "@/components/feedback";
 import type { Task, ViewCtx } from "@/lib/types";
 import { fmtDate, fmtMinutes, fmtNumber, PRIORITY_CONFIG, STATUS_CONFIG } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { buildCsv, downloadCsv } from "@/lib/csv";
 import { useModifierKeyLabel } from "@/lib/modifier-key";
 import { useBulkTaskActions } from "./use-bulk-task-actions";
 import { parseTaskClipboard, serializeTasksForClipboard, type TaskClipboardUpdate } from "./task-table-clipboard";
@@ -72,25 +73,18 @@ function pinnedColumnStyle(column: Column<Task>) {
 
 function exportTasksCsv(tasks: Task[]) {
   const head = ["Serial", "Title", "Status", "Priority", "Assignee", "Points", "Estimate", "Logged", "Due"];
-  const rows = tasks.map((task) =>
-    [
-      task.serial,
-      `"${(task.title || "").replace(/"/g, '""')}"`,
-      task.status,
-      task.priority,
-      `"${(task.assignee?.name || "").replace(/"/g, '""')}"`,
-      task.storyPoints ?? "",
-      task.estimatedHours ?? "",
-      task.loggedHours ?? "",
-      task.dueDate ? new Date(task.dueDate).toISOString().split("T")[0] : "",
-    ].join(","),
-  );
-  const blob = new Blob(["\uFEFF" + [head.join(","), ...rows].join("\n")], { type: "text/csv;charset=utf-8" });
-  const anchor = document.createElement("a");
-  anchor.href = URL.createObjectURL(blob);
-  anchor.download = `calmboard-tasks-${new Date().toISOString().split("T")[0]}.csv`;
-  anchor.click();
-  URL.revokeObjectURL(anchor.href);
+  const rows = tasks.map((task) => [
+    task.serial,
+    task.title || "",
+    task.status,
+    task.priority,
+    task.assignee?.name || "",
+    task.storyPoints ?? "",
+    task.estimatedHours ?? "",
+    task.loggedHours ?? "",
+    task.dueDate ? new Date(task.dueDate).toISOString().split("T")[0] : "",
+  ]);
+  downloadCsv(`calmboard-tasks-${new Date().toISOString().split("T")[0]}.csv`, buildCsv(head, rows));
 }
 
 function isTextEditingTarget(target: EventTarget | null) {

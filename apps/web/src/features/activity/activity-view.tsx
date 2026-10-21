@@ -4,11 +4,7 @@ import type { ViewCtx } from "@/lib/types";
 import { activityActionLabel } from "@/lib/display-labels";
 import { Avatar, Badge, Btn, Card, ScreenHeader, ScreenState } from "@/components/ui";
 import { IconClock, IconDatabase, IconGlobe, IconTrend } from "@/components/icons";
-
-export function escapeCsvCell(value: unknown): string {
-  const str = value === null || value === undefined ? "" : String(value);
-  return `"${str.replace(/"/g, '""')}"`;
-}
+import { buildCsv, downloadCsv } from "@/lib/csv";
 
 export function ActivityView({ ctx }: { ctx: ViewCtx }) {
   const canViewAudit = ctx.can("audit.view");
@@ -25,26 +21,16 @@ export function ActivityView({ ctx }: { ctx: ViewCtx }) {
 
   const exportCsv = () => {
     const head = ["ID", "Actor", "Action", "EntityType", "EntitySerial", "IP", "Timestamp"];
-    const rows = ctx.activities.map((a) =>
-      [
-        a.id,
-        a.actor?.name || "System",
-        a.action,
-        a.entityType,
-        a.entitySerial || "",
-        a.ip || "",
-        new Date(a.createdAt).toISOString(),
-      ]
-        .map(escapeCsvCell)
-        .join(","),
-    );
-    const csv = "\uFEFF" + [head.map(escapeCsvCell).join(","), ...rows].join("\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-    const lnk = document.createElement("a");
-    lnk.href = URL.createObjectURL(blob);
-    lnk.download = `audit-trail-${new Date().toISOString().split("T")[0]}.csv`;
-    lnk.click();
-    URL.revokeObjectURL(lnk.href);
+    const rows = ctx.activities.map((a) => [
+      a.id,
+      a.actor?.name || "System",
+      a.action,
+      a.entityType,
+      a.entitySerial || "",
+      a.ip || "",
+      new Date(a.createdAt).toISOString(),
+    ]);
+    downloadCsv(`audit-trail-${new Date().toISOString().split("T")[0]}.csv`, buildCsv(head, rows));
     ctx.notify(ctx.t("تم تصدير سجل التدقيق CSV ✓", "Audit log CSV exported ✓"));
   };
 
