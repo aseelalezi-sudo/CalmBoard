@@ -113,6 +113,13 @@ export function createObjectStorageAdapter() {
       if (!object.Body) throw new Error("Object storage returned an empty body");
       return Buffer.from(await object.Body.transformToByteArray());
     },
+    async readObjectHead(key: string, length: number) {
+      const object = await client.send(
+        new GetObjectCommand({ Bucket: config.bucket, Key: key, Range: `bytes=0-${Math.max(length, 1) - 1}` }),
+      );
+      if (!object.Body) throw new Error("Object storage returned an empty body");
+      return Buffer.from(await object.Body.transformToByteArray());
+    },
     async putObject(key: string, body: Uint8Array, contentType: string) {
       await client.send(
         new PutObjectCommand({ Bucket: config.bucket, Key: key, Body: body, ContentType: contentType }),

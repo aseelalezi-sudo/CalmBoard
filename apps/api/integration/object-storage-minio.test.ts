@@ -54,6 +54,7 @@ describe("MinIO-compatible object storage", () => {
 
       assert.deepEqual(await storage.inspectObject(key), { fileSize: body.length, mimeType: "text/plain" });
       assert.deepEqual(await storage.readObject(key), body);
+      assert.deepEqual(await storage.readObjectHead(key, 8), body.subarray(0, 8));
 
       const downloadUrl = await storage.createDownloadUrl(key, "round-trip.txt");
       assert.match(downloadUrl, /X-Amz-Signature=/i);

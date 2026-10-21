@@ -7,6 +7,7 @@ import {
 import { logActivity } from "./automation-engine.js";
 import type { AttachmentUploadInput } from "./attachment-validation.js";
 import { createAttachmentPreview } from "./attachment-preview.js";
+import { attachmentSignatureBytes, contentMatchesMimeType } from "./attachment-signature.js";
 import { createAttachmentScanner } from "./attachment-scanner.js";
 import { createObjectStorageAdapter, createStorageKey } from "./object-storage.js";
 import { BadRequestException } from "@nestjs/common";
@@ -110,6 +111,24 @@ export function createAttachmentService(context: DatabaseTenantContext) {
         await storage.deleteObject(key);
         return presentAttachment(
           await repository.setScanResult(attachment.id, { status: "failed", engine: "object-metadata" }),
+        );
+      }
+
+      let signatureMatches: boolean;
+      try {
+        signatureMatches = contentMatchesMimeType(
+          attachment.mimeType ?? "application/octet-stream",
+          await storage.readObjectHead(key, attachmentSignatureBytes),
+        );
+      } catch {
+        return presentAttachment(
+          await repository.setScanResult(attachment.id, { status: "failed", engine: "content-signature-unavailable" }),
+        );
+      }
+      if (!signatureMatches) {
+        await storage.deleteObject(key);
+        return presentAttachment(
+          await repository.setScanResult(attachment.id, { status: "failed", engine: "content-signature" }),
         );
       }
 
