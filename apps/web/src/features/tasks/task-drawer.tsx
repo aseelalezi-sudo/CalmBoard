@@ -3,6 +3,7 @@ import { useEffect, useId, useRef, useState, type CSSProperties } from "react";
 import type { Comment, Task, User, ViewCtx, Workspace } from "@/lib/types";
 import { PRIORITY_CONFIG, STATUS_CONFIG } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { safeExternalUrl } from "@/lib/safe-url";
 import { areaCls, Avatar, Badge, Bar, Btn, Field, inputCls, selectCls } from "@/components/ui";
 import { confirmAction, promptAction } from "@/components/feedback";
 import {
@@ -1283,17 +1284,24 @@ export function TaskDrawer({
                           type: "url",
                         });
                         if (title && url) {
+                          const safeUrl = safeExternalUrl(url);
+                          if (!safeUrl) {
+                            ctx.notify(
+                              ctx.t("الرابط غير صالح. استخدم http أو https", "Invalid link. Use http or https"),
+                            );
+                            return;
+                          }
                           const links = [
                             ...((task.customFields?.links as any[]) || []),
                             {
                               id: Date.now(),
                               title,
-                              url,
-                              icon: url.includes("figma")
+                              url: safeUrl,
+                              icon: safeUrl.includes("figma")
                                 ? "🎨"
-                                : url.includes("github")
+                                : safeUrl.includes("github")
                                   ? "🐙"
-                                  : url.includes("google")
+                                  : safeUrl.includes("google")
                                     ? "📑"
                                     : "🔗",
                             },
@@ -1322,14 +1330,16 @@ export function TaskDrawer({
                           </div>
                         </div>
                         <div className="flex items-center gap-2 shrink-0">
-                          <a
-                            href={lnk.url}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="text-accent hover:underline text-[11px] font-bold"
-                          >
-                            {ctx.t("فتح ↗", "Open ↗")}
-                          </a>
+                          {safeExternalUrl(lnk.url) ? (
+                            <a
+                              href={safeExternalUrl(lnk.url)}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-accent hover:underline text-[11px] font-bold"
+                            >
+                              {ctx.t("فتح ↗", "Open ↗")}
+                            </a>
+                          ) : null}
                           <button
                             onClick={() => {
                               const links = ((task.customFields?.links as any[]) || []).filter(
