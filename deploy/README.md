@@ -66,6 +66,7 @@ front of the API. Use `1` for the documented topology
 `client -> TLS reverse proxy/load balancer -> CalmBoard API`, `0` only when the
 API is directly exposed, and increase it only when an additional trusted proxy
 is deliberately inserted. Do not count an untrusted client-controlled hop.
+Since Fastify 5.12 a bare hop count is no longer trusted on its own: the peer address must also be a private/loopback address, or listed in `TRUST_PROXY_CIDRS` (comma-separated IP/CIDR) when your proxies use public addresses.
 
 Set these image references in the external environment file:
 

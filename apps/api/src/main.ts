@@ -6,6 +6,8 @@ import { AppModule } from "./app.module.js";
 import { DatabaseExceptionFilter } from "./database-exception.filter.js";
 import { RedisIoAdapter } from "./realtime-redis.adapter.js";
 import { RealtimeGateway } from "./realtime.gateway.js";
+import { resolveTrustProxy } from "./trust-proxy.js";
+import { apiSecurityHeaders } from "./security-headers.js";
 import { Logger } from "nestjs-pino";
 import * as Sentry from "@sentry/node";
 import { nodeProfilingIntegration } from "@sentry/profiling-node";
@@ -23,16 +25,23 @@ Sentry.init({
   enabled: process.env.NODE_ENV === "production" && Boolean(process.env.SENTRY_DSN),
 });
 
-const trustProxyHops = Number(process.env.TRUST_PROXY_HOPS ?? 0);
 const app = await NestFactory.create<NestFastifyApplication>(
   AppModule,
-  new FastifyAdapter({ trustProxy: Number.isInteger(trustProxyHops) && trustProxyHops > 0 ? trustProxyHops : false }),
+  new FastifyAdapter({ trustProxy: resolveTrustProxy() }),
   {
     rawBody: true,
     bufferLogs: true,
   },
 );
 app.useLogger(app.get(Logger));
+
+const securityHeaders = apiSecurityHeaders();
+app
+  .getHttpAdapter()
+  .getInstance()
+  .addHook("onSend", async (_request, reply) => {
+    reply.headers(securityHeaders);
+  });
 
 app.enableCors({
   origin: process.env.APP_URL ?? "http://localhost:3000",
