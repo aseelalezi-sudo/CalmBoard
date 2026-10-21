@@ -3,6 +3,7 @@ import { useEffect, useId, useRef, useState, type CSSProperties } from "react";
 import type { Comment, Task, User, ViewCtx, Workspace } from "@/lib/types";
 import { PRIORITY_CONFIG, STATUS_CONFIG } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { useModifierKeyLabel } from "@/lib/modifier-key";
 import { safeExternalUrl } from "@/lib/safe-url";
 import { areaCls, Avatar, Badge, Bar, Btn, Field, inputCls, selectCls } from "@/components/ui";
 import { confirmAction, promptAction } from "@/components/feedback";
@@ -60,6 +61,7 @@ export function TaskDrawer({
   logTime: (id: string, m: number, d: string) => void;
 }) {
   const [comment, setComment] = useState("");
+  const modKey = useModifierKeyLabel();
   const [replyTo, setReplyTo] = useState<Comment | null>(null);
   const [selectedMentions, setSelectedMentions] = useState<Array<Pick<User, "id" | "name">>>([]);
   const [mentionIndex, setMentionIndex] = useState(0);
@@ -1449,7 +1451,7 @@ export function TaskDrawer({
                       )}
                       <div className="mt-2.5 flex items-center justify-between">
                         <span className="text-[10.5px] text-ink-faint">
-                          {ctx.t("⌘+Enter للإرسال", "⌘+Enter to send")}
+                          {ctx.t(`${modKey}+Enter للإرسال`, `${modKey}+Enter to send`)}
                         </span>
                         <div className="flex gap-1.5">
                           <label className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg border border-line text-ink-soft transition hover:bg-raised hover:text-ink active:scale-95">

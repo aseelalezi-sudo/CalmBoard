@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { invoiceStatusLabel } from "@/lib/display-labels";
 import type { ViewCtx } from "@/lib/types";
 import { fmtNumber } from "@/lib/types";
 import { Badge, Bar, Btn, Card, ScreenHeader, ScreenState, SectionTitle } from "@/components/ui";
@@ -221,7 +222,7 @@ export function BillingView({ ctx }: { ctx: ViewCtx }) {
                   {formatBillingAmount(inv.amount, ctx.locale, inv.currency || "USD")}
                 </span>
                 <Badge tone={inv.status === "paid" ? "emerald" : "amber"}>
-                  {inv.status === "paid" ? ctx.t("مدفوعة", "Paid") : inv.status}
+                  {invoiceStatusLabel(inv.status, ctx.t)}
                 </Badge>
                 <time dateTime={inv.createdAt} className="mono text-[10.5px] text-ink-faint">
                   {new Date(inv.createdAt).toLocaleDateString(ctx.locale === "ar" ? "ar-u-nu-latn" : "en-US")}

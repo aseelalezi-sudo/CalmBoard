@@ -1,6 +1,7 @@
 "use client";
 
 import type { ViewCtx } from "@/lib/types";
+import { activityActionLabel } from "@/lib/display-labels";
 import { Avatar, Badge, Btn, Card, ScreenHeader, ScreenState } from "@/components/ui";
 import { IconClock, IconDatabase, IconGlobe, IconTrend } from "@/components/icons";
 
@@ -113,8 +114,8 @@ export function ActivityView({ ctx }: { ctx: ViewCtx }) {
                   <span className="font-semibold text-ink">{a.entityLabel}</span>
                 </div>
                 <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-ink-faint">
-                  <Badge tone="neutral" className="font-mono">
-                    {a.action}
+                  <Badge tone="neutral">
+                    <span title={a.action}>{activityActionLabel(a.action, ctx.t)}</span>
                   </Badge>
                   <span className="inline-flex items-center gap-1">
                     <IconClock size={12} />

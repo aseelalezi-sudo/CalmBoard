@@ -1,8 +1,10 @@
 "use client";
 import { useEffect, useState, useMemo, useCallback, useRef } from "react";
+import { projectStatusLabel } from "@/lib/display-labels";
 import type { Doc, Notification, SavedView, Task, ViewCtx } from "@/lib/types";
 import { STATUS_CONFIG, PRIORITY_CONFIG, STATUS_ORDER } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { useModifierKeyLabel } from "@/lib/modifier-key";
 import {
   Badge,
   Avatar,
@@ -34,6 +36,7 @@ import {
   IconFolder,
   IconDoc,
   IconChevronDown,
+  IconMenu,
 } from "@/components/icons";
 import { notificationBody, notificationTitle } from "@/lib/notification-labels";
 import { AuthScreen } from "@/features/auth/auth-screen";
@@ -66,6 +69,7 @@ import { LoadingScreen } from "@/features/shell/loading-screen";
 import { useWorkspaceData } from "@/features/workspace/use-workspace-data";
 import { WorkspaceSwitcherDropdown } from "@/features/shell/workspace-switcher-dropdown";
 import { UserProfileDropdown } from "@/features/shell/user-profile-dropdown";
+import { MobileNavigationDrawer } from "@/features/shell/mobile-navigation-drawer";
 import { ProjectSwitcherDropdown } from "@/features/shell/project-switcher-dropdown";
 import { canOpenWorkspaceView as isWorkspaceViewVisible } from "@/features/shell/authorization-visibility";
 import { useContentOperations } from "@/features/workspace/use-content-operations";
@@ -142,6 +146,8 @@ export function CalmBoardApp() {
   const [timerSeconds, setTimerSeconds] = useState(0);
   const [timerRunning, setTimerRunning] = useState(false);
   const [showAddWorkspace, setShowAddWorkspace] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const modKey = useModifierKeyLabel();
 
   const isRTL = locale === "ar";
   const t = useCallback((ar: string, en: string) => (locale === "ar" ? ar : en), [locale]);
@@ -962,7 +968,7 @@ export function CalmBoardApp() {
       </aside>
 
       {/* ============ MAIN ============ */}
-      <main className="relative z-40 flex min-w-0 flex-1 flex-col">
+      <main className="relative z-40 flex min-w-0 flex-1 flex-col pb-[calc(4.25rem+env(safe-area-inset-bottom))] lg:pb-0">
         {/* topbar */}
         <header className="sticky top-0 z-40 flex h-16 items-center gap-2 border-b border-line/50 bg-surface/80 px-3 backdrop-blur-2xl shadow-[0_4px_30px_rgba(0,0,0,0.03)] dark:shadow-[0_4px_30px_rgba(0,0,0,0.2)] transition-colors sm:gap-3 lg:px-6">
           <div className="flex min-w-0 flex-1 items-center gap-2.5">
@@ -1013,7 +1019,7 @@ export function CalmBoardApp() {
           >
             <IconSearch size={14} className="transition-transform group-hover:scale-110 group-hover:text-accent" />
             <span className="flex-1 truncate text-start">{t("ابحث في كل شيء…", "Search everything…")}</span>
-            <Kbd className="transition-opacity group-hover:opacity-100 opacity-70">⌘K</Kbd>
+            <Kbd className="transition-opacity group-hover:opacity-100 opacity-70">{modKey}+K</Kbd>
           </button>
           <button
             type="button"
@@ -1286,7 +1292,7 @@ export function CalmBoardApp() {
                       </h1>
                       <Badge tone="emerald">
                         <span className="live-dot h-1.5 w-1.5 rounded-full bg-emerald-400" />
-                        {activeProject.status}
+                        {projectStatusLabel(activeProject.status, t)}
                       </Badge>
                     </div>
                     {activeProject.description && (
@@ -1480,7 +1486,7 @@ export function CalmBoardApp() {
 
         <div className="border-t border-slate-200/80 dark:border-white/5 px-6 py-3.5 text-center text-[10.5px] text-slate-500 dark:text-zinc-600">
           <span className="font-display font-semibold text-slate-700 dark:text-zinc-500">CalmBoard</span> ·{" "}
-          {t("إدارة العمل الحديثة", "Modern work management")} · Next.js 16 + Drizzle + PostgreSQL ·{" "}
+          {t("إدارة العمل الحديثة", "Modern work management")} ·{" "}
           <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400/80">
             <span className="live-dot h-1.5 w-1.5 rounded-full bg-emerald-500 dark:bg-emerald-400" />
             {t("يعمل", "operational")}
@@ -1706,13 +1712,13 @@ export function CalmBoardApp() {
       )}
 
       {/* mobile nav */}
-      <div className="fixed inset-x-0 bottom-0 z-30 flex items-center justify-around border-t border-slate-200/80 bg-white/95 dark:border-white/[0.07] dark:bg-[#0a0a11]/95 px-2 py-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] backdrop-blur-xl lg:hidden">
+      <div className="fixed inset-x-0 bottom-0 z-50 flex items-center justify-around border-t border-slate-200/80 bg-white/95 dark:border-white/[0.07] dark:bg-[#0a0a11]/95 px-2 py-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] backdrop-blur-xl lg:hidden">
         {[
           { id: "table", Icon: IconTable, ar: "جدول", en: "Table" },
           { id: "board", Icon: IconBoard, ar: "لوحة", en: "Board" },
-          { id: "mywork", Icon: IconMyWork, ar: "عملي", en: "My" },
-          { id: "dashboard", Icon: IconDash, ar: "لوحة", en: "Dash" },
-          { id: "inbox", Icon: IconInbox, ar: "وارد", en: "Inbox" },
+          { id: "mywork", Icon: IconMyWork, ar: "عملي", en: "My work" },
+          { id: "dashboard", Icon: IconDash, ar: "التحليلات", en: "Dashboard" },
+          { id: "inbox", Icon: IconInbox, ar: "الوارد", en: "Inbox" },
         ].map(({ id, Icon, ar, en }) => (
           <button
             key={id}
@@ -1728,7 +1734,33 @@ export function CalmBoardApp() {
             <span className="text-[9.5px] font-medium">{t(ar, en)}</span>
           </button>
         ))}
+        <button
+          type="button"
+          onClick={() => setMobileNavOpen(true)}
+          aria-haspopup="dialog"
+          aria-expanded={mobileNavOpen}
+          className="flex flex-col items-center gap-1 rounded-xl px-3 py-1.5 text-slate-500 transition dark:text-zinc-500"
+        >
+          <IconMenu size={17} />
+          <span className="text-[9.5px] font-medium">{t("المزيد", "More")}</span>
+        </button>
       </div>
+
+      <MobileNavigationDrawer
+        open={mobileNavOpen}
+        onClose={() => setMobileNavOpen(false)}
+        activeView={activeView}
+        setActiveView={setActiveView}
+        activeOrg={activeOrg}
+        activeWorkspace={activeWorkspace}
+        workspaces={workspaces}
+        switchWorkspace={switchWorkspace}
+        onAddWorkspace={() => setShowAddWorkspace(true)}
+        canManageWorkspace={can("workspace.manage")}
+        canOpenView={canOpenWorkspaceView}
+        unread={unread}
+        t={t}
+      />
 
       {showAddWorkspace && (
         <NewWorkspaceModal

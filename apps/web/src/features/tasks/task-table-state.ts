@@ -4,10 +4,10 @@ export const TASK_TABLE_COLUMN_ORDER = [
   "status",
   "priority",
   "assignee",
+  "due",
   "points",
   "estimate",
   "logged",
-  "due",
 ] as const;
 
 export type TaskTableColumnId = (typeof TASK_TABLE_COLUMN_ORDER)[number];

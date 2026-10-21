@@ -41,6 +41,8 @@ export function OnboardingChecklist({
   const [mutationError, setMutationError] = useState<string | null>(null);
   const [retryKey, setRetryKey] = useState(0);
   const [pending, setPending] = useState(false);
+  // On phones the steps start collapsed so the checklist does not push the actual screen below the fold.
+  const [expanded, setExpanded] = useState(false);
 
   const scope = useMemo(
     () =>
@@ -226,7 +228,20 @@ export function OnboardingChecklist({
         </p>
       )}
 
-      <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
+      <button
+        type="button"
+        onClick={() => setExpanded((value) => !value)}
+        aria-expanded={expanded}
+        aria-controls="onboarding-steps"
+        className="mt-2 text-xs font-semibold text-accent sm:hidden"
+      >
+        {expanded ? t("إخفاء الخطوات", "Hide steps") : t("عرض الخطوات", "Show steps")}
+      </button>
+
+      <div
+        id="onboarding-steps"
+        className={`mt-3 gap-2 sm:grid sm:grid-cols-2 xl:grid-cols-5 ${expanded ? "grid" : "hidden"}`}
+      >
         {steps.map((step) => {
           const done = progress.completedSteps.includes(step.id);
           return (

@@ -23,3 +23,21 @@ it("provides Arabic labels for enum values displayed by the interface", () => {
   assert.equal(activityActionLabel("task.created", ar), "أنشأ مهمة");
   assert.equal(automationLabel("task_status_changed", ar), "تغيّر حالة مهمة");
 });
+
+it("labels backend activity actions instead of leaking raw codes", () => {
+  assert.equal(activityActionLabel("attachment.upload.requested", ar), "بدأ رفع مرفق");
+  assert.equal(activityActionLabel("sprint.started", ar), "بدأ سبرنت");
+  assert.equal(activityActionLabel("invitation_created", ar), "أنشأ دعوة");
+  assert.equal(
+    activityActionLabel("task.approval.decided", (_ar, en) => en),
+    "Decided on an approval request",
+  );
+  assert.equal(activityActionLabel("some.unknown_action", ar), "some unknown action");
+});
+
+it("labels automation triggers, conditions and actions", () => {
+  assert.equal(automationLabel("schedule_daily", ar), "يومياً");
+  assert.equal(automationLabel("assignTo", ar), "تعيين إلى");
+  assert.equal(automationLabel("addComment", ar), "إضافة تعليق");
+  assert.equal(automationLabel("done", ar), "مكتمل");
+});

@@ -1163,7 +1163,7 @@ export function LegacyTableView({ ctx }: { ctx: ViewCtx }) {
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 dark:border-white/6 px-5 py-3 bg-white/50 dark:bg-transparent">
         <div className="flex items-center gap-3">
           <span className="text-[13px] font-semibold text-slate-900 dark:text-white">
-            {ctx.t("شبكة البيانات المتقدمة (TanStack Grid)", "Advanced Data Grid")}
+            {ctx.t("شبكة البيانات المتقدمة", "Advanced Data Grid")}
           </span>
           <span className="rounded-full bg-slate-100 dark:bg-white/6 px-2 py-0.5 text-[11px] font-medium text-slate-600 dark:text-zinc-400">
             {ctx.tasks.length} {ctx.t("صف", "rows")}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { automationLabel } from "@/lib/display-labels";
 import type { AutomationRun, ViewCtx } from "@/lib/types";
 import { fmtNumber } from "@/lib/types";
 import { Badge, Btn, Card, ScreenHeader, ScreenState, SectionTitle, Toggle } from "@/components/ui";
@@ -117,17 +118,17 @@ export function AutomationView({ ctx }: { ctx: ViewCtx }) {
             </div>
 
             <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-line pt-3 text-[11.5px]">
-              <Badge tone="indigo" className="px-2 py-0.5 font-mono">
-                {ctx.t("عندما (When):", "When:")} {a.trigger}
+              <Badge tone="indigo" className="px-2 py-0.5">
+                {ctx.t("عندما:", "When:")} {automationLabel(a.trigger, ctx.t)}
               </Badge>
               {Object.entries(a.conditions || {}).map(([k, v]) => (
-                <Badge key={k} tone="amber" className="px-2 py-0.5 font-mono">
-                  {ctx.t("إذا (If):", "If:")} {k}={String(v)}
+                <Badge key={k} tone="amber" className="px-2 py-0.5">
+                  {ctx.t("إذا:", "If:")} {automationLabel(k, ctx.t)}: {automationLabel(String(v), ctx.t)}
                 </Badge>
               ))}
               {Object.entries(a.actions || {}).map(([k, v]) => (
-                <Badge key={k} tone="emerald" className="px-2 py-0.5 font-mono font-bold">
-                  {ctx.t("ثم (Then):", "Then:")} {k}={String(v)}
+                <Badge key={k} tone="emerald" className="px-2 py-0.5 font-bold">
+                  {ctx.t("ثم:", "Then:")} {automationLabel(k, ctx.t)}: {automationLabel(String(v), ctx.t)}
                 </Badge>
               ))}
             </div>

@@ -32,6 +32,40 @@ export const COMMON_NAMED_ICONS = [
   "mail",
 ];
 
+const ICON_LABELS: Record<string, [string, string]> = {
+  folder: ["مجلد", "Folder"],
+  briefcase: ["حقيبة عمل", "Briefcase"],
+  rocket: ["صاروخ", "Rocket"],
+  "code-2": ["برمجة", "Code"],
+  target: ["هدف", "Target"],
+  clock: ["ساعة", "Clock"],
+  bolt: ["برق", "Bolt"],
+  megaphone: ["مكبّر صوت", "Megaphone"],
+  smartphone: ["هاتف", "Smartphone"],
+  palette: ["لوحة ألوان", "Palette"],
+  map: ["خريطة", "Map"],
+  star: ["نجمة", "Star"],
+  shield: ["درع", "Shield"],
+  database: ["قاعدة بيانات", "Database"],
+  form: ["نموذج", "Form"],
+  inbox: ["صندوق وارد", "Inbox"],
+  tag: ["وسم", "Tag"],
+  layers: ["طبقات", "Layers"],
+  timeline: ["جدول زمني", "Timeline"],
+  trend: ["اتجاه", "Trend"],
+  users: ["مستخدمون", "Users"],
+  settings: ["إعدادات", "Settings"],
+  sparkle: ["لمعان", "Sparkle"],
+  mail: ["بريد", "Mail"],
+};
+
+export function iconDisplayName(value: string | undefined, tr: (ar: string, en: string) => string) {
+  if (!value) return tr("اختر أيقونة", "Choose an icon");
+  const label = ICON_LABELS[value];
+  if (label) return tr(label[0], label[1]);
+  return /^[a-z0-9-]+$/i.test(value) ? value : tr("رمز تعبيري", "Emoji");
+}
+
 export const POPULAR_EMOJIS = [
   "🏢",
   "🚀",
@@ -150,9 +184,7 @@ export function IconPicker({
             <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-raised text-ink border border-line">
               <EntityIcon value={selectedValue} fallback={fallback} size={16} />
             </div>
-            <span className="truncate text-[13px] font-medium text-ink">
-              {selectedValue || tr("اختر أيقونة", "Choose an icon")}
-            </span>
+            <span className="truncate text-[13px] font-medium text-ink">{iconDisplayName(selectedValue, tr)}</span>
           </div>
           <IconChevron
             size={14}

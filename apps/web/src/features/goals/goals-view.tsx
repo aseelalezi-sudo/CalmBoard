@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { goalStatusLabel } from "@/lib/display-labels";
 import type { Goal, ViewCtx } from "@/lib/types";
 import { fmtNumber } from "@/lib/types";
 import { Avatar, Badge, Btn, Card, Modal, Ring, ScreenHeader, ScreenState } from "@/components/ui";
@@ -83,7 +84,7 @@ export function GoalsView({ ctx }: { ctx: ViewCtx }) {
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
-              <Badge tone={goalTone(goal.status)}>{goal.status}</Badge>
+              <Badge tone={goalTone(goal.status)}>{goalStatusLabel(goal.status, ctx.t)}</Badge>
               <span className="text-[10px] font-bold uppercase tracking-wide text-ink-faint">
                 {ctx.t("نتيجة رئيسية", "Key result")}
               </span>

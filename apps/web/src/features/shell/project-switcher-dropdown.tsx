@@ -107,14 +107,14 @@ export function ProjectSwitcherDropdown({
   const subtitleText = activeProject ? activeWorkspace?.name : activeOrg?.name;
 
   return (
-    <div className="relative" ref={containerRef}>
+    <div className="relative min-w-0" ref={containerRef}>
       <button
         ref={triggerRef}
         type="button"
         onClick={() => setOpen(!open)}
         aria-haspopup="listbox"
         aria-expanded={open}
-        className="group flex min-w-0 max-w-60 flex-1 items-center gap-2.5 rounded-xl p-1.5 text-start transition-colors hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/50 dark:hover:bg-white/5 sm:min-w-[200px]"
+        className="group flex w-full min-w-0 max-w-60 flex-1 items-center gap-2.5 rounded-xl p-1.5 text-start transition-colors hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/50 dark:hover:bg-white/5 sm:min-w-[200px]"
       >
         <div className="relative">
           <div
@@ -136,7 +136,7 @@ export function ProjectSwitcherDropdown({
             </span>
 
             {activeProject && (
-              <span className="grid h-4 place-items-center rounded-full bg-raised px-1.5 text-[9px] font-bold text-ink-soft border border-line shrink-0 ms-1">
+              <span className="hidden h-4 place-items-center rounded-full bg-raised px-1.5 text-[9px] font-bold text-ink-soft border border-line shrink-0 ms-1 sm:grid">
                 {stats.progress}%
               </span>
             )}
@@ -148,7 +148,7 @@ export function ProjectSwitcherDropdown({
               {stats.total} {t("مهمة", "tasks")}
             </span>
             {activeProject && (
-              <div className="ms-1.5 flex h-1 w-12 overflow-hidden rounded-full bg-raised shrink-0">
+              <div className="ms-1.5 hidden h-1 w-12 overflow-hidden rounded-full bg-raised shrink-0 sm:flex">
                 <div className="h-full bg-accent transition-all duration-500" style={{ width: `${stats.progress}%` }} />
               </div>
             )}

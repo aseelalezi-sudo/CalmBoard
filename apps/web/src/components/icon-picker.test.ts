@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { COMMON_NAMED_ICONS, POPULAR_EMOJIS } from "./icon-picker";
+import { COMMON_NAMED_ICONS, iconDisplayName, POPULAR_EMOJIS } from "./icon-picker";
 import { resolveEntityIcon } from "./entity-icon";
 
 describe("IconPicker constants and entity resolution", () => {
@@ -22,5 +22,15 @@ describe("IconPicker constants and entity resolution", () => {
       const resolved = resolveEntityIcon(emoji, "project");
       assert.equal(resolved.type, "emoji", `Expected emoji "${emoji}" in POPULAR_EMOJIS to resolve to emoji type`);
     }
+  });
+
+  it("shows a readable name for every named icon instead of its identifier", () => {
+    const ar = (arabic: string) => arabic;
+    for (const iconName of COMMON_NAMED_ICONS) {
+      assert.notEqual(iconDisplayName(iconName, ar), iconName, `Icon "${iconName}" has no readable name`);
+    }
+    assert.equal(iconDisplayName("folder", ar), "مجلد");
+    assert.equal(iconDisplayName("🚀", ar), "رمز تعبيري");
+    assert.equal(iconDisplayName(undefined, ar), "اختر أيقونة");
   });
 });

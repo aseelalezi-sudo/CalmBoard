@@ -4,7 +4,7 @@ type Translate = ViewCtx["t"];
 
 function translatedValue(value: string, labels: Record<string, [string, string]>, t: Translate) {
   const label = labels[value];
-  return label ? t(label[0], label[1]) : value.replaceAll("_", " ");
+  return label ? t(label[0], label[1]) : value.replaceAll(/[._]/g, " ");
 }
 
 export function taskStatusLabel(value: string, t: Translate) {
@@ -86,6 +86,35 @@ export function activityActionLabel(value: string, t: Translate) {
       "project.updated": ["حدّث مشروعاً", "Updated a project"],
       "member.invited": ["دعا عضواً", "Invited a member"],
       "member.updated": ["حدّث عضواً", "Updated a member"],
+      "task.moved": ["نقل مهمة", "Moved a task"],
+      "task.watched": ["بدأ متابعة مهمة", "Started watching a task"],
+      "task.unwatched": ["ألغى متابعة مهمة", "Stopped watching a task"],
+      "task.watcher_added": ["أضاف متابعاً لمهمة", "Added a watcher to a task"],
+      "task.watcher_removed": ["أزال متابعاً من مهمة", "Removed a watcher from a task"],
+      "task.sprint_assigned": ["أضاف مهمة إلى سبرنت", "Added a task to a sprint"],
+      "task.sprint_removed": ["أزال مهمة من سبرنت", "Removed a task from a sprint"],
+      "task.checklists.replaced": ["حدّث قوائم المهمة", "Updated task checklists"],
+      "task.checklist_item.updated": ["حدّث عنصراً في قائمة مهمة", "Updated a checklist item"],
+      "task.approval.requested": ["طلب موافقة على مهمة", "Requested task approval"],
+      "task.approval.decided": ["قرّر في طلب موافقة", "Decided on an approval request"],
+      "task.approval.canceled": ["ألغى طلب موافقة", "Canceled an approval request"],
+      "sprint.created": ["أنشأ سبرنت", "Created a sprint"],
+      "sprint.updated": ["حدّث سبرنت", "Updated a sprint"],
+      "sprint.started": ["بدأ سبرنت", "Started a sprint"],
+      "sprint.completed": ["أكمل سبرنت", "Completed a sprint"],
+      "sprint.cancelled": ["ألغى سبرنت", "Cancelled a sprint"],
+      invitation_created: ["أنشأ دعوة", "Created an invitation"],
+      invitation_resent: ["أعاد إرسال دعوة", "Resent an invitation"],
+      invitation_revoked: ["ألغى دعوة", "Revoked an invitation"],
+      invitation_accepted: ["قبل دعوة", "Accepted an invitation"],
+      "integration.webhook.created": ["أنشأ webhook", "Created a webhook"],
+      "integration.webhook.revoked": ["ألغى webhook", "Revoked a webhook"],
+      "integration.credential.saved": ["حفظ بيانات اعتماد تكامل", "Saved integration credentials"],
+      "integration.credential.revoked": ["ألغى بيانات اعتماد تكامل", "Revoked integration credentials"],
+      "billing.subscription.updated": ["حدّث الاشتراك", "Updated the subscription"],
+      "attachment.upload.requested": ["بدأ رفع مرفق", "Started an attachment upload"],
+      "attachment.scan.clean": ["اجتاز مرفق الفحص الأمني", "Attachment passed the security scan"],
+      "attachment.scan.infected": ["رُفض مرفق بعد الفحص الأمني", "Attachment rejected by the security scan"],
     },
     t,
   );
@@ -98,6 +127,7 @@ export function automationLabel(value: string, t: Translate) {
       task_created: ["إنشاء مهمة", "Task created"],
       task_updated: ["تحديث مهمة", "Task updated"],
       task_status_changed: ["تغيّر حالة مهمة", "Task status changed"],
+      schedule_daily: ["يومياً", "Daily"],
       status: ["الحالة", "Status"],
       priority: ["الأولوية", "Priority"],
       assignee: ["المسؤول", "Assignee"],
@@ -107,6 +137,10 @@ export function automationLabel(value: string, t: Translate) {
       addTag: ["إضافة وسم", "Add tag"],
       notify: ["إشعار", "Notify"],
       notifyTitle: ["عنوان الإشعار", "Notification title"],
+      assignTo: ["تعيين إلى", "Assign to"],
+      addComment: ["إضافة تعليق", "Add comment"],
+      hasTag: ["يحمل وسماً", "Has tag"],
+      projectId: ["المشروع", "Project"],
     },
     t,
   );

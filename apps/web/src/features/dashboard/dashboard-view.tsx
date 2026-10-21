@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { activityActionLabel } from "@/lib/display-labels";
 import {
   DndContext,
   KeyboardSensor,
@@ -667,7 +668,9 @@ function ActivityWidget({ ctx }: { ctx: ViewCtx }) {
           <div key={activity.id} className="flex items-center gap-3 py-3 text-[12px]">
             <Avatar src={activity.actor?.avatarUrl} name={activity.actor?.name} size={28} />
             <span className="font-semibold dark:text-white">{activity.actor?.name || ctx.t("مستخدم", "User")}</span>
-            <span className="truncate text-slate-500">{activity.action}</span>
+            <span className="truncate text-slate-500" title={activity.action}>
+              {activityActionLabel(activity.action, ctx.t)}
+            </span>
             <span className="ms-auto text-[10px] text-slate-400">
               {new Date(activity.createdAt).toLocaleString(ctx.locale === "ar" ? "ar-u-nu-latn" : "en-US")}
             </span>

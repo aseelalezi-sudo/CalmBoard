@@ -33,6 +33,7 @@ import { confirmAction } from "@/components/feedback";
 import type { Task, ViewCtx } from "@/lib/types";
 import { fmtDate, fmtMinutes, fmtNumber, PRIORITY_CONFIG, STATUS_CONFIG } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { useModifierKeyLabel } from "@/lib/modifier-key";
 import { useBulkTaskActions } from "./use-bulk-task-actions";
 import { parseTaskClipboard, serializeTasksForClipboard, type TaskClipboardUpdate } from "./task-table-clipboard";
 import { moveTableColumn } from "./task-table-state";
@@ -277,6 +278,7 @@ export function AdvancedTaskTable({ ctx }: { ctx: ViewCtx }) {
   const tableViewState = useTaskViewStateStore((state) => state.table);
   const setTableViewState = useTaskViewStateStore((state) => state.setTable);
   const resetTableViewState = useTaskViewStateStore((state) => state.resetTable);
+  const modKey = useModifierKeyLabel();
   const sorting = tableViewState.sorting as SortingState;
   const columnVisibility = tableViewState.columnVisibility as VisibilityState;
   const columnOrder = tableViewState.columnOrder as ColumnOrderState;
@@ -1290,13 +1292,13 @@ export function AdvancedTaskTable({ ctx }: { ctx: ViewCtx }) {
               {ctx.t("شبكة المهام المتقدمة", "Advanced task grid")}
             </div>
             <div className="mt-0.5 text-[10.5px] text-ink-faint">
-              {fmtNumber(ctx.tasks.length, ctx.locale)} {ctx.t("صف", "rows")} · TanStack Table + Virtualizer
+              {fmtNumber(ctx.tasks.length, ctx.locale)} {ctx.t("صف", "rows")}
             </div>
           </div>
-          <div className="relative flex items-center gap-2">
+          <div className="relative flex flex-wrap items-center gap-2">
             <button
               onClick={() => setShowNewGroupModal(true)}
-              className="flex items-center gap-1 rounded-xl border border-dashed border-accent/40 bg-accent/10 px-2.5 py-1.5 text-[11.5px] font-semibold text-accent hover:bg-accent/20 transition shadow-xs"
+              className="flex items-center gap-1 whitespace-nowrap rounded-xl border border-dashed border-accent/40 bg-accent/10 px-2.5 py-1.5 text-[11.5px] font-semibold text-accent hover:bg-accent/20 transition shadow-xs"
             >
               <IconPlus size={12} />
               <span>{ctx.t("إضافة مجموعة جديدة", "Add Group")}</span>
@@ -1310,9 +1312,9 @@ export function AdvancedTaskTable({ ctx }: { ctx: ViewCtx }) {
                 aria-label={ctx.t("تجميع الجدول", "Group table")}
               >
                 <option value="none">{ctx.t("بدون تجميع (مسطح)", "None (Flat)")}</option>
-                <option value="status">{ctx.t("حسب الحالة (Status)", "By Status")}</option>
-                <option value="priority">{ctx.t("حسب الأولوية (Priority)", "By Priority")}</option>
-                <option value="custom">{ctx.t("مجموعات مخصصة (Custom Groups)", "Custom Groups")}</option>
+                <option value="status">{ctx.t("حسب الحالة", "By Status")}</option>
+                <option value="priority">{ctx.t("حسب الأولوية", "By Priority")}</option>
+                <option value="custom">{ctx.t("مجموعات مخصصة", "Custom Groups")}</option>
                 {ctx.customFields?.map((cf) => (
                   <option key={cf.id} value={`cf:${cf.key}`}>
                     {ctx.t(`حقل: ${cf.name}`, `Field: ${cf.name}`)}
@@ -1332,10 +1334,10 @@ export function AdvancedTaskTable({ ctx }: { ctx: ViewCtx }) {
               {ctx.t("تصدير CSV", "Export CSV")}
             </Btn>
             <Btn size="sm" variant="ghost" onClick={() => void copyTasks()}>
-              {ctx.t("نسخ", "Copy")} <span className="mono text-[10px]">⌘C</span>
+              {ctx.t("نسخ", "Copy")} <span className="mono hidden text-[10px] lg:inline">{modKey}+C</span>
             </Btn>
             <Btn size="sm" variant="ghost" disabled={!ctx.can("tasks.update")} onClick={() => void pasteTasks()}>
-              {ctx.t("لصق", "Paste")} <span className="mono text-[10px]">⌘V</span>
+              {ctx.t("لصق", "Paste")} <span className="mono hidden text-[10px] lg:inline">{modKey}+V</span>
             </Btn>
             {showColumns && (
               <div
