@@ -1,0 +1,37 @@
+version: 2
+
+updates:
+  # pnpm workspace (root, apps/*, packages/*). Dependabot reads pnpm-lock.yaml through the npm ecosystem.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    labels: [dependencies]
+    groups:
+      # Related packages must move together (fastify/NestJS, Next/React, TipTap, tooling), so group them.
+      production-minor-patch:
+        dependency-type: production
+        update-types: [minor, patch]
+      development-minor-patch:
+        dependency-type: development
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    labels: [dependencies]
+
+  - package-ecosystem: docker
+    directories:
+      - /apps/web
+      - /apps/api
+      - /apps/worker
+      - /docker/minio
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    labels: [dependencies]

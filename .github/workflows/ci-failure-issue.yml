@@ -1,0 +1,44 @@
+name: CI failure issue
+
+# Keeps one open issue while CI on main is red, so a broken main cannot go unnoticed for weeks. The issue is closed
+# automatically once CI passes again. Uses only the built-in GITHUB_TOKEN.
+on:
+  workflow_run:
+    workflows: ["CalmBoard CI"]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Open, update or close the CI failure issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+          RUN_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          LABEL="ci-failure"
+          SHORT_SHA="${RUN_SHA:0:7}"
+          gh label create "$LABEL" --color B60205 --description "CI on main is failing" --force >/dev/null
+          OPEN=$(gh issue list --label "$LABEL" --state open --json number --jq '.[0].number // empty')
+
+          if [[ "$CONCLUSION" == "failure" ]]; then
+            BODY=$(printf 'CI failed on main at %s.\n\nRun: %s' "$SHORT_SHA" "$RUN_URL")
+            if [[ -n "$OPEN" ]]; then
+              gh issue comment "$OPEN" --body "$BODY"
+            else
+              gh issue create --label "$LABEL" --title "CI is failing on main" --body "$BODY"
+            fi
+          elif [[ "$CONCLUSION" == "success" && -n "$OPEN" ]]; then
+            BODY=$(printf 'CI passed again at %s.\n\nRun: %s' "$SHORT_SHA" "$RUN_URL")
+            gh issue close "$OPEN" --comment "$BODY"
+          fi
