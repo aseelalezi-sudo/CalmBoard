@@ -161,7 +161,7 @@ jobs:
         run: pnpm --filter @calmboard/web exec playwright test --project=webkit
       - name: Upload CI logs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: calmboard-ci-artifacts
           path: |
@@ -226,7 +226,7 @@ jobs:
 
       - name: Retain SBOM and vulnerability result
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: calmboard-${{ matrix.service }}-supply-chain-${{ github.sha }}
           path: artifacts/
