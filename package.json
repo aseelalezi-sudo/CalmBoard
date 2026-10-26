@@ -72,11 +72,11 @@
     "eslint-config-next": "16.4.2",
     "husky": "^9.1.7",
     "lint-staged": "^17.6.0",
-    "postcss": "8.5.30",
+    "postcss": "8.5.31",
     "prettier": "^3.9.10",
     "tailwindcss": "4.3.3",
     "tsx": "^4.23.15",
-    "turbo": "^2.11.9",
+    "turbo": "^2.11.10",
     "typescript": "5.9.3",
     "wait-on": "9.5.1"
   },
