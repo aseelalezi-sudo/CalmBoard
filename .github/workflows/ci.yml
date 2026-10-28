@@ -52,7 +52,7 @@ jobs:
       WEBHOOK_SIGNING_SECRET: ci_test_webhook_signing_secret_32_bytes
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: Install pnpm
         uses: pnpm/action-setup@v4
       - name: Setup Node
@@ -181,7 +181,7 @@ jobs:
         service: [web, api, worker]
     steps:
       - name: Checkout tracked source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
