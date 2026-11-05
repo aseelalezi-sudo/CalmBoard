@@ -75,7 +75,7 @@ export function readableError(error: unknown, fallback?: string) {
 }
 
 export function apiServiceUrl(path: string) {
-  const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:5500";
+  const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
   return `${baseUrl.replace(/\/$/, "")}/${path.replace(/^\//, "")}`;
 }
 

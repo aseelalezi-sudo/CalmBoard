@@ -4,6 +4,26 @@ import { BadRequestException } from "@nestjs/common";
 import { explicitRequestScope } from "./request-scope.service.js";
 
 describe("canonical HTTP request scope", () => {
+  it("resolves comment mutations and reply parents to their actual project resources", () => {
+    assert.deepEqual(
+      explicitRequestScope({ url: "/comments/reactions", body: { id: "comment-a", projectId: "claimed-project" } })
+        .resources.commentIds,
+      ["comment-a"],
+    );
+    assert.deepEqual(
+      explicitRequestScope({ url: "/comments?id=comment-a", query: { id: "comment-a" } }).resources.commentIds,
+      ["comment-a"],
+    );
+    assert.deepEqual(
+      explicitRequestScope({ url: "/api/comments", body: { parentId: "comment-parent", taskId: "task-a" } }).resources
+        .commentIds,
+      ["comment-parent"],
+    );
+    assert.deepEqual(
+      explicitRequestScope({ url: "/tasks", body: { id: "task-a", parentId: "task-parent" } }).resources.commentIds,
+      [],
+    );
+  });
   it("includes named and conventional project route parameters", () => {
     assert.equal(
       explicitRequestScope({

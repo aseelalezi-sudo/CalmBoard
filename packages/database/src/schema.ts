@@ -970,7 +970,7 @@ export const comments = pgTable(
       .notNull(),
     content: text("content").notNull(),
     parentId: uuid("parent_id"),
-    reactions: jsonb("reactions").$type<Record<string, string[]>>().default({}),
+    reactions: jsonb("reactions").$type<import("./comment-reactions.js").StoredCommentReactions>().default({}),
     isPinned: boolean("is_pinned").default(false),
     deduplicationKey: varchar("deduplication_key", { length: 256 }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),

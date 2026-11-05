@@ -4,7 +4,6 @@ import {
   canonicalizeAdvancedFilterAst,
   validateAndNormalizeAdvancedFilterAst,
   CUSTOM_FIELD_OPERATORS,
-  type AdvancedFilterNode,
   type CreateSavedViewInput,
   type CustomFieldFilter,
   type CustomFieldOperator,

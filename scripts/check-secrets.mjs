@@ -35,7 +35,23 @@ export function scanTrackedFiles(root = process.cwd()) {
   const findings = [];
   for (const file of trackedFiles(root)) {
     if (unsafeTrackedEnvironmentFile(file)) findings.push({ file, kind: "plaintext environment file" });
-    const buffer = readFileSync(resolve(root, file));
+    let buffer;
+    try {
+      buffer = readFileSync(resolve(root, file));
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+      // An unstaged move/delete still exists in the index. Scan those bytes
+      // rather than crashing or silently ignoring a staged credential.
+      try {
+        buffer = execFileSync("git", ["show", `:${file}`], {
+          cwd: root,
+          maxBuffer: 64 * 1024 * 1024,
+          stdio: ["ignore", "pipe", "pipe"],
+        });
+      } catch {
+        throw new Error(`Could not inspect the tracked index entry for ${file}.`);
+      }
+    }
     if (buffer.includes(0)) continue;
     for (const kind of scanSecretContent(buffer.toString("utf8"))) findings.push({ file, kind });
   }

@@ -1,10 +1,13 @@
-import { and, asc, desc, eq, inArray, isNull, or } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
+import { COMMENT_REACTION_EMOJIS } from "@calmboard/types";
 import { db } from "../client.js";
 import { TenantPermissionDeniedError, TenantResourceNotFoundError } from "../errors.js";
 import { automationEvents, commentMentions, comments, memberships, tasks, users } from "../schema.js";
 import { assertWorkspaceTenantContext, type DatabaseTenantContext } from "../tenant-context.js";
 import { createNotificationsRepository } from "./notifications.js";
 import { dispatchWatcherNotifications } from "./watcher-notifications.js";
+import { commentReactionState } from "../comment-reactions.js";
+import { createAuthorizationRepository } from "./authorization.js";
 
 type DatabaseTransaction = Parameters<Parameters<(typeof db)["transaction"]>[0]>[0];
 
@@ -18,7 +21,6 @@ export type CreateCommentInput = {
 };
 
 export type UpdateCommentInput = {
-  reactions?: Record<string, string[]>;
   content?: string;
   isPinned?: boolean;
   mentionedUserIds?: string[];
@@ -231,6 +233,7 @@ export function createCommentsRepository(context: DatabaseTenantContext) {
       }
       return rows.map(({ comment, user }) => ({
         ...comment,
+        ...commentReactionState(comment.reactions),
         mentionedUserIds: mentionMap.get(comment.id) ?? [],
         user: user ?? undefined,
       }));
@@ -279,7 +282,7 @@ export function createCommentsRepository(context: DatabaseTenantContext) {
             )
             .limit(1);
           if (existing) {
-            return { ...existing, alreadyExisted: true };
+            return { ...existing, ...commentReactionState(existing.reactions), alreadyExisted: true };
           }
         }
 
@@ -310,7 +313,7 @@ export function createCommentsRepository(context: DatabaseTenantContext) {
                 ),
               )
               .limit(1);
-            if (existing) return { ...existing, alreadyExisted: true };
+            if (existing) return { ...existing, ...commentReactionState(existing.reactions), alreadyExisted: true };
           }
           throw new Error("Comment insert did not return a row");
         }
@@ -378,15 +381,22 @@ export function createCommentsRepository(context: DatabaseTenantContext) {
             deduplicationKey: `comment/${comment.id}/comment_added`,
           });
         }
-        return { ...comment, mentionedUserIds };
+        return { ...comment, ...commentReactionState(comment.reactions), mentionedUserIds };
       });
     },
 
     async update(commentId: string, input: UpdateCommentInput) {
+      if ("reactions" in input || "reactionUserIds" in input) {
+        throw new TenantPermissionDeniedError("Use the actor-scoped reaction command");
+      }
       const { comment, projectId } = await requireComment(commentId);
       const role = await actorRole();
       const moderator = moderatorRoles.has(role);
-      if (input.content !== undefined && comment.userId !== context.actorId && !moderator) {
+      if (
+        (input.content !== undefined || input.mentionedUserIds !== undefined) &&
+        comment.userId !== context.actorId &&
+        !moderator
+      ) {
         throw new TenantPermissionDeniedError("Only the author or a moderator can edit this comment");
       }
       if (input.isPinned !== undefined && !moderator) {
@@ -400,7 +410,6 @@ export function createCommentsRepository(context: DatabaseTenantContext) {
         const [updated] = await transaction
           .update(comments)
           .set({
-            ...(input.reactions === undefined ? {} : { reactions: input.reactions }),
             ...(input.content === undefined ? {} : { content: input.content }),
             ...(input.isPinned === undefined ? {} : { isPinned: input.isPinned }),
             updatedAt: new Date(),
@@ -440,8 +449,43 @@ export function createCommentsRepository(context: DatabaseTenantContext) {
             transaction,
           );
         }
-        return { ...updated, ...(afterMentionIds === undefined ? {} : { mentionedUserIds: afterMentionIds }) };
+        return {
+          ...updated,
+          ...commentReactionState(updated.reactions),
+          ...(afterMentionIds === undefined ? {} : { mentionedUserIds: afterMentionIds }),
+        };
       });
+    },
+
+    async setReaction(commentId: string, emoji: string, active: boolean) {
+      if (!context.actorId) throw new TenantPermissionDeniedError("Authenticated actor is required");
+      if (!(COMMENT_REACTION_EMOJIS as readonly string[]).includes(emoji) || typeof active !== "boolean") {
+        throw new TenantPermissionDeniedError("Invalid comment reaction");
+      }
+      const { projectId } = await requireComment(commentId);
+      const authorization = await createAuthorizationRepository().resolve(
+        context.actorId,
+        { organizationId, workspaceId, projectId },
+        "comments.manage",
+      );
+      if (!authorization.allowed) throw new TenantPermissionDeniedError();
+      const entry = sql`jsonb_build_object('userId', ${context.actorId}::text)`;
+      const existing = sql`coalesce(${comments.reactions} -> ${emoji}::text, '[]'::jsonb)`;
+      // A single UPDATE evaluates against the locked row's latest value. It
+      // never reads a map into JS and writes a stale snapshot over other users.
+      const values = active
+        ? sql`case when ${existing} @> jsonb_build_array(${entry}) then ${existing} else ${existing} || jsonb_build_array(${entry}) end`
+        : sql`coalesce((select jsonb_agg(item.value) from jsonb_array_elements(${existing}) as item(value) where item.value <> ${entry}), '[]'::jsonb)`;
+      const [updated] = await db
+        .update(comments)
+        .set({
+          reactions: sql`jsonb_set(coalesce(${comments.reactions}, '{}'::jsonb), array[${emoji}::text], ${values}, true)`,
+          updatedAt: sql`clock_timestamp()`,
+        })
+        .where(and(eq(comments.id, commentId), commentScope))
+        .returning({ id: comments.id, reactions: comments.reactions });
+      if (!updated) throw new TenantResourceNotFoundError("comment");
+      return { id: updated.id, ...commentReactionState(updated.reactions) };
     },
 
     async delete(commentId: string) {

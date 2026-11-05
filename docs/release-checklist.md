@@ -3,6 +3,10 @@
 Record the release SHA, operator, timestamps, evidence links, and result for each
 item. A failed mandatory item blocks promotion.
 
+Current local evidence and remaining gates are tracked in
+[development-status.md](./development-status.md) and [quality-gate.md](./quality-gate.md).
+Local verification does not check the remote CI or production-deployment boxes below.
+
 ## Source control
 
 - [x] The repository has a reviewed baseline commit and `HEAD` resolves successfully.
@@ -11,9 +15,11 @@ item. A failed mandatory item blocks promotion.
 ## Before deployment
 
 - [ ] CI is green: audit, environment validation, migration verification,
-      tests, typecheck, lint, production builds, integration tests, and Chromium
-      E2E.
+      tests, typecheck, lint, production builds, integration tests, and
+      Chromium/Firefox/WebKit E2E.
 - [ ] API, Worker, Web, and Migrator images use the same immutable commit SHA.
+- [ ] `pnpm db:migrate:status` succeeds for the target database; any reviewed
+      historical hash compatibility is documented and no unresolved drift remains.
 - [ ] Image vulnerability and secret scans contain no unaccepted high/critical
       findings.
 - [ ] `docker compose ... config --quiet` succeeds with the target secret set.

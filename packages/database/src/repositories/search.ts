@@ -1,5 +1,6 @@
 import { and, desc, eq, getTableColumns, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
 import { db } from "../client.js";
+import { commentReactionState } from "../comment-reactions.js";
 import { attachments, comments, docs, memberships, projects, tasks, teams, users } from "../schema.js";
 import { assertWorkspaceTenantContext, type DatabaseTenantContext } from "../tenant-context.js";
 import { createDocumentsRepository } from "./documents.js";
@@ -235,7 +236,7 @@ export function createSearchRepository(context: DatabaseTenantContext) {
         tasks: taskRows.map(withoutSearchRank),
         projects: projectRows.map(withoutSearchRank),
         docs: documentRows.map(withoutSearchRank),
-        comments: commentRows.map(withoutSearchRank),
+        comments: commentRows.map((row) => ({ ...withoutSearchRank(row), ...commentReactionState(row.reactions) })),
         users: userRows.map(withoutSearchRank),
         teams: teamRows.map(withoutSearchRank),
         attachments: attachmentRows.map(withoutSearchRank),

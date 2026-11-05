@@ -4,6 +4,15 @@ This directory contains the staging composition, database-role provisioning,
 encrypted backup, and isolated restore-drill tools. Run deployment commands from
 the repository root on a Linux host with Docker Compose v2.
 
+The Migrator image executes the same verified runner as `pnpm db:migrate`, using
+a dedicated database advisory lock and recorded SHA-256 verification. Do not
+replace its command with `drizzle-kit migrate`; the published 0052 timestamp is
+older than 0051 and execution must follow journal indexes. Inspect history with
+`pnpm db:migrate:status` before applying to an existing database. The check command
+does not apply SQL or create migration metadata; verification errors stop deployment.
+See [ADR 0029](../docs/adr/0029-verified-serialized-migration-runner.md) and the
+[current history review](../docs/migration-history-review-2026-11-05.md).
+
 ## Required tools
 
 - Docker Engine and Docker Compose v2

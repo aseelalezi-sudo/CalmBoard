@@ -563,7 +563,8 @@ describe("M3 collaboration and onboarding", () => {
     } finally {
       const tenantIds = [organizationId, otherOrganizationId];
       if (roleCreated) {
-        await pool.query(`DROP ROLE IF EXISTS ${quoteIdentifier(restrictedRole)}`).catch(() => undefined);
+        await pool.query(`DROP OWNED BY ${quoteIdentifier(restrictedRole)}`);
+        await pool.query(`DROP ROLE ${quoteIdentifier(restrictedRole)}`);
       }
       await pool
         .query("delete from notification_email_outbox where organization_id = any($1::uuid[])", [tenantIds])
