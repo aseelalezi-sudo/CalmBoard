@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { describe, it } from "node:test";
 import { Pool, type PoolClient } from "pg";
+import { createWorkerTenantFixture } from "./testing/tenant-fixture.js";
 import { dispatchDueTaskReminders, readTaskReminderOptions } from "./task-reminders.js";
 
 describe("task reminder worker", () => {
@@ -111,30 +112,10 @@ describe("task reminder worker", () => {
     async () => {
       const pool = new Pool({ connectionString: process.env.DATABASE_MAINTENANCE_URL, max: 2 });
       const reminderId = randomUUID();
+      let fixture: Awaited<ReturnType<typeof createWorkerTenantFixture>> | undefined;
       try {
-        const target = await pool.query<{
-          organization_id: string;
-          workspace_id: string;
-          project_id: string;
-          task_id: string;
-          user_id: string;
-        }>(
-          `select task.organization_id,
-                  task.workspace_id,
-                  task.project_id,
-                  task.id as task_id,
-                  membership.user_id
-           from tasks task
-           join memberships membership
-             on membership.organization_id = task.organization_id
-            and (membership.workspace_id = task.workspace_id or membership.workspace_id is null)
-            and membership.status = 'active'
-           where task.deleted_at is null
-           order by task.created_at
-           limit 1`,
-        );
-        assert.equal(target.rowCount, 1, "integration database must contain a seeded task and active member");
-        const scope = target.rows[0]!;
+        fixture = await createWorkerTenantFixture(pool);
+        const scope = fixture;
         await pool.query(
           `insert into task_reminders (
              id, organization_id, workspace_id, project_id, task_id, external_id,
@@ -177,12 +158,16 @@ describe("task reminder worker", () => {
           },
         ]);
       } finally {
-        await pool.query(
-          "delete from notifications where type = 'task_reminder' and entity_type = 'task_reminder' and entity_id = $1",
-          [reminderId],
-        );
-        await pool.query("delete from task_reminders where id = $1", [reminderId]);
-        await pool.end();
+        try {
+          await pool.query(
+            "delete from notifications where type = 'task_reminder' and entity_type = 'task_reminder' and entity_id = $1",
+            [reminderId],
+          );
+          await pool.query("delete from task_reminders where id = $1", [reminderId]);
+          await fixture?.cleanup();
+        } finally {
+          await pool.end();
+        }
       }
     },
   );

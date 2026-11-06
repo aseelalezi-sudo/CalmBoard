@@ -2,7 +2,6 @@ import type { Pool, PoolClient } from "pg";
 import { sql } from "drizzle-orm";
 import {
   createCommentsRepository,
-  createNotificationsRepository,
   createTasksRepository,
   withTenantTransaction,
   db,

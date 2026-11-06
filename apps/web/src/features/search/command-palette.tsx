@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import type { Doc, Project, Task } from "@/lib/types";
 import { STATUS_CONFIG } from "@/lib/types";
 import { Avatar, Badge, Kbd } from "@/components/ui";
@@ -69,6 +70,7 @@ export function CommandPalette({
   goDashboard: () => void;
   openAI: () => void;
 }) {
+  const router = useRouter();
   const [retryKey, setRetryKey] = useState(0);
   const { normalizedQuery, results, loading, error } = useCommandSearch({ open, query, scope, retryKey });
   if (!open) return null;
@@ -81,7 +83,7 @@ export function CommandPalette({
       label: t("وثائق API", "API Reference"),
       Icon: IconCode,
       action: () => {
-        window.location.href = "/api-reference";
+        router.push("/api-reference");
       },
     },
     { label: t("تبديل اللغة", "Toggle language"), Icon: IconGlobe, action: toggleLocale },

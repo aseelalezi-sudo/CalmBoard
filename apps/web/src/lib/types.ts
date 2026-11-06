@@ -184,6 +184,7 @@ export type Comment = {
   parentId?: string | null;
   mentionedUserIds?: string[];
   reactions?: Record<string, string[]>;
+  reactionUserIds?: Record<string, string[]>;
   isPinned?: boolean;
 };
 export type Doc = {

@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
 import { AuthScreen } from "@/features/auth/auth-screen";
 import { useAuthOperations } from "@/features/auth/use-auth-operations";
 import { ApiError } from "@/lib/client-api";
@@ -26,6 +28,8 @@ function PublicShell({ children }: { children: React.ReactNode }) {
 }
 
 export function InvitationAcceptanceScreen() {
+  const router = useRouter();
+  const queryClient = useQueryClient();
   const [token, setToken] = useState("");
   const [invitation, setInvitation] = useState<InvitationInspection | null>(null);
   const [user, setUser] = useState<User | null>(null);
@@ -87,10 +91,13 @@ export function InvitationAcceptanceScreen() {
     setError("");
     try {
       const result = await acceptInvitationToken(token);
+      // Membership changed: discard cached session/directory data before opening the workspace.
+      await queryClient.invalidateQueries({ queryKey: ["auth", "session"] });
+      await queryClient.invalidateQueries({ queryKey: ["workspaces"] });
       const query = new URLSearchParams({ view: "members" });
       if (result.workspaceId) query.set("workspaceId", result.workspaceId);
       window.history.replaceState({}, "", "/accept-invitation");
-      window.location.assign(`/?${query.toString()}`);
+      router.replace(`/?${query.toString()}`);
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : t("تعذر قبول الدعوة", "Could not accept invitation"));
     } finally {

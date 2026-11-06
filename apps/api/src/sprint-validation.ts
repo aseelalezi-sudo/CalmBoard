@@ -1,7 +1,6 @@
 import { BadRequestException } from "@nestjs/common";
-import { z } from "@calmboard/validation";
 import type { SprintStatus } from "@calmboard/database";
-import { requiredString, isJsonObject, type JsonObject } from "./request-validation.js";
+import { requiredString, isJsonObject } from "./request-validation.js";
 
 const sprintStatuses = new Set<SprintStatus>(["planned", "active", "completed", "cancelled"]);
 

@@ -16,7 +16,7 @@ export function parseTimezone(value: unknown): string {
   }
   try {
     new Intl.DateTimeFormat("en", { timeZone: value }).format();
-  } catch (error) {
+  } catch {
     throw new BadRequestException("timezone must be a valid IANA time zone");
   }
   return value;

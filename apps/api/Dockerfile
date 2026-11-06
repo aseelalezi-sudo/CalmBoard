@@ -26,12 +26,25 @@ RUN --mount=type=cache,id=calmboard-pnpm,target=/pnpm/store \
     pnpm config set store-dir /pnpm/store && \
     pnpm --filter=@calmboard/api deploy --prod --legacy --prefer-offline /prod/api
 
-FROM sourcer AS migrator
+FROM sourcer AS migration-deployer
+RUN --mount=type=cache,id=calmboard-pnpm,target=/pnpm/store \
+    pnpm config set store-dir /pnpm/store && \
+    pnpm --filter=@calmboard/database deploy --prod --legacy --prefer-offline /prod/migrations
+
+FROM node:22-alpine AS migrator
+WORKDIR /app
 ENV NODE_ENV=production
 ENV DEPLOY_ENV=production
-COPY --from=builder /app/drizzle.config.ts ./drizzle.config.ts
-COPY --from=builder /app/packages/database/migrations ./packages/database/migrations
-CMD ["pnpm", "exec", "drizzle-kit", "migrate"]
+RUN apk upgrade --no-cache \
+    && apk add --no-cache dumb-init \
+    && rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
+RUN addgroup --system --gid 1001 nodejs && adduser --system --uid 1001 migration_user
+COPY --from=migration-deployer --chown=migration_user:nodejs /prod/migrations/node_modules ./node_modules
+COPY --from=builder --chown=migration_user:nodejs /app/scripts/database-command.mjs /app/scripts/migration-runner.mjs /app/scripts/migration-baseline.mjs ./scripts/
+COPY --from=builder --chown=migration_user:nodejs /app/packages/database/migrations ./packages/database/migrations
+USER migration_user
+ENTRYPOINT ["dumb-init", "--"]
+CMD ["node", "scripts/database-command.mjs", "migrate"]
 
 FROM node:22-alpine AS runner
 WORKDIR /app

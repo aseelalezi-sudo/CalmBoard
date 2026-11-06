@@ -1,7 +1,7 @@
 import { BadRequestException, Body, Controller, Get, Patch, Query } from "@nestjs/common";
 import { createNotificationsRepository } from "@calmboard/database";
 import { requiredString, tenantContext, tenantContextFromBody, type JsonObject } from "./request-validation.js";
-import { RequirePermission, TenantMember } from "./permission.guard.js";
+import { TenantMember } from "./permission.guard.js";
 
 @Controller("notifications")
 export class NotificationsController {

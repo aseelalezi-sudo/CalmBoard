@@ -1,5 +1,8 @@
 # M4 Data Lifecycle & SaaS Operations — Execution Record
 
+> Historical report (August 2026). Current execution and remaining operational gates:
+> [development-status.md](./development-status.md).
+
 Audit date: 2026-08-09
 Execution updated: 2026-08-11
 Decision: **M4 TECHNICAL IMPLEMENTATION CLOSED; OPERATIONAL GATES CARRIED FORWARD**

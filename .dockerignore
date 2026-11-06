@@ -1,6 +1,12 @@
 .git
 .github
 .codex
+.agents
+.aws
+.claude
+.vscode
+artifacts
+scratch
 node_modules
 .pnpm-store
 .turbo
@@ -16,6 +22,9 @@ dist
 coverage
 playwright-report
 test-results
+**/playwright-report
+**/test-results
+**/coverage
 docs
 e2e
 *.log

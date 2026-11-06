@@ -1,4 +1,4 @@
-import type { Dispatch, SetStateAction } from "react";
+import { useLayoutEffect, useState, type Dispatch, type SetStateAction } from "react";
 import type {
   Attachment,
   Automation,
@@ -23,6 +23,7 @@ import {
   updateTaskRecord,
 } from "@/features/tasks/api";
 import { reorderBoardTasks } from "@/features/tasks/board-order";
+import { createTaskDetailLoader } from "./task-detail-loader";
 
 type Setter<T> = Dispatch<SetStateAction<T>>;
 type Translator = (arabic: string, english: string) => string;
@@ -76,6 +77,20 @@ export function useTaskOperations(input: TaskOperationsInput) {
   } = input;
 
   const refreshTasks = reloadTasks;
+  const detailScope = JSON.stringify([activeOrg?.id, activeWorkspace?.id, currentUser?.id]);
+  const [detailLoader] = useState(() =>
+    createTaskDetailLoader({
+      load: getTaskDetailBundle,
+      setTask: setTaskDetail,
+      setComments,
+      setAttachments,
+      setSubtasks,
+    }),
+  );
+  useLayoutEffect(() => {
+    detailLoader.synchronize(detailScope, taskDetail?.id ?? null);
+  });
+  useLayoutEffect(() => () => detailLoader.dispose(), [detailLoader]);
 
   const updateTask = async (id: string, updates: Partial<Task>) => {
     const targetTask = tasks.find((task) => task.id === id) ?? (taskDetail?.id === id ? taskDetail : null);
@@ -208,20 +223,9 @@ export function useTaskOperations(input: TaskOperationsInput) {
     task: Pick<Task, "id" | "organizationId" | "workspaceId">,
     optimisticTask: Task | null,
   ) => {
-    setTaskDetail(optimisticTask);
-    setComments([]);
-    setSubtasks([]);
-    setAttachments([]);
-    try {
-      const details = await getTaskDetailBundle(task);
-      // Do not reopen a drawer the user already closed (or replaced) while the details were loading.
-      setTaskDetail((previous) => (optimisticTask && previous?.id !== optimisticTask.id ? previous : details.task));
-      setComments(details.comments);
-      setAttachments(details.attachments);
-      setSubtasks(details.subtasks);
-    } catch {
+    await detailLoader.load(task, optimisticTask, detailScope, () => {
       notify(t("تعذر تحميل التفاصيل", "Could not load details"), "error");
-    }
+    });
   };
 
   const openTask = (task: Task) => loadTaskDetail(task, task);

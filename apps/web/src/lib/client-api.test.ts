@@ -4,6 +4,18 @@ import { ApiError, apiServiceUrl, jsonRequest, requestJson } from "./client-api"
 
 const originalFetch = globalThis.fetch;
 
+it("uses the shared development API port by default and honors a configured origin", (t) => {
+  const original = process.env.NEXT_PUBLIC_API_URL;
+  t.after(() => {
+    if (original === undefined) delete process.env.NEXT_PUBLIC_API_URL;
+    else process.env.NEXT_PUBLIC_API_URL = original;
+  });
+  delete process.env.NEXT_PUBLIC_API_URL;
+  assert.equal(apiServiceUrl("/tasks"), "http://localhost:4000/tasks");
+  process.env.NEXT_PUBLIC_API_URL = "https://api.example.test/prefix/";
+  assert.equal(apiServiceUrl("/tasks"), "https://api.example.test/prefix/tasks");
+});
+
 afterEach(() => {
   globalThis.fetch = originalFetch;
   Reflect.deleteProperty(globalThis, "window");

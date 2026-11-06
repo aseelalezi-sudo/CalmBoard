@@ -19,7 +19,6 @@ type UpdateCommentInput = CommentScope & {
   id: string;
   content?: string;
   isPinned?: boolean;
-  reactions?: Record<string, string[]>;
   mentionedUserIds?: string[];
 };
 
@@ -32,6 +31,13 @@ export async function createCommentRecord(input: CreateCommentInput) {
 
 export async function updateCommentRecord(input: UpdateCommentInput) {
   await request(apiServiceUrl("/comments"), jsonRequest("PATCH", input, { "Idempotency-Key": createIdempotencyKey() }));
+}
+
+export function setCommentReactionRecord(input: CommentScope & { id: string; emoji: string; active: boolean }) {
+  return requestJson<Pick<Comment, "id" | "reactions" | "reactionUserIds">>(
+    apiServiceUrl("/comments/reactions"),
+    jsonRequest("POST", input, { "Idempotency-Key": createIdempotencyKey() }),
+  );
 }
 
 export function getEligibleMentionUsers(taskId: string, scope: CommentScope, search = "") {

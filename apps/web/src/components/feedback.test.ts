@@ -14,7 +14,9 @@ function sourceFiles(directory: string): string[] {
 test("user actions use CalmBoard feedback instead of blocking browser dialogs", () => {
   const violations = sourceFiles(join(process.cwd(), "src"))
     .map((path) => ({ path, content: readFileSync(path, "utf8") }))
-    .filter(({ content }) => /\b(?:window\.)?(?:alert|confirm|prompt)\s*\(/.test(content))
+    // Match the global dialogs only: a method call such as `dependencies.confirm(...)`
+    // must not be reported as a browser dialog.
+    .filter(({ content }) => /(?<![.\w$])(?:(?:window|globalThis|self)\.)?(?:alert|confirm|prompt)\s*\(/.test(content))
     .map(({ path }) => path);
 
   assert.deepEqual(violations, []);

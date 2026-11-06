@@ -4,9 +4,13 @@ import { uploadTaskAttachment } from "./api";
 
 test("attachment upload service", async (t) => {
   const originalFetch = globalThis.fetch;
+  const originalApiUrl = process.env.NEXT_PUBLIC_API_URL;
+  process.env.NEXT_PUBLIC_API_URL = "https://api.example.test";
 
   t.after(() => {
     globalThis.fetch = originalFetch;
+    if (originalApiUrl === undefined) delete process.env.NEXT_PUBLIC_API_URL;
+    else process.env.NEXT_PUBLIC_API_URL = originalApiUrl;
   });
 
   await t.test("prepares and uploads a task attachment", async () => {
@@ -46,11 +50,11 @@ test("attachment upload service", async (t) => {
     });
 
     assert.equal(requests.length, 3);
-    assert.equal(requests[0]?.url, "http://localhost:5500/attachments");
+    assert.equal(requests[0]?.url, "https://api.example.test/attachments");
     assert.equal(requests[1]?.url, "https://storage.example/upload");
     assert.equal(requests[1]?.init?.method, "PUT");
     assert.equal(requests[1]?.init?.body, file);
-    assert.equal(requests[2]?.url, "http://localhost:5500/attachments/complete");
+    assert.equal(requests[2]?.url, "https://api.example.test/attachments/complete");
     assert.equal(requests[2]?.init?.method, "POST");
     assert.equal(attachment.id, "attachment-1");
     assert.ok(!("upload" in attachment));

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { COMMENT_REACTION_EMOJIS } from "@/features/comments/reactions";
 
 export const dynamic = "force-dynamic";
 
@@ -22,6 +23,7 @@ export async function GET() {
     ],
     components: {
       securitySchemes: {
+        CookieSession: { type: "apiKey", in: "cookie", name: "calmboard_access" },
         BearerAuth: {
           type: "http",
           scheme: "bearer",
@@ -117,6 +119,51 @@ export async function GET() {
       },
     },
     paths: {
+      "/comments/reactions": {
+        post: {
+          summary: "إضافة تفاعل المستخدم الحالي أو إزالته دون تغيير تفاعلات الآخرين",
+          security: [{ CookieSession: [] }],
+          parameters: [
+            {
+              name: "Idempotency-Key",
+              in: "header",
+              required: true,
+              schema: { type: "string", minLength: 8, maxLength: 255 },
+            },
+            { name: "x-csrf-token", in: "header", required: true, schema: { type: "string" } },
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["organizationId", "workspaceId", "id", "emoji", "active"],
+                  properties: {
+                    organizationId: { type: "string", format: "uuid" },
+                    workspaceId: { type: "string", format: "uuid" },
+                    id: { type: "string", format: "uuid" },
+                    emoji: { type: "string", enum: [...COMMENT_REACTION_EMOJIS] },
+                    active: { type: "boolean" },
+                  },
+                  description: "هوية المتفاعل مشتقة من الجلسة. لا ترسل قائمة مستخدمين أو خريطة تفاعلات كاملة.",
+                },
+              },
+            },
+          },
+          responses: {
+            "200": {
+              description:
+                "خريطة reactionUserIds للمعرّفات المؤكدة وخريطة reactions للأسماء التاريخية. تكرار active نفسه لا يقلب الحالة.",
+            },
+            "400": { description: "تفاعل أو حمولة غير صالحة" },
+            "401": { description: "يلزم تسجيل الدخول" },
+            "403": { description: "لا توجد صلاحية على مشروع التعليق أو رمز CSRF غير صالح" },
+            "404": { description: "التعليق غير موجود ضمن النطاق المسموح" },
+            "409": { description: "تعارض استخدام مفتاح Idempotency-Key" },
+          },
+        },
+      },
       "/tasks": {
         get: {
           summary: "استعراض المهام مع التصفية والعزل",

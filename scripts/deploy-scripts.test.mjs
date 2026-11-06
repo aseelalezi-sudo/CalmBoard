@@ -31,3 +31,17 @@ test("observability requires a protected Alertmanager config", () => {
 test("Prometheus forwards alerts to the Compose Alertmanager service", () => {
   assert.match(prometheusConfig, /alertmanagers:[\s\S]*targets: \["alertmanager:9093"\]/);
 });
+
+test("the production Migrator and CI retain the verified migration execution path", async () => {
+  const dockerfile = await readFile(new URL("../apps/api/Dockerfile", import.meta.url), "utf8");
+  const stage = dockerfile.split("FROM node:22-alpine AS migrator")[1]?.split("FROM node:22-alpine AS runner")[0];
+  assert.ok(stage);
+  assert.match(stage, /CMD \["node", "scripts\/database-command\.mjs", "migrate"\]/);
+  assert.match(stage, /migration-runner\.mjs/);
+  assert.match(stage, /migration-baseline\.mjs/);
+  assert.match(stage, /USER migration_user/);
+  assert.doesNotMatch(stage, /drizzle-kit/);
+  const workflow = await readFile(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
+  assert.match(workflow, /run: pnpm test:migrations/);
+  assert.match(workflow, /service: migrations[\s\S]*target: migrator/);
+});
