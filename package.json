@@ -7,10 +7,10 @@
     "pnpm": ">=10.0.0"
   },
   "scripts": {
-    "dev": "pnpm --filter @calmboard/web dev",
-    "dev:api": "pnpm --filter @calmboard/api dev",
-    "dev:worker": "pnpm --filter @calmboard/worker dev",
-    "dev:all": "turbo run dev --filter=\"!calmboard\"",
+    "dev": "node scripts/dev-all.mjs web",
+    "dev:api": "node scripts/dev-all.mjs api",
+    "dev:worker": "node scripts/dev-all.mjs worker",
+    "dev:all": "node scripts/dev-all.mjs",
     "build": "cross-env NODE_ENV=production turbo build --filter=@calmboard/web --filter=@calmboard/api --filter=@calmboard/worker --filter=@calmboard/types --filter=@calmboard/database --filter=@calmboard/config --filter=@calmboard/notifications --filter=@calmboard/validation --filter=@calmboard/api-client --filter=@calmboard/licensing",
     "build:web": "pnpm --filter @calmboard/web build",
     "start": "pnpm --filter @calmboard/web start",
@@ -24,6 +24,9 @@
     "db:check": "node scripts/database-command.mjs check",
     "db:generate": "node scripts/database-command.mjs generate",
     "db:migrate": "node scripts/database-command.mjs migrate",
+    "db:migrate:status": "node scripts/database-command.mjs migrate --check",
+    "db:backup:local": "node scripts/local-db-recovery.mjs",
+    "db:baseline:dev": "node scripts/adopt-development-baseline.mjs",
     "db:migrate:verify": "node scripts/verify-empty-migration.mjs",
     "ci:verify-empty": "node scripts/verify-empty-migration.mjs --ci",
     "db:migrate:verify-current": "node scripts/verify-current-migration.mjs",
@@ -37,8 +40,10 @@
     "typecheck": "turbo typecheck --filter=@calmboard/web --filter=@calmboard/api --filter=@calmboard/worker --filter=@calmboard/types --filter=@calmboard/database --filter=@calmboard/config --filter=@calmboard/notifications --filter=@calmboard/validation --filter=@calmboard/api-client --filter=@calmboard/licensing",
     "test": "node --test scripts/*.test.mjs && turbo test --filter=@calmboard/web --filter=@calmboard/api --filter=@calmboard/worker --filter=@calmboard/types --filter=@calmboard/database --filter=@calmboard/config --filter=@calmboard/notifications --filter=@calmboard/validation --filter=@calmboard/api-client --filter=@calmboard/licensing",
     "test:integration": "pnpm run check:env && pnpm --filter @calmboard/database test:integration && pnpm --filter @calmboard/api test:integration",
+    "test:migrations": "node --test scripts/integration/migration-runner.test.mjs",
     "test:e2e": "pnpm --filter @calmboard/web test:e2e",
-    "ci": "pnpm run check:env && pnpm run check:secrets && pnpm run check:encoding && pnpm run db:check && pnpm run check:cycles && pnpm run typegen && pnpm run typecheck && pnpm run lint && pnpm run format:check && pnpm run test && pnpm run build",
+    "quality": "node scripts/quality-gate.mjs",
+    "ci": "pnpm run quality && pnpm run test && pnpm run build",
     "turbo:build": "pnpm run build",
     "turbo:lint": "pnpm run lint",
     "turbo:typecheck": "pnpm run typecheck"
@@ -94,6 +99,8 @@
     "overrides": {
       "@grpc/grpc-js@>=1.14.0 <1.14.5": "1.14.5",
       "@opentelemetry/api": "1.9.1",
+      "@sentry/bundler-plugins>glob@>=9.0.0 <=14.0.1": "14.0.2",
+      "@typescript-eslint/typescript-estree>minimatch@>=7.0.0 <11.0.1": "11.0.1",
       "axios@<1.20.0": "1.20.0",
       "brace-expansion@<1.1.21": "1.1.21",
       "brace-expansion@>=2.0.0 <2.1.7": "2.1.7",
@@ -101,24 +108,20 @@
       "engine.io@<6.6.10": "6.6.10",
       "esbuild@<=0.24.2": "0.25.0",
       "fast-copy@<4.1.0": "4.1.0",
-      "fast-uri@>=3.0.0 <3.1.8": "3.1.8",
-      "fast-uri@>=4.0.0 <4.1.5": "4.1.5",
+      "fast-uri@>=3.0.0 <3.1.9": "3.1.9",
+      "fast-uri@>=4.0.0 <4.2.3": "4.2.3",
       "fastify@<5.12.7": "5.12.7",
       "find-my-way@<=9.6.0": "9.7.0",
-      "follow-redirects@<1.16.1": "1.16.1",
-      "joi@<18.2.9": "18.3.0",
+      "follow-redirects@<1.16.2": "1.16.2",
+      "joi@<18.3.1": "18.3.1",
       "js-yaml@>=4.0.0 <4.3.2": "4.3.2",
       "nanoid@<3.3.18": "3.3.18",
       "postcss@<8.5.23": "8.5.23",
       "prosemirror-view@<1.42.3": "1.42.3",
+      "rimraf>glob@>=9.0.0 <=14.0.1": "14.0.2",
       "sharp@<0.35.5": "0.35.5",
       "source-map-js@<1.2.2": "1.2.2",
       "uuid@<11.1.1": "11.1.1"
-    },
-    "auditConfig": {
-      "ignoreGhsas": [
-        "GHSA-vfj7-8cjw-p6xm"
-      ]
     }
   }
 }

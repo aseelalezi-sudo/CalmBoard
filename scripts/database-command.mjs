@@ -1,7 +1,14 @@
-import "dotenv/config";
+import { loadMigrations, migrateDatabase, migrationLockTimeout } from "./migration-runner.mjs";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
+
+const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
+try {
+  process.loadEnvFile(resolve(repositoryRoot, ".env"));
+} catch (error) {
+  if (error.code !== "ENOENT") throw error;
+}
 
 const supportedCommands = new Set(["check", "generate", "migrate", "push", "studio"]);
 const localEnvironments = new Set(["development", "local", "test"]);
@@ -35,80 +42,36 @@ export async function runDatabaseCommand(argv = process.argv.slice(2), env = pro
   assertDatabaseCommandAllowed(command, env);
 
   if (command === "migrate") {
-    if (!env.DATABASE_URL) throw new Error("DATABASE_URL is required to run migrations.");
-    const pg = await import("pg");
-    const crypto = await import("node:crypto");
-    const { readFile } = await import("node:fs/promises");
-
-    const Client = pg.default?.Client ?? pg.Client;
-    const client = new Client({ connectionString: env.DATABASE_URL });
-    await client.connect();
-    try {
-      await client.query("CREATE SCHEMA IF NOT EXISTS drizzle;");
-      await client.query(`
-        CREATE TABLE IF NOT EXISTS drizzle.__drizzle_migrations (
-          id SERIAL PRIMARY KEY,
-          hash text NOT NULL,
-          created_at bigint
-        );
-      `);
-
-      const res = await client.query("SELECT created_at FROM drizzle.__drizzle_migrations;");
-      const appliedTimestamps = new Set(res.rows.map((r) => String(r.created_at)));
-
-      const journal = JSON.parse(await readFile(resolve("packages/database/migrations/meta/_journal.json"), "utf8"));
-      console.log(`Checking ${journal.entries.length} migrations...`);
-
-      for (const entry of journal.entries) {
-        const timestampStr = String(entry.when);
-        if (appliedTimestamps.has(timestampStr)) {
-          continue;
-        }
-
-        const sqlFile = resolve(`packages/database/migrations/${entry.tag}.sql`);
-        const content = await readFile(sqlFile, "utf8");
-        const hash = crypto.createHash("sha256").update(content).digest("hex");
-        const statements = content
-          .split("--> statement-breakpoint")
-          .map((s) => s.trim())
-          .filter(Boolean);
-
-        console.log(`Applying migration: ${entry.tag}...`);
-        await client.query("BEGIN;");
-        try {
-          for (const statement of statements) {
-            await client.query(statement);
-          }
-          await client.query("INSERT INTO drizzle.__drizzle_migrations (hash, created_at) VALUES ($1, $2);", [
-            hash,
-            entry.when,
-          ]);
-          await client.query("COMMIT;");
-        } catch (migrationError) {
-          await client.query("ROLLBACK;");
-          throw migrationError;
-        }
-      }
-
-      console.log("✓ Migrations applied successfully!");
-      process.exitCode = 0;
-      return;
-    } finally {
-      await client.end();
+    const options = forwardedArgs.filter((argument) => argument !== "--");
+    if (options.some((argument) => argument !== "--check")) {
+      throw new Error("Only --check is supported by migrate; configure DATABASE_URL through the environment.");
     }
+    await migrateDatabase({
+      connectionString: env.DATABASE_URL,
+      lockTimeoutMs: migrationLockTimeout(env.MIGRATION_LOCK_TIMEOUT_MS),
+      checkOnly: options.includes("--check"),
+      environment: databaseEnvironment(env),
+    });
+    process.exitCode = 0;
+    return;
   }
-
+  if (command === "check") await loadMigrations();
   const pnpmCli = env.npm_execpath;
   const executable = pnpmCli ? process.execPath : "pnpm";
   const commandArgs = pnpmCli
     ? [pnpmCli, "exec", "drizzle-kit", command, ...forwardedArgs]
     : ["exec", "drizzle-kit", command, ...forwardedArgs];
   const result = spawnSync(executable, commandArgs, {
-    cwd: process.cwd(),
+    cwd: repositoryRoot,
     env,
     stdio: "inherit",
   });
   if (result.error) throw result.error;
+  if (command === "check" && result.status === 0) {
+    console.log(
+      "CalmBoard journal indexes validated. Apply with pnpm db:migrate; the known 0052 timestamp inversion is handled by journal index, not timestamp order.",
+    );
+  }
   process.exitCode = result.status ?? 1;
 }
 

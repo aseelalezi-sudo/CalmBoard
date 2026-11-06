@@ -12,7 +12,6 @@ import {
   type UpdateGoalInput,
 } from "@calmboard/database";
 import {
-  isJsonObject,
   optionalString,
   organizationContext,
   requiredString,

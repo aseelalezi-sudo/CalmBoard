@@ -67,7 +67,7 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayDisconnect {
       const scope = await this.access.authorize(user.id, input);
       const key = subscriptionKey(scope);
       const previous = socket.data.subscriptions?.[key];
-      if (previous) await Promise.all(realtimeRooms(previous).map((room) => socket.leave(room)));
+      if (previous) await Promise.all(realtimeRooms(previous).map(async (room) => socket.leave(room)));
       await socket.join(realtimeRooms(scope));
       socket.data.subscriptions = { ...socket.data.subscriptions, [key]: scope };
       const snapshot = await this.realtime.publishPresence(scope);
@@ -87,7 +87,7 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayDisconnect {
       const key = subscriptionKey(scope);
       const previous = socket.data.subscriptions?.[key];
       if (previous) {
-        await Promise.all(realtimeRooms(previous).map((room) => socket.leave(room)));
+        await Promise.all(realtimeRooms(previous).map(async (room) => socket.leave(room)));
         delete socket.data.subscriptions?.[key];
         await this.realtime.publishPresence(previous);
       }

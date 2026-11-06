@@ -28,6 +28,7 @@ describe("0063 export scope", () => {
       const workspaceJobId = randomUUID();
       const organizationJobId = randomUUID();
       const legacyDefaultJobId = randomUUID();
+      let roleCreated = false;
 
       const insertJob = (values: string, parameters: unknown[]) =>
         maintenance.query(
@@ -209,6 +210,7 @@ describe("0063 export scope", () => {
         );
 
         await maintenance.query(`create role "${rlsRole}" nosuperuser nocreatedb nocreaterole noinherit nobypassrls`);
+        roleCreated = true;
         await maintenance.query(`grant usage on schema public to "${rlsRole}"`);
         await maintenance.query(`grant select on export_jobs to "${rlsRole}"`);
 
@@ -279,7 +281,10 @@ describe("0063 export scope", () => {
         );
         assert.match(plan.rows.map((row) => row["QUERY PLAN"]).join("\n"), /export_jobs_expired_cleanup_idx/);
       } finally {
-        await maintenance.query(`drop role if exists "${rlsRole}"`).catch(() => undefined);
+        if (roleCreated) {
+          await maintenance.query(`drop owned by "${rlsRole}"`);
+          await maintenance.query(`drop role "${rlsRole}"`);
+        }
         await maintenance
           .query("delete from organizations where id = any($1::uuid[])", [[organizationId, foreignOrganizationId]])
           .catch(() => undefined);

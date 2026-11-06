@@ -84,7 +84,7 @@
 [Infra] S3-compatible (Presigned URLs), Redis (Cache/Queue/Presence), BullMQ, WebSocket Gateway
 ```
 
-قرار ORM موثق في [ADR-0001: اعتماد Drizzle ORM](docs/adr/0001-use-drizzle-orm.md). لا تُضاف Prisma كطبقة ثانية، ويُستخدم `drizzle-kit migrate` للنشر بعد إنشاء Baseline migrations.
+قرار ORM موثق في [ADR-0001: اعتماد Drizzle ORM](docs/adr/0001-use-drizzle-orm.md). لا تُضاف Prisma كطبقة ثانية، ويُستخدم `pnpm db:migrate` للنشر عبر منفّذ الترحيلات الموثق في [ADR-0029](docs/adr/0029-verified-serialized-migration-runner.md).
 
 **Mermaid:**
 
@@ -269,14 +269,43 @@ infrastructure/ docker/, nginx/, monitoring/
 ```bash
 # التشغيل المباشر
 pnpm install
-# ضبط DATABASE_URL في .env
-# db:push محمي ومخصص للتطوير المحلي فقط، ولا يعمل في Staging أو Production
-pnpm db:push
-pnpm dev
+# انسخ .env.example إلى .env في جذر المستودع واضبط اتصالات الخدمات
+docker compose up -d postgres redis minio
+# طبّق الترحيلات على قاعدة التطوير المعدة في DATABASE_URL
+pnpm db:migrate
+pnpm run dev:all
 
 # أو التشغيل عبر حزمة Docker Compose (Postgres + Redis + MinIO + Next.js)
-docker compose up --build -d
+docker compose --profile production up --build -d
 ```
+
+يحمّل `dev:all` ملف `.env` من الجذر قبل تشغيل الويب والـAPI والـWorker، ويمرر
+الإعدادات نفسها للخدمات الثلاث. متغيرات الطرفية لها الأولوية على الملف، وإعدادات الجذر
+المحمّلة لها الأولوية على `apps/web/.env.local`. اتصال PostgreSQL المنشور افتراضيًا
+بواسطة Compose يستخدم المنفذ `15432`؛ طابق عناوين `DATABASE_*` وبيانات الدخول مع إعدادك.
+
+عند استخدام عنوان محلي (`localhost` أو `127.0.0.1` أو `::1`)، يطابق أمر التطوير منفذ
+`APP_URL` تلقائيًا مع `PORT` ويعرض العنوان الناتج؛ يشمل ذلك قيمة قديمة موروثة من الطرفية.
+تُمرر القيمة المصححة إلى API أيضًا لتطابق إعداد CORS. تظل عناوين النطاقات الخارجية كما هي.
+
+إذا حجز Windows المنفذين `3000` و`3002` وظهر `EACCES`، اضبط في `.env`:
+
+```dotenv
+PORT=5000
+APP_URL=http://localhost:5000
+API_PORT=4000
+API_PUBLIC_URL=http://localhost:4000
+NEXT_PUBLIC_API_URL=http://localhost:4000
+NEXT_PUBLIC_REALTIME_URL=http://localhost:4000
+WORKER_HEALTH_PORT=5002
+```
+
+ثم افتح `http://localhost:5000`. يفحص أمر التشغيل المنافذ قبل بدء أي خدمة ويشرح
+المتغير المطلوب تعديله إذا كان المنفذ محجوزًا أو مستخدمًا. افحص الإعدادات والمنافذ فقط
+باستخدام `node scripts/dev-all.mjs --check` قبل التشغيل. لا يشغّل الأمر الترحيلات أو
+Docker تلقائيًا. استخدم `pnpm dev` أو `pnpm dev:api` أو `pnpm dev:worker` لتشغيل خدمة
+واحدة بالإعدادات المشتركة نفسها. تعمل مراقبة تغييرات API وWorker عبر Node مع `tsx`
+وتحمّل الحزم المشتركة من المصدر دون اشتراط بناء `dist` مسبقًا.
 
 ### تفعيل تسجيل الدخول عبر OAuth
 
@@ -299,8 +328,25 @@ pnpm db:generate -- --name feature_name
 
 # فحص سجل Drizzle ثم تطبيقه؛ هذا هو المسار المعتمد في CI وStaging وProduction
 pnpm db:check
+# فحص سجل القاعدة وبصماتها فقط دون تطبيق SQL أو إنشاء سجل
+pnpm db:migrate:status
 pnpm db:migrate
 ```
+
+للنسخ المحلي المشفّر على Windows واختبار الاستعادة في قاعدة معزولة، راجع
+[دليل استعادة قاعدة التطوير](docs/local-database-recovery.md) وأمر `pnpm db:backup:local`.
+اعتماد خط أساس التطوير الصريح موثّق في [ADR 0030](docs/adr/0030-explicit-development-migration-baseline.md)؛
+هذا القرار مقصور على القاعدة التي اعتُمدت، ويرفضه المنفّذ في Production وStaging.
+
+يستخدم أمر الترحيل وصورة Docker المخصصة منفّذًا واحدًا يتحقق من بصمات الملفات المطبقة
+ويقفل التشغيل على اتصال PostgreSQL واحد. تحدد `MIGRATION_LOCK_TIMEOUT_MS` مهلة انتظار
+القفل، وافتراضيًا هي 60000 مللي ثانية. يتبع التنفيذ ترتيب `idx` في السجل، فيطبق `0052`
+بعد `0051` رغم توقيته التاريخي الأقدم؛ لا تستخدم `drizzle-kit migrate` مباشرة.
+
+عند اختلاف البصمات يتوقف التنفيذ قبل تطبيق الترحيلات المعلقة، ويجب مراجعة الملفات
+الأصلية دون استبدال البصمات المسجلة. راجع [تدقيق السجل الحالي](docs/migration-history-review-2026-11-05.md).
+تعمل اختبارات التزامن والتراجع والترقية على قواعد مؤقتة مستقلة عبر `pnpm test:migrations`؛
+يتطلب ذلك `DATABASE_URL` لحساب يملك صلاحية إنشاء قواعد اختبار.
 
 يضبط النشر `DEPLOY_ENV=staging` أو `DEPLOY_ENV=production`. يرفض الحارس التنفيذي أمر
 `pnpm db:push` في البيئتين حتى لو كان `NODE_ENV` أو `CI` مضبوطاً بقيمة أخرى. الملفات الموجودة
@@ -309,19 +355,26 @@ Drizzle الرسمية؛ تبدأ السلسلة الرسمية من `0000_basel
 
 ## تشغيل الاختبارات الآلية (Playwright E2E & Security Suite)
 
+الحالة الحالية في [سجل التطوير والإصدار](docs/development-status.md)، وطريقة التحقق
+والخدمات المعزولة المطلوبة في [دليل بوابة الجودة](docs/quality-gate.md).
+
 ```bash
+# بوابة الجودة المشتركة محليًا ومع GitHub Actions
+pnpm quality
+
 # اختبارات الوحدة والانحدار لكل الحزم
 pnpm test
 
 # تكامل PostgreSQL ثم Redis وMinIO عبر الخدمات الفعلية
-# يتطلب إعداد متغيرات DATABASE_URL وREDIS_URL وS3_* في .env
+# يتطلب قاعدة وRedis وbucket اختبار معزولة؛ راجع دليل الجودة قبل التشغيل
 pnpm test:integration
 
 # تشغيل حزمة اختبارات Playwright E2E (القسم 29)
 pnpm test:e2e
 
-# تشغيل فحص الأمان وعزل المستأجرين عبر الـ API (القسم 26 & 29)
-curl -s http://localhost:5500/admin/security-tests | jq .summary
+# رفض الوصول غير الموثق إلى تشخيصات المنصة (المتوقع HTTP 401)
+# تنفيذ التشخيص الفعلي يتطلب جلسة PlatformAdmin
+curl --include http://localhost:4000/admin/security-tests
 ```
 
 ## المسارات المهمة في المنصة
@@ -331,7 +384,7 @@ curl -s http://localhost:5500/admin/security-tests | jq .summary
 - `/api-reference` — مستكشف وثائق الـ REST API الرسمي التفاعلي (OpenAPI 3.0.3 Reference).
 - `/f/[id]` — النماذج العامة لاستقبال طلبات العملاء وتحويل الردود تلقائياً لمهام.
 - `/api/docs/openapi` — نقطة مواصفات OpenAPI 3.0.3 JSON الرسمية.
-- `http://localhost:5500/admin/security-tests` — واجهة الفحص الآلي لعزل المستأجرين والأمان داخل Nest API.
+- `http://localhost:4000/admin/security-tests` — تشخيصات محمية تتطلب جلسة PlatformAdmin داخل Nest API.
 
 ## محولات الإنتاج السحابية المدمجة (Turnkey Cloud Adapters)
 

@@ -86,6 +86,24 @@ async function registerIsolatedOwner(page: Page) {
 }
 
 test.describe("CalmBoard core acceptance", () => {
+  test("command palette opens API reference without replacing the document", async ({ page }) => {
+    test.setTimeout(120_000);
+    await registerIsolatedOwner(page);
+    const marker = randomUUID();
+    await page.evaluate((value) => {
+      document.documentElement.dataset.navigationProbe = value;
+    }, marker);
+    await page.keyboard.press("Control+k");
+    await expect(page.locator("#search-query")).toBeVisible();
+    await page.getByRole("button", { name: "API Reference", exact: true }).click();
+    await expect(page).toHaveURL(/\/api-reference$/);
+    await expect(page.locator("html")).toHaveAttribute("data-navigation-probe", marker);
+    await expect(page.getByRole("heading", { level: 1, name: "مرجع واجهة برمجة التطبيقات" })).toBeVisible();
+    await page.goBack();
+    await expect(page).toHaveURL(/\/$/);
+    await expect(page.locator("html")).toHaveAttribute("data-navigation-probe", marker);
+  });
+
   test("owner creates a project, task, subtask, and comment through the real UI", async ({ page }) => {
     test.setTimeout(120_000);
     const identity = await registerIsolatedOwner(page);
@@ -138,6 +156,61 @@ test.describe("CalmBoard core acceptance", () => {
     await page.getByRole("button", { name: "Send", exact: true }).click();
     expect((await commentRequest).ok()).toBe(true);
     await expect(page.getByText(commentText, { exact: true })).toBeVisible();
+
+    const reaction = page.getByRole("button", { name: "React 👍", exact: true });
+    const reactionSaved = page.waitForResponse(
+      (response) => response.url().endsWith("/comments/reactions") && response.request().method() === "POST",
+    );
+    await reaction.click();
+    const added = await reactionSaved;
+    expect(added.ok()).toBe(true);
+    expect(added.request().postDataJSON()).toMatchObject({ emoji: "👍", active: true });
+    await expect(reaction).toHaveAttribute("aria-pressed", "true");
+    await expect(reaction).toContainText("1");
+
+    await page.keyboard.press("Escape");
+    await page.getByText(taskName, { exact: true }).click();
+    await page.getByRole("tab", { name: /Activity & Comments/i }).click();
+    await expect(reaction).toHaveAttribute("aria-pressed", "true");
+    const reactionRemoved = page.waitForResponse(
+      (response) => response.url().endsWith("/comments/reactions") && response.request().method() === "POST",
+    );
+    await reaction.click();
+    const removed = await reactionRemoved;
+    expect(removed.ok()).toBe(true);
+    expect(removed.request().postDataJSON()).toMatchObject({ emoji: "👍", active: false });
+    await expect(reaction).toHaveAttribute("aria-pressed", "false");
+
+    // Failed writes must keep the user's drafts available and roll back the
+    // optimistic comment, rather than clearing the editor or showing success.
+    const commentsUrl = /\/comments$/;
+    await page.route(commentsUrl, async (route) => {
+      const method = route.request().method();
+      if (method === "POST" || method === "PATCH") {
+        await route.fulfill({
+          status: method === "POST" ? 500 : 409,
+          contentType: "application/json",
+          body: JSON.stringify({ message: "Controlled comment failure" }),
+        });
+      } else await route.continue();
+    });
+    const draft = `Retry draft ${randomUUID().slice(0, 8)}`;
+    const composer = page.getByRole("textbox", { name: "Comment text", exact: true });
+    await composer.fill(draft);
+    await page.getByRole("button", { name: "Send", exact: true }).click();
+    await expect(page.getByText("Could not save the comment change. Try again.", { exact: true })).toBeVisible();
+    await expect(composer).toBeEnabled();
+    await expect(composer).toHaveValue(draft);
+
+    await page.getByText(commentText, { exact: true }).locator("..").getByTitle("Edit", { exact: true }).click();
+    const editor = page.getByRole("textbox", { name: "Edit comment text", exact: true });
+    await editor.fill(`${commentText} edited`);
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(editor).toBeEnabled();
+    await expect(editor).toHaveValue(`${commentText} edited`);
+    await page.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(page.getByText(commentText, { exact: true })).toBeVisible();
+    await page.unroute(commentsUrl);
 
     await page.keyboard.press("Escape");
     await page.reload();

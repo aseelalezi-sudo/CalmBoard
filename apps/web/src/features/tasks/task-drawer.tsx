@@ -24,6 +24,7 @@ import {
   IconX,
 } from "@/components/icons";
 import { useMentionUsers } from "@/features/comments/use-mention-users";
+import { COMMENT_REACTION_EMOJIS, commentReactionSummary } from "@/features/comments/reactions";
 import { TaskAssigneePicker } from "./task-assignee-picker";
 import {
   buildClearAllAssigneesMutation,
@@ -56,8 +57,8 @@ export function TaskDrawer({
   toggleSubtask: (s: Task) => void;
   deleteSubtask?: (s: Task) => void | Promise<void>;
   deleteTask?: (id: string) => Promise<boolean | void>;
-  addComment: (c: string, options?: { parentId?: string; mentionedUserIds?: string[] }) => void | Promise<void>;
-  editComment: (id: string, content: string, mentionedUserIds?: string[]) => void | Promise<void>;
+  addComment: (c: string, options?: { parentId?: string; mentionedUserIds?: string[] }) => Promise<boolean>;
+  editComment: (id: string, content: string, mentionedUserIds?: string[]) => Promise<boolean>;
   logTime: (id: string, m: number, d: string) => void;
 }) {
   const [comment, setComment] = useState("");
@@ -69,6 +70,10 @@ export function TaskDrawer({
   const [editText, setEditText] = useState("");
   const [editSelectedMentions, setEditSelectedMentions] = useState<Array<Pick<User, "id" | "name">>>([]);
   const [editMentionIndex, setEditMentionIndex] = useState(0);
+  const [isSendingComment, setIsSendingComment] = useState(false);
+  const [isSavingComment, setIsSavingComment] = useState(false);
+  const sendingCommentRef = useRef(false);
+  const savingCommentRef = useRef(false);
   const [activeSection, setActiveSection] = useState<"details" | "work" | "activity">("details");
   const [draftTitle, setDraftTitle] = useState(task?.title ?? "");
   const [draftProgress, setDraftProgress] = useState(task?.progress ?? 0);
@@ -212,19 +217,29 @@ export function TaskDrawer({
     clearMentionUsers();
   };
   const submitComment = async () => {
-    if (!comment.trim()) return;
+    if (!comment.trim() || sendingCommentRef.current) return;
+    sendingCommentRef.current = true;
+    setIsSendingComment(true);
     const activeMentions = selectedMentions
       .filter((user) => comment.includes(`@[${user.name}]`))
       .map((user) => user.id);
-    await addComment(comment.trim(), {
-      ...(replyTo ? { parentId: replyTo.id } : {}),
-      mentionedUserIds: activeMentions,
-    });
-    setComment("");
-    setSelectedMentions([]);
-    setReplyTo(null);
+    try {
+      const saved = await addComment(comment.trim(), {
+        ...(replyTo ? { parentId: replyTo.id } : {}),
+        mentionedUserIds: activeMentions,
+      });
+      if (saved) {
+        setComment("");
+        setSelectedMentions([]);
+        setReplyTo(null);
+      }
+    } finally {
+      sendingCommentRef.current = false;
+      setIsSendingComment(false);
+    }
   };
   const startEditingComment = (item: Comment) => {
+    if (savingCommentRef.current) return;
     const mentioned = new Set(item.mentionedUserIds ?? []);
     setEditingComment(item);
     setEditText(item.content);
@@ -242,14 +257,23 @@ export function TaskDrawer({
     clearEditMentionUsers();
   };
   const submitEdit = async () => {
-    if (!editingComment || !editText.trim()) return;
+    if (!editingComment || !editText.trim() || savingCommentRef.current) return;
+    savingCommentRef.current = true;
+    setIsSavingComment(true);
     const activeMentions = editSelectedMentions
       .filter((user) => editText.includes(`@[${user.name}]`))
       .map((user) => user.id);
-    await editComment(editingComment.id, editText.trim(), activeMentions);
-    setEditingComment(null);
-    setEditText("");
-    setEditSelectedMentions([]);
+    try {
+      const saved = await editComment(editingComment.id, editText.trim(), activeMentions);
+      if (saved) {
+        setEditingComment(null);
+        setEditText("");
+        setEditSelectedMentions([]);
+      }
+    } finally {
+      savingCommentRef.current = false;
+      setIsSavingComment(false);
+    }
   };
   const topLevelComments = comments.filter((item) => !item.parentId);
   const orphanReplies = comments.filter(
@@ -1385,6 +1409,7 @@ export function TaskDrawer({
                           <button
                             type="button"
                             onClick={() => setReplyTo(null)}
+                            disabled={isSendingComment}
                             aria-label={ctx.t("إلغاء الرد", "Cancel reply")}
                           >
                             <IconX size={13} />
@@ -1394,6 +1419,8 @@ export function TaskDrawer({
                       <textarea
                         name="auto-field-489335h"
                         value={comment}
+                        disabled={isSendingComment}
+                        aria-busy={isSendingComment}
                         onChange={(e) => setComment(e.target.value)}
                         aria-label={ctx.t("نص التعليق", "Comment text")}
                         aria-autocomplete="list"
@@ -1415,7 +1442,7 @@ export function TaskDrawer({
                           }
                         }}
                       />
-                      {mentionUsers.length > 0 && (
+                      {!isSendingComment && mentionUsers.length > 0 && (
                         <div
                           role="listbox"
                           aria-label={ctx.t("أعضاء يمكن الإشارة إليهم", "Mentionable members")}
@@ -1470,12 +1497,15 @@ export function TaskDrawer({
                             size="sm"
                             variant="ghost"
                             onClick={() => setComment((p) => `${p}${p && !p.endsWith(" ") ? " " : ""}@`)}
+                            disabled={isSendingComment}
                           >
                             <IconAt size={13} />
                           </Btn>
                           <Btn
                             size="sm"
                             variant="glow"
+                            disabled={isSendingComment || !comment.trim()}
+                            aria-busy={isSendingComment}
                             onClick={() => {
                               void submitComment();
                             }}
@@ -1525,6 +1555,7 @@ export function TaskDrawer({
                                 {canModifyComment(c) && (
                                   <button
                                     onClick={() => startEditingComment(c)}
+                                    disabled={isSavingComment}
                                     className="px-1 text-[11px] text-ink-soft hover:text-accent"
                                     title={ctx.t("تعديل", "Edit")}
                                   >
@@ -1565,6 +1596,8 @@ export function TaskDrawer({
                               <div className="relative mt-2 space-y-2">
                                 <textarea
                                   value={editText}
+                                  disabled={isSavingComment}
+                                  aria-busy={isSavingComment}
                                   onChange={(event) => setEditText(event.target.value)}
                                   aria-label={ctx.t("تعديل نص التعليق", "Edit comment text")}
                                   aria-autocomplete="list"
@@ -1587,7 +1620,7 @@ export function TaskDrawer({
                                     }
                                   }}
                                 />
-                                {editMentionUsers.length > 0 && (
+                                {!isSavingComment && editMentionUsers.length > 0 && (
                                   <div
                                     role="listbox"
                                     className="absolute z-20 w-full rounded-xl border border-line bg-surface p-1 shadow-xl ring-1 ring-line"
@@ -1612,10 +1645,21 @@ export function TaskDrawer({
                                   </div>
                                 )}
                                 <div className="flex gap-2">
-                                  <Btn size="sm" variant="glow" onClick={() => void submitEdit()}>
+                                  <Btn
+                                    size="sm"
+                                    variant="glow"
+                                    disabled={isSavingComment || !editText.trim()}
+                                    aria-busy={isSavingComment}
+                                    onClick={() => void submitEdit()}
+                                  >
                                     {ctx.t("حفظ", "Save")}
                                   </Btn>
-                                  <Btn size="sm" variant="ghost" onClick={() => setEditingComment(null)}>
+                                  <Btn
+                                    size="sm"
+                                    variant="ghost"
+                                    disabled={isSavingComment}
+                                    onClick={() => setEditingComment(null)}
+                                  >
                                     {ctx.t("إلغاء", "Cancel")}
                                   </Btn>
                                 </div>
@@ -1630,22 +1674,36 @@ export function TaskDrawer({
                                 <button
                                   type="button"
                                   onClick={() => setReplyTo(c)}
+                                  disabled={isSendingComment}
                                   className="rounded-full px-2.5 py-0.5 text-[11px] font-bold text-accent hover:bg-accent/10 transition-colors"
                                 >
                                   {ctx.t("رد", "Reply")}
                                 </button>
                               )}
-                              {["👍", "❤️", "🎉", "🚀", "👀"].map((em) => {
-                                const list = (c.reactions || {})[em] || [];
-                                const active = ctx.currentUser && list.includes(ctx.currentUser.name);
+                              {COMMENT_REACTION_EMOJIS.map((em) => {
+                                const { count, active, legacyCount } = commentReactionSummary(
+                                  c,
+                                  em,
+                                  ctx.currentUser?.id,
+                                );
                                 return (
                                   <button
                                     key={em}
                                     onClick={() => ctx.toggleReaction(c.id, em)}
+                                    aria-label={ctx.t(`تفاعل ${em}`, `React ${em}`)}
+                                    aria-pressed={active}
+                                    title={
+                                      legacyCount
+                                        ? ctx.t(
+                                            `يشمل ${legacyCount} تفاعلات قديمة غير مرتبطة بحساب مؤكد`,
+                                            `Includes ${legacyCount} legacy reactions without a verified account`,
+                                          )
+                                        : undefined
+                                    }
                                     className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] border transition-all active:scale-90 ${active ? "border-accent/50 bg-accent/15 text-accent font-bold shadow-xs" : "border-line bg-surface text-ink-soft hover:text-ink hover:bg-raised"}`}
                                   >
                                     <span>{em}</span>
-                                    {list.length > 0 && <span className="mono font-bold tabular">{list.length}</span>}
+                                    {count > 0 && <span className="mono font-bold tabular">{count}</span>}
                                   </button>
                                 );
                               })}

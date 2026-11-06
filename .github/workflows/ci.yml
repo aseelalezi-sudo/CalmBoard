@@ -12,10 +12,10 @@ permissions:
 jobs:
   quality:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     services:
       postgres:
-        image: postgres:16
+        image: postgres:18-alpine
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -31,6 +31,7 @@ jobs:
         ports: ["6379:6379"]
     env:
       DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/app_db
+      DATABASE_MAINTENANCE_URL: postgresql://postgres:postgres@127.0.0.1:5432/app_db
       REDIS_URL: redis://127.0.0.1:6379/0
       S3_ENDPOINT: http://127.0.0.1:9000
       S3_PUBLIC_ENDPOINT: http://127.0.0.1:9000
@@ -52,7 +53,7 @@ jobs:
       WEBHOOK_SIGNING_SECRET: ci_test_webhook_signing_secret_32_bytes
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: Install pnpm
         uses: pnpm/action-setup@v4
       - name: Setup Node
@@ -62,12 +63,8 @@ jobs:
           cache: pnpm
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-      - name: Security and vulnerability scan
-        run: pnpm audit --audit-level high
-      - name: Tracked-file secret scan
-        run: pnpm run check:secrets
-      - name: User-facing source encoding scan
-        run: pnpm run check:encoding
+      - name: Shared local and CI quality gate
+        run: pnpm run quality
 
       # MinIO no longer publishes public container images (minio/minio was removed from Docker Hub and quay.io now
       # requires authentication), so build the same pinned release from source and cache the binary.
@@ -97,22 +94,14 @@ jobs:
           done
           cat /tmp/calmboard-ci-minio.log
           exit 1
-      - name: Validate environment
-        run: pnpm run check:env
-      - name: Validate Drizzle migration history
-        run: pnpm db:check
       - name: Apply Drizzle migrations to empty CI database
         run: pnpm db:migrate
+      - name: Migration lock, history integrity, rollback and upgrade tests
+        run: pnpm test:migrations
       - name: Unit and regression tests
         run: pnpm run test
       - name: PostgreSQL, Redis, and MinIO integration tests
         run: pnpm run test:integration
-      - name: Generate route types
-        run: pnpm run typegen
-      - name: TypeScript
-        run: pnpm run typecheck
-      - name: ESLint
-        run: pnpm run lint
       - name: Production build
         run: pnpm run build
       - name: Install Playwright browsers
@@ -149,9 +138,12 @@ jobs:
             echo "ERROR: /metrics did not return text/plain Prometheus format"
             exit 1
           fi
-          # Confirm at least one process metric is present
-          curl --silent --fail http://127.0.0.1:4000/metrics | grep -q "^process_cpu_seconds_total" \
+          # Complete curl before grep to avoid a false SIGPIPE failure. Keep
+          # the response in this step's memory; retain only the pass/fail result.
+          METRICS_RESPONSE=$(curl --silent --fail http://127.0.0.1:4000/metrics)
+          grep -q "^process_cpu_seconds_total" <<< "$METRICS_RESPONSE" \
             || (echo "ERROR: expected process_cpu_seconds_total metric not found" && exit 1)
+          unset METRICS_RESPONSE
           echo "Prometheus scrape smoke check passed."
       - name: E2E smoke tests (Chromium)
         run: pnpm --filter @calmboard/web exec playwright test --project=chromium
@@ -159,14 +151,18 @@ jobs:
         run: pnpm --filter @calmboard/web exec playwright test --project=firefox
       - name: E2E smoke tests (WebKit)
         run: pnpm --filter @calmboard/web exec playwright test --project=webkit
-      - name: Upload CI logs
-        if: failure()
+      - name: Upload quality evidence and service logs
+        if: always()
         uses: actions/upload-artifact@v7
         with:
           name: calmboard-ci-artifacts
           path: |
             /tmp/calmboard-api-ci.log
             /tmp/calmboard-web-ci.log
+            /tmp/calmboard-ci-minio.log
+            artifacts/quality/
+            apps/web/test-results/
+            apps/web/playwright-report/
             test-results/
             playwright-report/
 
@@ -178,10 +174,22 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        service: [web, api, worker]
+        include:
+          - service: web
+            dockerfile: apps/web/Dockerfile
+            target: runner
+          - service: api
+            dockerfile: apps/api/Dockerfile
+            target: runner
+          - service: worker
+            dockerfile: apps/worker/Dockerfile
+            target: runner
+          - service: migrations
+            dockerfile: apps/api/Dockerfile
+            target: migrator
     steps:
       - name: Checkout tracked source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -197,14 +205,21 @@ jobs:
             )
           fi
           docker buildx build \
-            --file "apps/${{ matrix.service }}/Dockerfile" \
+            --file "${{ matrix.dockerfile }}" \
+            --target "${{ matrix.target }}" \
             --tag "calmboard-${{ matrix.service }}:${{ github.sha }}" \
             --load \
             "${BUILD_ARGS[@]}" \
             .
 
-      - name: Prepare supply-chain artifact directory
-        run: mkdir -p artifacts
+      - name: Record source, lockfile, and local image identity
+        run: |
+          mkdir -p artifacts
+          git rev-parse HEAD > artifacts/source-commit.txt
+          sha256sum pnpm-lock.yaml > artifacts/lockfile.sha256
+          docker image inspect "calmboard-${{ matrix.service }}:${{ github.sha }}" \
+            --format '{"imageConfigDigest":{{json .Id}},"repositoryDigests":{{json .RepoDigests}},"architecture":{{json .Architecture}},"os":{{json .Os}}}' \
+            > artifacts/image-identity.json
 
       - name: Generate SPDX SBOM
         uses: anchore/sbom-action@v0

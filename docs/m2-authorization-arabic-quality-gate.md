@@ -1,5 +1,8 @@
 # CalmBoard M2 — Authorization & Arabic Quality Gate
 
+> Historical report. Current implementation and release status:
+> [development-status.md](./development-status.md).
+
 Status: **IMPLEMENTATION AND AUTOMATED GATES COMPLETE — MANUAL VISUAL SIGN-OFF PENDING**
 
 M2 is stopped here. M3 has not started.

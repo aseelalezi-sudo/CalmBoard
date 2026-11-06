@@ -4,6 +4,8 @@ import { getQueueSnapshot } from "./api";
 
 test("admin queue monitoring reads the protected Nest API instead of a local simulation", async (t) => {
   const originalFetch = globalThis.fetch;
+  const originalApiUrl = process.env.NEXT_PUBLIC_API_URL;
+  process.env.NEXT_PUBLIC_API_URL = "https://api.example.test";
   const requests: string[] = [];
   globalThis.fetch = async (input) => {
     requests.push(String(input));
@@ -19,10 +21,12 @@ test("admin queue monitoring reads the protected Nest API instead of a local sim
   };
   t.after(() => {
     globalThis.fetch = originalFetch;
+    if (originalApiUrl === undefined) delete process.env.NEXT_PUBLIC_API_URL;
+    else process.env.NEXT_PUBLIC_API_URL = originalApiUrl;
   });
 
   const snapshot = await getQueueSnapshot();
-  assert.equal(requests[0], "http://localhost:5500/admin/queues");
+  assert.equal(requests[0], "https://api.example.test/admin/queues");
   assert.equal(snapshot.redis.available, true);
   assert.equal(snapshot.jobs.length, 0);
 });

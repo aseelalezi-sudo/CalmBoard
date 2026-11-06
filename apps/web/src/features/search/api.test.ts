@@ -4,6 +4,8 @@ import { searchWorkspace } from "./api";
 
 test("command search uses the protected workspace Search API", async (t) => {
   const originalFetch = globalThis.fetch;
+  const originalApiUrl = process.env.NEXT_PUBLIC_API_URL;
+  process.env.NEXT_PUBLIC_API_URL = "https://api.example.test";
   const requests: Array<{ url: string; init?: RequestInit }> = [];
   globalThis.fetch = async (input, init) => {
     requests.push({ url: String(input), init });
@@ -11,6 +13,8 @@ test("command search uses the protected workspace Search API", async (t) => {
   };
   t.after(() => {
     globalThis.fetch = originalFetch;
+    if (originalApiUrl === undefined) delete process.env.NEXT_PUBLIC_API_URL;
+    else process.env.NEXT_PUBLIC_API_URL = originalApiUrl;
   });
 
   const controller = new AbortController();
@@ -21,7 +25,7 @@ test("command search uses the protected workspace Search API", async (t) => {
   );
 
   const requestUrl = new URL(requests[0]!.url);
-  assert.equal(requestUrl.origin, "http://localhost:5500");
+  assert.equal(requestUrl.origin, "https://api.example.test");
   assert.equal(requestUrl.pathname, "/search");
   assert.equal(requestUrl.searchParams.get("q"), "budget & planning");
   assert.equal(requestUrl.searchParams.get("organizationId"), "organization/a");

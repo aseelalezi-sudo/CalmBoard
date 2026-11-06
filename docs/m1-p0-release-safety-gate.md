@@ -1,5 +1,8 @@
 # M1 P0 Release Safety Gate
 
+> Historical report (August 2026). Its GO decision applies to that recorded baseline.
+> Current status and remaining release gates: [development-status.md](./development-status.md).
+
 تاريخ التحقق: 2026-08-09
 القرار النهائي: **GO — جميع بوابات P0 المطلوبة ناجحة**
 

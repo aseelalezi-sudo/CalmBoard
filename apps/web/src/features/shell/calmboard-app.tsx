@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState, useMemo, useCallback, useRef } from "react";
+import { useRouter } from "next/navigation";
 import { projectStatusLabel } from "@/lib/display-labels";
 import type { Doc, Notification, SavedView, Task, ViewCtx } from "@/lib/types";
 import { STATUS_CONFIG, PRIORITY_CONFIG, STATUS_ORDER } from "@/lib/types";
@@ -83,6 +84,7 @@ import { notify as notifyFeedback, type NoticeKind } from "@/components/feedback
 import { useSavedViewOperations } from "./use-saved-view-operations";
 
 export function CalmBoardApp() {
+  const router = useRouter();
   const { logout } = useAuthOperations();
   const locale = useUiStore((state) => state.locale);
   const theme = useUiStore((state) => state.theme);
@@ -593,7 +595,7 @@ export function CalmBoardApp() {
       let view = target.searchParams.get("view");
       if (view === "timesheets") view = "time";
       if (view && canOpenWorkspaceView(view)) setActiveView(view);
-      else window.location.assign(`${target.pathname}${target.search}${target.hash}`);
+      else router.push(`${target.pathname}${target.search}${target.hash}`);
     }
   };
   const ctx: ViewCtx = {
@@ -1520,7 +1522,7 @@ export function CalmBoardApp() {
 
       {/* ============ OVERLAYS ============ */}
       <TaskDrawer
-        key={taskDetail?.id || "task-drawer-empty"}
+        key={JSON.stringify([activeOrg?.id, activeWorkspace?.id, taskDetail?.id, currentUser?.id])}
         ctx={ctx}
         task={taskDetail}
         onClose={() => setTaskDetail(null)}
@@ -1530,8 +1532,22 @@ export function CalmBoardApp() {
         toggleSubtask={can("tasks.update") ? toggleSubtask : () => denyMutation()}
         deleteSubtask={can("tasks.delete") ? deleteSubtask : async () => denyMutation()}
         deleteTask={can("tasks.delete") ? deleteTask : async () => denyMutation()}
-        addComment={can("comments.manage") ? addComment : () => denyMutation()}
-        editComment={can("comments.manage") ? editComment : () => denyMutation()}
+        addComment={
+          can("comments.manage")
+            ? addComment
+            : async () => {
+                denyMutation();
+                return false;
+              }
+        }
+        editComment={
+          can("comments.manage")
+            ? editComment
+            : async () => {
+                denyMutation();
+                return false;
+              }
+        }
         logTime={can("time_logs.manage") ? logTime : () => denyMutation()}
       />
       <CommandPalette

@@ -1,5 +1,8 @@
 # CalmBoard M3 — Collaboration & Onboarding Final Report
 
+> Historical report. Its phase boundaries and migration counts describe that baseline.
+> Current status: [development-status.md](./development-status.md).
+
 Status: **COMPLETE — STOPPED BEFORE M4**
 
 ## 0061 Migration

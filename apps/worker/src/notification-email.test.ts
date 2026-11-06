@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { describe, it } from "node:test";
 import { Pool, type PoolClient } from "pg";
+import { createWorkerTenantFixture } from "./testing/tenant-fixture.js";
 import {
   claimNotificationEmailBatch,
   createResendNotificationEmailTransport,
@@ -203,23 +204,10 @@ describe("notification email worker", () => {
       const pool = new Pool({ connectionString: process.env.DATABASE_MAINTENANCE_URL, max: 2 });
       const outboxId = randomUUID();
       const deliveredIds: string[] = [];
+      let fixture: Awaited<ReturnType<typeof createWorkerTenantFixture>> | undefined;
       try {
-        const target = await pool.query<{
-          organization_id: string;
-          workspace_id: string;
-          user_id: string;
-        }>(
-          `select workspace.organization_id, workspace.id as workspace_id, membership.user_id
-           from workspaces workspace
-           join memberships membership
-             on membership.organization_id = workspace.organization_id
-            and (membership.workspace_id = workspace.id or membership.workspace_id is null)
-            and membership.status = 'active'
-           order by workspace.created_at
-           limit 1`,
-        );
-        assert.equal(target.rowCount, 1, "integration database must contain a workspace and active member");
-        const scope = target.rows[0]!;
+        fixture = await createWorkerTenantFixture(pool);
+        const scope = fixture;
         await pool.query(
           `insert into notification_email_outbox (
              id, organization_id, workspace_id, user_id, subject, body, idempotency_key
@@ -263,8 +251,12 @@ describe("notification email worker", () => {
           },
         ]);
       } finally {
-        await pool.query("delete from notification_email_outbox where id = $1", [outboxId]);
-        await pool.end();
+        try {
+          await pool.query("delete from notification_email_outbox where id = $1", [outboxId]);
+          await fixture?.cleanup();
+        } finally {
+          await pool.end();
+        }
       }
     },
   );

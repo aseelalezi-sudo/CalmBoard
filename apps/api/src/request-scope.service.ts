@@ -1,6 +1,7 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import {
   db,
+  comments,
   sprints,
   taskApprovalRequests,
   taskChecklistItems,
@@ -22,6 +23,7 @@ export type RequestResourceIds = {
   sprintIds: string[];
   checklistItemIds: string[];
   approvalRequestIds: string[];
+  commentIds: string[];
 };
 
 export type ExplicitRequestScope = {
@@ -58,6 +60,7 @@ export function explicitRequestScope(request: ScopeRequest): ExplicitRequestScop
   const projectPathId = /^\/projects\/[^/]+(?:\/|$)/.test(path) ? params.id : undefined;
   const taskPathId = /^\/tasks\/[^/]+(?:\/|$)/.test(path) ? params.id : undefined;
   const taskBodyId = /^\/tasks(?:\/|$)/.test(path) ? body.id : undefined;
+  const isCommentPath = /^\/(?:api\/)?comments(?:\/|$)/.test(path);
   const incompleteDestination = record(body.incompleteTaskDestination);
 
   return {
@@ -87,6 +90,7 @@ export function explicitRequestScope(request: ScopeRequest): ExplicitRequestScop
       ),
       checklistItemIds: identifiers(params.itemId),
       approvalRequestIds: identifiers(params.approvalRequestId),
+      commentIds: isCommentPath ? identifiers(params.commentId, body.id, query.id, body.parentId) : [],
     },
   };
 }
@@ -100,7 +104,8 @@ export class RequestScopeService {
       resources.taskIds.length +
       resources.sprintIds.length +
       resources.checklistItemIds.length +
-      resources.approvalRequestIds.length;
+      resources.approvalRequestIds.length +
+      resources.commentIds.length;
     if (!requestedCount) return undefined;
     if (!context.workspaceId) throw new BadRequestException("workspaceId is required for scoped resources");
     const workspaceId = context.workspaceId;
@@ -126,6 +131,26 @@ export class RequestScopeService {
               ),
             ),
           resources.taskIds.length,
+        );
+      }
+      if (resources.commentIds.length) {
+        collect(
+          await this.database
+            .select({ projectId: tasks.projectId })
+            .from(comments)
+            .innerJoin(tasks, eq(comments.taskId, tasks.id))
+            .where(
+              and(
+                inArray(comments.id, resources.commentIds),
+                eq(comments.organizationId, context.organizationId),
+                eq(comments.workspaceId, workspaceId),
+                eq(tasks.organizationId, context.organizationId),
+                eq(tasks.workspaceId, workspaceId),
+                isNull(comments.deletedAt),
+                isNull(tasks.deletedAt),
+              ),
+            ),
+          resources.commentIds.length,
         );
       }
       if (resources.sprintIds.length) {

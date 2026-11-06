@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { eq } from "drizzle-orm";
-import { db } from "../client.js";
+import { db, pool } from "../src/client.js";
 import {
   sprints,
   sprintSnapshots,
@@ -10,14 +10,31 @@ import {
   workspaces,
   projects,
   tasks,
-} from "../schema.js";
-import { createSprintAnalyticsQueries } from "./sprint-analytics-queries.js";
-import { AnalyticsIntegrityError } from "../errors.js";
+  taskSprintAssignments,
+} from "../src/schema.js";
+import { createSprintAnalyticsQueries } from "../src/repositories/sprint-analytics-queries.js";
+import { AnalyticsIntegrityError } from "../src/errors.js";
 import crypto from "crypto";
 
 test("Sprint Analytics Queries", async (t) => {
   const orgId = crypto.randomUUID();
   const workspaceId = crypto.randomUUID();
+  t.after(async () => {
+    try {
+      // Immutable sprint history protects its task/sprint parents with RESTRICT.
+      // Remove only this fixture's dependants before deleting the tenant.
+      await db.delete(sprintAnalyticsEvents).where(eq(sprintAnalyticsEvents.organizationId, orgId));
+      await db.delete(sprintSnapshots).where(eq(sprintSnapshots.organizationId, orgId));
+      await db.delete(taskSprintAssignments).where(eq(taskSprintAssignments.organizationId, orgId));
+      await db.delete(tasks).where(eq(tasks.organizationId, orgId));
+      await db.delete(sprints).where(eq(sprints.organizationId, orgId));
+      await db.delete(projects).where(eq(projects.organizationId, orgId));
+      await db.delete(workspaces).where(eq(workspaces.organizationId, orgId));
+      await db.delete(organizations).where(eq(organizations.id, orgId));
+    } finally {
+      await pool.end();
+    }
+  });
 
   await db.transaction(async (tx) => {
     await tx.insert(organizations).values({ id: orgId, name: "Org", slug: crypto.randomUUID() });

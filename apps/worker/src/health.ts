@@ -72,7 +72,7 @@ export function startHealthServer(port: number, redisReady: () => Promise<unknow
             timestamp: new Date().toISOString(),
           }),
         );
-      } catch (error) {
+      } catch {
         res.writeHead(503, { "Content-Type": "application/json" });
         return res.end(
           JSON.stringify({

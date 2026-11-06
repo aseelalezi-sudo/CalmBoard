@@ -249,6 +249,7 @@ services:
       target: migrator
     environment:
       - DATABASE_URL=postgresql://${POSTGRES_USER:-calmboard}:${POSTGRES_PASSWORD:-dev_postgres_password}@postgres:5432/${POSTGRES_DB:-calmboard_db}
+      - MIGRATION_LOCK_TIMEOUT_MS=${MIGRATION_LOCK_TIMEOUT_MS:-60000}
     depends_on:
       postgres:
         condition: service_healthy

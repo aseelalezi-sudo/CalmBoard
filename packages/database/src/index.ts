@@ -1,4 +1,5 @@
 export * from "./client.js";
+export * from "./comment-reactions.js";
 export * from "./advanced-filter.js";
 export * from "./custom-field-contract.js";
 export * from "./custom-field-query.js";

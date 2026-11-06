@@ -5,7 +5,6 @@ import { FastifyAdapter, type NestFastifyApplication } from "@nestjs/platform-fa
 import { AppModule } from "./app.module.js";
 import { DatabaseExceptionFilter } from "./database-exception.filter.js";
 import { RedisIoAdapter } from "./realtime-redis.adapter.js";
-import { RealtimeGateway } from "./realtime.gateway.js";
 import { resolveTrustProxy } from "./trust-proxy.js";
 import { apiSecurityHeaders } from "./security-headers.js";
 import { Logger } from "nestjs-pino";

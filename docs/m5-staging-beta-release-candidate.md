@@ -1,5 +1,9 @@
 # CalmBoard M5 — Staging / Beta / Release Candidate
 
+> Historical report (August 2026). The commit, images, scan results and local
+> Staging evidence below are not a release assessment of the current worktree.
+> Current status: [development-status.md](./development-status.md).
+
 Execution date: 2026-08-11 (Asia/Riyadh)
 
 # Release Baseline

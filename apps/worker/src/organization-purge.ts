@@ -126,15 +126,12 @@ const relationalTables = [
   "workspaces",
 ] as const;
 
-const directlyDeletedTables = [
-  ...relationalTables,
-  "doc_versions",
-  "document_permissions",
-  "report_schedule_recipients",
-  "report_schedules",
-] as const;
-
-type DirectlyDeletedTable = (typeof directlyDeletedTables)[number];
+type DirectlyDeletedTable =
+  | (typeof relationalTables)[number]
+  | "doc_versions"
+  | "document_permissions"
+  | "report_schedule_recipients"
+  | "report_schedules";
 
 const requiredDomains = [...organizationPurgeDomains] as const;
 

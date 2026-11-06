@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createCommentRecord, deleteCommentRecord, updateCommentRecord } from "./api";
+import { createCommentRecord, deleteCommentRecord, setCommentReactionRecord, updateCommentRecord } from "./api";
 
 test("comments API service keeps tenant scope on every mutation", async (t) => {
   const originalFetch = globalThis.fetch;
@@ -35,4 +35,15 @@ test("comments API service keeps tenant scope on every mutation", async (t) => {
   assert.match(requests[2]?.url ?? "", /organizationId=organization%2Fa/);
   assert.match(requests[2]?.url ?? "", /workspaceId=workspace%2Fa/);
   assert.match(requests[2]?.url ?? "", /actorId=user%2Fa/);
+
+  await setCommentReactionRecord({ ...scope, id: "comment/a", emoji: "👍", active: true });
+  assert.match(requests[3].url, /\/comments\/reactions$/);
+  assert.equal(requests[3].init?.method, "POST");
+  assert.deepEqual(JSON.parse(String(requests[3].init?.body)), {
+    ...scope,
+    id: "comment/a",
+    emoji: "👍",
+    active: true,
+  });
+  assert.ok(new Headers(requests[3].init?.headers).get("Idempotency-Key"));
 });
