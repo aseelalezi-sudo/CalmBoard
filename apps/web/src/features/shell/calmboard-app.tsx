@@ -1016,7 +1016,6 @@ export function CalmBoardApp() {
           <button
             type="button"
             onClick={() => setSearchOpen(true)}
-            aria-label={t("فتح البحث العام", "Open global search")}
             className="group hidden h-9 min-w-[220px] max-w-[360px] flex-1 items-center gap-2.5 rounded-xl border border-line bg-raised/50 px-3 text-[12.5px] text-ink-soft transition-all duration-300 hover:bg-surface hover:text-ink hover:shadow-sm hover:ring-1 hover:ring-accent/20 focus-visible:ring-2 focus-visible:ring-accent md:flex"
           >
             <IconSearch size={14} className="transition-transform group-hover:scale-110 group-hover:text-accent" />
