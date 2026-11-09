@@ -34,6 +34,7 @@ import {
   automationEventJobName,
   enqueueDailyAutomationEvents,
   processAutomationEvents,
+  readAutomationEventOptions,
 } from "./automation-events.js";
 import { formSubmissionJobName, processFormSubmissionTasks } from "./form-submissions.js";
 import {
@@ -54,6 +55,7 @@ import { billingGracePeriodJobName, expireBillingGracePeriods } from "./billing-
 import { dataLifecycleJobName, processDataLifecycle, retryFailedDataLifecycleRequest } from "./data-lifecycle.js";
 
 const queueName = process.env.CALMBOARD_QUEUE_NAME ?? "calmboard-default";
+const automationEventOptions = readAutomationEventOptions();
 const redisUrl = process.env.REDIS_URL ?? "redis://127.0.0.1:6379/0";
 const sentryTracesSampleRate = Number(process.env.SENTRY_TRACES_SAMPLE_RATE ?? 0.1);
 const sentryProfilesSampleRate = Number(process.env.SENTRY_PROFILES_SAMPLE_RATE ?? 0.1);
@@ -101,7 +103,7 @@ export function createWorker(dependencies: WorkerDependencies) {
         case invitationEmailJobName:
           return deliverInvitationEmails(dependencies.pool, dependencies.invitationEmail);
         case automationEventJobName:
-          return processAutomationEvents(dependencies.pool);
+          return processAutomationEvents(dependencies.pool, automationEventOptions);
         case automationDailyJobName:
           return enqueueDailyAutomationEvents(dependencies.pool);
         case formSubmissionJobName:

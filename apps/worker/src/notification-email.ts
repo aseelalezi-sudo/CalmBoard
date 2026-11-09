@@ -1,4 +1,5 @@
 import type { Pool, PoolClient } from "pg";
+import { assertExportProjectAccess, canReadNotification, TenantPermissionDeniedError } from "@calmboard/database";
 
 export const notificationEmailJobName = "notifications.deliver-email";
 
@@ -12,6 +13,7 @@ export type NotificationEmailCandidate = {
   organizationId: string;
   workspaceId: string;
   userId: string;
+  notificationId: string | null;
   subject: string;
   body: string | null;
   attempt: number;
@@ -61,6 +63,7 @@ export async function claimNotificationEmailBatch(
       organization_id: string;
       workspace_id: string;
       user_id: string;
+      notification_id: string | null;
       subject: string;
       body: string | null;
       attempts: number;
@@ -100,6 +103,7 @@ export async function claimNotificationEmailBatch(
          outbox.organization_id,
          outbox.workspace_id,
          outbox.user_id,
+         outbox.notification_id,
          outbox.subject,
          outbox.body,
          outbox.attachment_object_key,
@@ -116,6 +120,7 @@ export async function claimNotificationEmailBatch(
       organizationId: row.organization_id,
       workspaceId: row.workspace_id,
       userId: row.user_id,
+      notificationId: row.notification_id ?? null,
       subject: row.subject,
       body: row.body,
       attempt: row.attempts,
@@ -255,11 +260,31 @@ export function createResendNotificationEmailTransport(
   };
 }
 
+async function defaultNotificationVisibility(candidate: NotificationEmailCandidate) {
+  // Scheduled attachments have their stricter job/requester/recipient checks
+  // below. Other messages must be linked to a currently visible notification.
+  if (candidate.attachmentObjectKey) return true;
+  const context = {
+    organizationId: candidate.organizationId,
+    workspaceId: candidate.workspaceId,
+    actorId: candidate.userId,
+  };
+  if (candidate.notificationId) return canReadNotification(context, candidate.notificationId);
+  try {
+    await assertExportProjectAccess(context, false);
+    return true;
+  } catch (error) {
+    if (error instanceof TenantPermissionDeniedError) return false;
+    throw error;
+  }
+}
+
 export async function deliverNotificationEmails(
   pool: Pool,
   transport: NotificationEmailTransport,
   options: NotificationEmailOptions = readNotificationEmailOptions(),
   attachmentStorage?: NotificationAttachmentStorage,
+  isVisible: (candidate: NotificationEmailCandidate) => Promise<boolean> = defaultNotificationVisibility,
 ) {
   const client = await pool.connect();
   try {
@@ -280,8 +305,48 @@ export async function deliverNotificationEmails(
           skipped += 1;
           continue;
         }
+        if (!(await isVisible(candidate))) {
+          await markSkipped(client, candidate, "Notification content is no longer accessible");
+          skipped += 1;
+          continue;
+        }
         let deliveryCandidate = candidate;
         if (candidate.attachmentObjectKey) {
+          const job = await client.query<{ requested_by: string }>(
+            `select job.requested_by from export_jobs job
+             join report_schedule_recipients recipient on recipient.schedule_id = job.report_schedule_id
+             join report_schedules schedule on schedule.id = job.report_schedule_id
+             where job.organization_id = $1 and job.workspace_id = $2 and job.object_key = $3
+               and job.status = 'completed' and job.expires_at > now() and recipient.user_id = $4
+               and recipient.organization_id = job.organization_id and recipient.workspace_id = job.workspace_id
+               and schedule.deleted_at is null limit 1`,
+            [candidate.organizationId, candidate.workspaceId, candidate.attachmentObjectKey, candidate.userId],
+          );
+          if (!job.rows[0]) {
+            await markSkipped(client, candidate, "Scheduled report access is no longer available");
+            skipped += 1;
+            continue;
+          }
+          try {
+            await assertExportProjectAccess({
+              organizationId: candidate.organizationId,
+              workspaceId: candidate.workspaceId,
+              actorId: job.rows[0].requested_by,
+            });
+            await assertExportProjectAccess(
+              {
+                organizationId: candidate.organizationId,
+                workspaceId: candidate.workspaceId,
+                actorId: candidate.userId,
+              },
+              false,
+            );
+          } catch (error) {
+            if (!(error instanceof TenantPermissionDeniedError)) throw error;
+            await markSkipped(client, candidate, "Scheduled report access is no longer available");
+            skipped += 1;
+            continue;
+          }
           if (!attachmentStorage) throw new Error("Notification attachment storage is not configured");
           const attachment = await attachmentStorage.getObject(candidate.attachmentObjectKey);
           if (attachment.byteLength > 20 * 1024 * 1024) {

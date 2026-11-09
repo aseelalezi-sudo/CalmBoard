@@ -1,3 +1,4 @@
+import { collaborationUserSelection } from "../public-user.js";
 import { and, asc, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { COMMENT_REACTION_EMOJIS } from "@calmboard/types";
 import { db } from "../client.js";
@@ -208,7 +209,7 @@ export function createCommentsRepository(context: DatabaseTenantContext) {
   return {
     async listByTask(taskId: string) {
       const rows = await db
-        .select({ comment: comments, user: users })
+        .select({ comment: comments, user: collaborationUserSelection })
         .from(comments)
         .innerJoin(tasks, eq(comments.taskId, tasks.id))
         .leftJoin(users, eq(comments.userId, users.id))

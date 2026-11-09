@@ -28,7 +28,7 @@
     "lint": "pnpm run typecheck",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "tsx --conditions source --env-file-if-exists=../../.env --test src/**/*.test.ts && pnpm run typecheck",
-    "test:integration": "tsx --conditions source --env-file-if-exists=../../.env --test integration/**/*.test.ts"
+    "test:integration": "tsx --conditions source --env-file-if-exists=../../.env --test --test-concurrency=1 integration/**/*.test.ts"
   },
   "dependencies": {
     "@calmboard/notifications": "workspace:*",

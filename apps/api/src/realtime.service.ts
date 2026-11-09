@@ -1,10 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { Injectable, type OnModuleDestroy } from "@nestjs/common";
+import { Inject, Injectable, type OnModuleDestroy } from "@nestjs/common";
 import Redis from "ioredis";
 import type { Server } from "socket.io";
 import type { DatabaseRequestContext } from "@calmboard/database";
 import type { AuthenticatedRequest } from "./auth.guard.js";
 import type { RealtimeScope } from "./realtime-access.service.js";
+import { RealtimeAccessService } from "./realtime-access.service.js";
+import { AuthService } from "./auth.service.js";
 
 type MutationRequest = AuthenticatedRequest & {
   body?: unknown;
@@ -66,19 +68,31 @@ function mutationAction(method: string): RealtimeEvent["action"] {
   return "updated";
 }
 
-function mutationScope(request: MutationRequest, context: DatabaseRequestContext): RealtimeScope | null {
+function mutationScope(
+  request: MutationRequest,
+  context: DatabaseRequestContext,
+  result?: unknown,
+): RealtimeScope | null {
   if (!context.organizationId) return null;
   const body = record(request.body);
   const query = record(request.query);
   const params = record(request.params);
   const path = request.url.split("?", 1)[0] ?? request.url;
   const resource = path.split("/").filter(Boolean)[0] ?? "";
-  const projectId = optionalIdentifier(request.tenant?.projectId, body.projectId, query.projectId);
+  const committed = record(result);
+  const projectId = optionalIdentifier(
+    request.tenant?.projectId,
+    resource === "projects" ? params.id : undefined,
+    resource === "projects" ? committed.id : undefined,
+    body.projectId,
+    query.projectId,
+  );
   const taskId = optionalIdentifier(
     body.taskId,
     query.taskId,
     resource === "tasks" ? body.id : undefined,
     resource === "tasks" ? params.id : undefined,
+    /^\/tasks\/?$/.test(path) ? committed.id : undefined,
   );
   return {
     organizationId: context.organizationId,
@@ -90,6 +104,10 @@ function mutationScope(request: MutationRequest, context: DatabaseRequestContext
 
 @Injectable()
 export class RealtimeService implements OnModuleDestroy {
+  constructor(
+    @Inject(AuthService) private readonly auth: AuthService,
+    @Inject(RealtimeAccessService) private readonly access: RealtimeAccessService,
+  ) {}
   private server?: Server;
   private readonly versions = new Map<string, number>();
   private readonly redis = process.env.REDIS_URL
@@ -131,9 +149,34 @@ export class RealtimeService implements OnModuleDestroy {
     return next;
   }
 
-  async publishHttpMutation(request: MutationRequest, context: DatabaseRequestContext) {
+  private async authorizedSockets(scope: RealtimeScope, rooms = realtimeRooms(scope)) {
+    if (!this.server) return [];
+    const sockets = await this.server.in(rooms).fetchSockets();
+    const allowed = [];
+    for (const socket of sockets) {
+      try {
+        const user = socket.data.user as RealtimePresence | undefined;
+        const sessionId = socket.data.sessionId as string | undefined;
+        if (!user?.id || !sessionId) continue;
+        const session = await this.auth.currentRealtimeSession(sessionId, user.id);
+        if (user?.id !== session.user.id) continue;
+        await this.access.authorizeDelivery(user.id, scope);
+        socket.data.user = {
+          id: session.user.id,
+          name: session.user.name,
+          ...(session.user.avatarUrl ? { avatarUrl: session.user.avatarUrl } : {}),
+        };
+        allowed.push(socket);
+      } catch {
+        /* Fail closed for expired sessions, removed members and transient authorization failures. */
+      }
+    }
+    return allowed;
+  }
+
+  async publishHttpMutation(request: MutationRequest, context: DatabaseRequestContext, result?: unknown) {
     if (!["POST", "PUT", "PATCH", "DELETE"].includes(request.method.toUpperCase())) return;
-    const scope = mutationScope(request, context);
+    const scope = mutationScope(request, context, result);
     if (!scope || !this.server) return;
     const path = request.url.split("?", 1)[0] ?? request.url;
     const resource = path.split("/").filter(Boolean)[0] ?? "workspace";
@@ -147,12 +190,20 @@ export class RealtimeService implements OnModuleDestroy {
       scope,
       occurredAt: new Date().toISOString(),
     };
-    this.server.to(realtimeRooms(scope)).emit("realtime:event", event);
+    try {
+      const sockets = await this.authorizedSockets(scope);
+      for (const socket of sockets) socket.emit("realtime:event", event);
+    } catch {
+      /* A realtime adapter failure must not turn a committed mutation into an HTTP error. */
+    }
   }
 
   async presence(scope: RealtimeScope): Promise<RealtimePresence[]> {
     if (!this.server || !scope.workspaceId) return [];
-    const sockets = await this.server.in(realtimeRoom(scope, "workspace")).fetchSockets();
+    const sockets = await this.authorizedSockets(
+      { organizationId: scope.organizationId, workspaceId: scope.workspaceId },
+      [realtimeRoom(scope, "workspace")],
+    );
     const users = new Map<string, RealtimePresence>();
     for (const socket of sockets) {
       const user = socket.data.user as RealtimePresence | undefined;
@@ -172,7 +223,11 @@ export class RealtimeService implements OnModuleDestroy {
       users: presence,
       occurredAt: new Date().toISOString(),
     } as const;
-    this.server.to(realtimeRoom(scope, "workspace")).emit("realtime:presence", snapshot);
+    const sockets = await this.authorizedSockets(
+      { organizationId: scope.organizationId, workspaceId: scope.workspaceId },
+      [realtimeRoom(scope, "workspace")],
+    );
+    for (const socket of sockets) socket.emit("realtime:presence", snapshot);
     return snapshot;
   }
 

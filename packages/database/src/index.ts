@@ -62,3 +62,6 @@ export * from "./schema.js";
 export * from "./task-serials.js";
 export * from "./tenant-context.js";
 export { sql } from "drizzle-orm";
+export { assertExportProjectAccess } from "./export-access.js";
+export { canReadNotification } from "./entity-visibility.js";
+export { canAccessProject } from "./project-access.js";

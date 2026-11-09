@@ -1,5 +1,7 @@
+import { collaborationUserSelection } from "../public-user.js";
 import { and, desc, eq, inArray, isNull, or } from "drizzle-orm";
 import { db } from "../client.js";
+import { entityVisibility } from "../entity-visibility.js";
 import { activities, memberships, tasks, users, workspaces } from "../schema.js";
 import { assertWorkspaceTenantContext, type DatabaseTenantContext } from "../tenant-context.js";
 import { TenantResourceNotFoundError } from "../errors.js";
@@ -39,17 +41,20 @@ export function createActivitiesRepository(context: DatabaseTenantContext) {
   return {
     async list(limit = 40) {
       await requireWorkspace();
+      const visible = await entityVisibility(context, activities.entityType, activities.entityId);
       const rows = await db
         .select()
         .from(activities)
-        .where(tenantScope)
+        .where(and(tenantScope, visible))
         .orderBy(desc(activities.createdAt))
         .limit(Math.min(Math.max(limit, 1), 100));
       const actorIds = [...new Set(rows.map((activity) => activity.actorId))];
       const taskIds = [
         ...new Set(rows.flatMap((activity) => (activity.entityType === "task" ? [activity.entityId] : []))),
       ];
-      const actors = actorIds.length ? await db.select().from(users).where(inArray(users.id, actorIds)) : [];
+      const actors = actorIds.length
+        ? await db.select(collaborationUserSelection).from(users).where(inArray(users.id, actorIds))
+        : [];
       const entityTasks = taskIds.length
         ? await db
             .select()

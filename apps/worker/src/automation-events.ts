@@ -3,11 +3,14 @@ import { sql } from "drizzle-orm";
 import {
   createCommentsRepository,
   createTasksRepository,
+  createAuthorizationRepository,
+  canAccessProject,
   withTenantTransaction,
   db,
   VALID_TASK_PRIORITIES,
   VALID_TASK_STATUSES,
   type DatabaseTenantContext,
+  type AuthorizationDecision,
   type TaskPriority,
   type TaskStatus,
 } from "@calmboard/database";
@@ -34,7 +37,51 @@ export function assertValidEventTransition(from: AutomationEventStatus, to: Auto
 export type AutomationEventOptions = {
   batchSize: number;
   claimTimeoutMinutes: number;
+  scheduledActors?: readonly ScheduledAutomationActor[];
 };
+
+export type ScheduledAutomationActor = {
+  organizationId: string;
+  workspaceId: string;
+  actorId: string;
+};
+
+// Operator configuration only: never take a scheduled identity from a job payload.
+export function readScheduledAutomationActors(env: NodeJS.ProcessEnv = process.env): ScheduledAutomationActor[] {
+  const raw = env.AUTOMATION_SCHEDULED_ACTORS;
+  if (!raw) return [];
+  const invalid = () =>
+    new Error(
+      "AUTOMATION_SCHEDULED_ACTORS must be a JSON array of unique workspace identities with organizationId, workspaceId and actorId UUIDs",
+    );
+  if (raw.length > 200_000) throw invalid();
+  let entries: unknown;
+  try {
+    entries = JSON.parse(raw);
+  } catch {
+    throw invalid();
+  }
+  if (!Array.isArray(entries) || entries.length > 1000) throw invalid();
+  const scopes = new Set<string>();
+  const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  return entries.map((entry: unknown) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) throw invalid();
+    const record = entry as Record<string, unknown>;
+    const keys = ["organizationId", "workspaceId", "actorId"] as const;
+    if (
+      Object.keys(record).length !== keys.length ||
+      keys.some((key) => typeof record[key] !== "string" || !uuid.test(record[key]))
+    )
+      throw invalid();
+    const identity = Object.fromEntries(
+      keys.map((key) => [key, (record[key] as string).toLowerCase()]),
+    ) as ScheduledAutomationActor;
+    const scope = `${identity.organizationId}/${identity.workspaceId}`;
+    if (scopes.has(scope)) throw invalid();
+    scopes.add(scope);
+    return identity;
+  });
+}
 
 export type AutomationEventCandidate = {
   id: string;
@@ -94,6 +141,7 @@ export function readAutomationEventOptions(env: NodeJS.ProcessEnv = process.env)
   return {
     batchSize: integer("AUTOMATION_EVENT_BATCH_SIZE", 25, 1, 250),
     claimTimeoutMinutes: integer("AUTOMATION_EVENT_CLAIM_TIMEOUT_MINUTES", 15, 1, 1440),
+    scheduledActors: readScheduledAutomationActors(env),
   };
 }
 
@@ -226,13 +274,24 @@ export async function saveRun(
   return Boolean(result.rowCount && result.rowCount > 0);
 }
 
-export async function executeRule(pool: Pool, event: AutomationEventCandidate, ruleId: string) {
+export async function executeRule(
+  pool: Pool,
+  event: AutomationEventCandidate,
+  ruleId: string,
+  scheduledActors: readonly ScheduledAutomationActor[] = readScheduledAutomationActors(),
+) {
   const started = Date.now();
+  const isScheduled = event.trigger === "schedule_daily";
+  const actorId = isScheduled
+    ? (scheduledActors.find(
+        (identity) => identity.organizationId === event.organizationId && identity.workspaceId === event.workspaceId,
+      )?.actorId ?? null)
+    : event.actorId;
 
   const tenantContext: DatabaseTenantContext = {
     organizationId: event.organizationId,
     workspaceId: event.workspaceId,
-    actorId: event.actorId ?? undefined,
+    actorId: actorId ?? undefined,
     automation: {
       depth: event.depth,
       parentEventId: event.id,
@@ -358,6 +417,32 @@ export async function executeRule(pool: Pool, event: AutomationEventCandidate, r
       if (notify && !["assignee", "reporter", "all"].includes(notify)) {
         throw new Error("Automation notification target is invalid");
       }
+      const hasTaskMutation = Boolean(setStatus || setPriority || assignTo || addTag);
+      const visibleProject = await canAccessProject(tenantContext, row.task.project_id);
+      const access: Pick<AuthorizationDecision, "member" | "permissions"> = actorId
+        ? await createAuthorizationRepository().resolve(actorId, {
+            organizationId: event.organizationId,
+            workspaceId: event.workspaceId,
+            projectId: row.task.project_id,
+          })
+        : { member: true, permissions: [] };
+      const allowed =
+        visibleProject &&
+        access.member &&
+        (!actorId ||
+          ((!isScheduled || access.permissions.includes("automations.manage")) &&
+            (!hasTaskMutation || access.permissions.includes("tasks.update")) &&
+            (!addComment || access.permissions.includes("comments.manage"))));
+      if (!allowed) {
+        await db.execute(sql`
+          update automation_runs
+          set status = 'skipped', message = 'Current automation access is unavailable',
+              duration_ms = ${Date.now() - started}, updated_at = now()
+          where event_id = ${event.id} and automation_id = ${ruleId}
+            and claim_token = ${event.claimToken} and status = 'running'
+        `);
+        return "skipped";
+      }
       if (assignTo) {
         const member = await db.execute(sql`
           select 1 from memberships
@@ -370,7 +455,6 @@ export async function executeRule(pool: Pool, event: AutomationEventCandidate, r
       }
 
       // 5. CANONICAL TASK MUTATION
-      const hasTaskMutation = Boolean(setStatus || setPriority || assignTo || addTag);
       let taskChanged = false;
       let latestAssigneeId = row.task.assignee_id;
 
@@ -394,12 +478,12 @@ export async function executeRule(pool: Pool, event: AutomationEventCandidate, r
       // 6. CANONICAL COMMENT CREATION (DEDUPLICATED & FENCED)
       let commentCreated = false;
       if (addComment) {
-        if (!event.actorId) {
+        if (!actorId) {
           throw new Error("Automation comment action requires an authenticated actor");
         }
         const memberCheck = await db.execute(sql`
           select 1 from memberships
-          where user_id = ${event.actorId} and organization_id = ${event.organizationId}
+          where user_id = ${actorId} and organization_id = ${event.organizationId}
             and (workspace_id = ${event.workspaceId} or workspace_id is null)
             and status = 'active'
           limit 1
@@ -412,7 +496,7 @@ export async function executeRule(pool: Pool, event: AutomationEventCandidate, r
         const commentDeduplicationKey = `automation-comment/${event.id}/${ruleId}/comment`;
         const commentResult = await commentsRepo.create({
           taskId: event.taskId,
-          userId: event.actorId,
+          userId: actorId,
           content: addComment,
           deduplicationKey: commentDeduplicationKey,
         });
@@ -618,7 +702,7 @@ export async function processAutomationEvents(
       let ruleError: unknown;
       for (const rule of rules.rows) {
         try {
-          await executeRule(pool, event, rule.id);
+          await executeRule(pool, event, rule.id, options.scheduledActors ?? []);
         } catch (error) {
           if (error instanceof Error && error.message.includes("claim has expired or was superseded")) throw error;
           ruleError ??= error;

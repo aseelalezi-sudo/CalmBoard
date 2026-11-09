@@ -1,3 +1,4 @@
+import { collaborationUserSelection } from "../public-user.js";
 import { and, asc, desc, eq, inArray, isNull, or } from "drizzle-orm";
 import { db } from "../client.js";
 import { TenantConflictError, TenantPermissionDeniedError, TenantResourceNotFoundError } from "../errors.js";
@@ -107,7 +108,7 @@ export function createTaskWorkflowsRepository(context: DatabaseTenantContext) {
       .orderBy(desc(taskApprovalRequests.createdAt));
     const reviewerRows = requests.length
       ? await db
-          .select({ reviewer: taskApprovalReviewers, user: users })
+          .select({ reviewer: taskApprovalReviewers, user: collaborationUserSelection })
           .from(taskApprovalReviewers)
           .innerJoin(users, eq(users.id, taskApprovalReviewers.reviewerId))
           .where(

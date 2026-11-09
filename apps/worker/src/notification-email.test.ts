@@ -16,6 +16,7 @@ const candidate: NotificationEmailCandidate = {
   organizationId: "organization-1",
   workspaceId: "workspace-1",
   userId: "user-1",
+  notificationId: null,
   subject: "Release <ready>",
   body: "Review & approve",
   attempt: 1,
@@ -146,6 +147,8 @@ describe("notification email worker", () => {
         pool,
         { send: async () => ({ providerMessageId: "provider-1" }) },
         { batchSize: 50, claimTimeoutMinutes: 15 },
+        undefined,
+        async () => true,
       ),
       { claimed: 1, sent: 1, skipped: 0, failed: 0 },
     );
@@ -191,6 +194,8 @@ describe("notification email worker", () => {
       pool,
       { send: async () => Promise.reject(new Error("temporary provider failure")) },
       { batchSize: 50, claimTimeoutMinutes: 15 },
+      undefined,
+      async () => true,
     );
     assert.deepEqual(result, { claimed: 1, sent: 0, skipped: 0, failed: 1 });
     assert.match(statements.at(-1) ?? "", /then 'dead'::notification_email_status else 'pending'/);

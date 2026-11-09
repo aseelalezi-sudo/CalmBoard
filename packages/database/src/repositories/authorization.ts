@@ -1,5 +1,5 @@
 import { and, asc, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
-import { db, withDatabaseContext } from "../client.js";
+import { currentDatabaseTenantContext, db, withDatabaseContext } from "../client.js";
 import { TenantConflictError, TenantPermissionDeniedError, TenantResourceNotFoundError } from "../errors.js";
 import {
   membershipPermissionOverrides,
@@ -7,6 +7,9 @@ import {
   memberships,
   permissions,
   projects,
+  projectMembers,
+  projectTeams,
+  teams,
   rolePermissions,
   roles,
   users,
@@ -78,20 +81,35 @@ export function createAuthorizationRepository() {
       scope: AuthorizationScope,
       requiredPermission?: string,
     ): Promise<AuthorizationDecision> {
+      const activeContext = currentDatabaseTenantContext();
+      // An organization-scoped export may inspect workspace/project grants in
+      // the same read transaction. Preserve its RLS scope; every query below
+      // still binds the requested organization/workspace explicitly. A fixed
+      // workspace context cannot be changed or widened by this refinement.
+      const organizationRead =
+        activeContext?.organizationId === scope.organizationId &&
+        activeContext.actorId === userId &&
+        activeContext.workspaceId === undefined;
       return withDatabaseContext(
-        { organizationId: scope.organizationId, workspaceId: scope.workspaceId, actorId: userId },
+        {
+          organizationId: scope.organizationId,
+          workspaceId: organizationRead ? undefined : scope.workspaceId,
+          actorId: userId,
+        },
         async () => {
           const membershipScope = scope.workspaceId
             ? or(isNull(memberships.workspaceId), eq(memberships.workspaceId, scope.workspaceId))
             : isNull(memberships.workspaceId);
           const [membership] = await db
-            .select({ id: memberships.id })
+            .select({ id: memberships.id, teamId: memberships.teamId })
             .from(memberships)
+            .innerJoin(users, eq(users.id, memberships.userId))
             .where(
               and(
                 eq(memberships.userId, userId),
                 eq(memberships.organizationId, scope.organizationId),
                 eq(memberships.status, "active"),
+                inArray(users.lifecycleState, ["active", "deletion_pending"]),
                 membershipScope,
               ),
             )
@@ -151,6 +169,64 @@ export function createAuthorizationRepository() {
           for (const [key, override] of overrideByPermission) {
             if (override.effect === "allow") grantedPermissions.add(key);
             else grantedPermissions.delete(key);
+          }
+
+          // Project-scoped permissions never grant access to a private project
+          // by themselves. Apply visibility before returning any route grants.
+          if (scope.projectId && scope.workspaceId) {
+            const [project] = await db
+              .select()
+              .from(projects)
+              .where(
+                and(
+                  eq(projects.id, scope.projectId),
+                  eq(projects.organizationId, scope.organizationId),
+                  eq(projects.workspaceId, scope.workspaceId),
+                  isNull(projects.deletedAt),
+                ),
+              )
+              .limit(1);
+            if (
+              project &&
+              ["private", "private-members"].includes(project.privacy) &&
+              project.ownerId !== userId &&
+              project.managerId !== userId &&
+              !grantedPermissions.has("projects.view_private")
+            ) {
+              const [assigned] = await db
+                .select({ id: projectMembers.id })
+                .from(projectMembers)
+                .where(
+                  and(
+                    eq(projectMembers.organizationId, scope.organizationId),
+                    eq(projectMembers.workspaceId, scope.workspaceId),
+                    eq(projectMembers.projectId, project.id),
+                    eq(projectMembers.userId, userId),
+                    isNull(projectMembers.deletedAt),
+                  ),
+                )
+                .limit(1);
+              const [assignedTeam] = membership.teamId
+                ? await db
+                    .select({ id: projectTeams.id })
+                    .from(projectTeams)
+                    .innerJoin(teams, eq(teams.id, projectTeams.teamId))
+                    .where(
+                      and(
+                        eq(projectTeams.organizationId, scope.organizationId),
+                        eq(projectTeams.workspaceId, scope.workspaceId),
+                        eq(projectTeams.projectId, project.id),
+                        eq(projectTeams.teamId, membership.teamId),
+                        isNull(projectTeams.deletedAt),
+                        eq(teams.organizationId, scope.organizationId),
+                        eq(teams.workspaceId, scope.workspaceId),
+                        isNull(teams.deletedAt),
+                      ),
+                    )
+                    .limit(1)
+                : [];
+              if (!assigned && !assignedTeam) return { member: false, allowed: false, roles: [], permissions: [] };
+            }
           }
 
           return {

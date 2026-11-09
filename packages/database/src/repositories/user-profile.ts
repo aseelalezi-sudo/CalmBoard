@@ -1,3 +1,4 @@
+import { collaborationUserSelection } from "../public-user.js";
 import { and, eq, inArray, isNull, or } from "drizzle-orm";
 import { db } from "../client.js";
 import { TenantPermissionDeniedError, TenantResourceNotFoundError } from "../errors.js";
@@ -15,7 +16,7 @@ export function createUserProfileRepository(userId: string) {
   if (!userId.trim()) throw new Error("userId is required for profile access");
 
   async function requireUser() {
-    const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+    const [user] = await db.select(collaborationUserSelection).from(users).where(eq(users.id, userId)).limit(1);
     if (!user) throw new TenantResourceNotFoundError("user");
     return user;
   }
@@ -100,7 +101,7 @@ export function createUserSkillsRepository(context: DatabaseTenantContext) {
         .update(users)
         .set({ skills, updatedAt: new Date() })
         .where(eq(users.id, userId))
-        .returning();
+        .returning(collaborationUserSelection);
       if (!user) throw new TenantResourceNotFoundError("user");
       return user;
     },

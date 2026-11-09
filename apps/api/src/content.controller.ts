@@ -13,6 +13,7 @@ import {
 } from "@nestjs/common";
 import {
   createDocumentsRepository,
+  createAuthorizationRepository,
   createFormsRepository,
   createPublicFormsRepository,
   createPublicDocumentsRepository,
@@ -70,9 +71,16 @@ function documentUpdate(body: JsonObject): UpdateDocumentInput {
   return input;
 }
 
-function documentsRepository(request: AuthenticatedRequest, organizationId: string, workspaceId: string) {
-  return createDocumentsRepository(tenantContext(organizationId, workspaceId, request.auth?.userId), {
-    canManageWorkspaceDocuments: request.authorization?.permissions.includes("documents.manage") ?? false,
+async function documentsRepository(request: AuthenticatedRequest, organizationId: string, workspaceId: string) {
+  const actorId = requiredString(request.auth?.userId, "authenticated user");
+  const context = tenantContext(organizationId, workspaceId, actorId);
+  const workspaceAccess = await createAuthorizationRepository().resolve(actorId, context);
+  return createDocumentsRepository(context, {
+    canManageWorkspaceDocuments: workspaceAccess.permissions.includes("documents.manage"),
+    managedProjectIds:
+      request.tenant?.projectId && request.authorization?.permissions.includes("documents.manage")
+        ? [request.tenant.projectId]
+        : [],
   });
 }
 
@@ -118,18 +126,18 @@ export class DocumentsController {
 
   @Get()
   @TenantMember()
-  list(
+  async list(
     @Req() request: AuthenticatedRequest,
     @Query("organizationId") organizationId: string,
     @Query("workspaceId") workspaceId: string,
   ) {
-    return documentsRepository(request, organizationId, workspaceId).list();
+    return (await documentsRepository(request, organizationId, workspaceId)).list();
   }
 
   @Post()
   @RequirePermission("documents.manage")
-  create(@Req() request: AuthenticatedRequest, @Body() body: JsonObject) {
-    return documentsRepositoryFromBody(request, body).create({
+  async create(@Req() request: AuthenticatedRequest, @Body() body: JsonObject) {
+    return (await documentsRepositoryFromBody(request, body)).create({
       projectId: optionalString(body.projectId, "projectId") ?? null,
       parentId: optionalString(body.parentId, "parentId") ?? null,
       title: requiredString(body.title, "title"),
@@ -143,25 +151,28 @@ export class DocumentsController {
 
   @Patch()
   @SelfService()
-  update(@Req() request: AuthenticatedRequest, @Body() body: JsonObject) {
-    return documentsRepositoryFromBody(request, body).update(requiredString(body.id, "id"), documentUpdate(body));
+  async update(@Req() request: AuthenticatedRequest, @Body() body: JsonObject) {
+    return (await documentsRepositoryFromBody(request, body)).update(
+      requiredString(body.id, "id"),
+      documentUpdate(body),
+    );
   }
 
   @Get(":id/versions")
   @TenantMember()
-  versions(
+  async versions(
     @Req() request: AuthenticatedRequest,
     @Param("id") id: string,
     @Query("organizationId") organizationId: string,
     @Query("workspaceId") workspaceId: string,
   ) {
-    return documentsRepository(request, organizationId, workspaceId).listVersions(id);
+    return (await documentsRepository(request, organizationId, workspaceId)).listVersions(id);
   }
 
   @Post(":id/versions")
   @SelfService()
   async mutateVersion(@Req() request: AuthenticatedRequest, @Param("id") id: string, @Body() body: JsonObject) {
-    const repository = documentsRepositoryFromBody(request, body);
+    const repository = await documentsRepositoryFromBody(request, body);
     const action = requiredString(body.action, "action");
     if (action === "save_snapshot") {
       const version = await repository.saveSnapshot(id);
@@ -176,23 +187,23 @@ export class DocumentsController {
 
   @Get(":id/permissions")
   @TenantMember()
-  permissions(
+  async permissions(
     @Req() request: AuthenticatedRequest,
     @Param("id") id: string,
     @Query("organizationId") organizationId: string,
     @Query("workspaceId") workspaceId: string,
   ) {
-    return documentsRepository(request, organizationId, workspaceId).listPermissions(id);
+    return (await documentsRepository(request, organizationId, workspaceId)).listPermissions(id);
   }
 
   @Post(":id/permissions")
   @SelfService()
-  setPermission(@Req() request: AuthenticatedRequest, @Param("id") id: string, @Body() body: JsonObject) {
+  async setPermission(@Req() request: AuthenticatedRequest, @Param("id") id: string, @Body() body: JsonObject) {
     const accessLevel = requiredString(body.accessLevel, "accessLevel");
     if (!["viewer", "editor", "manager"].includes(accessLevel)) {
       throw new BadRequestException("accessLevel must be viewer, editor, or manager");
     }
-    return documentsRepositoryFromBody(request, body).setPermission(
+    return (await documentsRepositoryFromBody(request, body)).setPermission(
       id,
       requiredString(body.targetUserId, "targetUserId"),
       accessLevel as DocumentAccessLevel,
@@ -201,14 +212,14 @@ export class DocumentsController {
 
   @Delete(":id/permissions")
   @SelfService()
-  removePermission(
+  async removePermission(
     @Req() request: AuthenticatedRequest,
     @Param("id") id: string,
     @Query("organizationId") organizationId: string,
     @Query("workspaceId") workspaceId: string,
     @Query("targetUserId") targetUserId: string,
   ) {
-    return documentsRepository(request, organizationId, workspaceId).removePermission(
+    return (await documentsRepository(request, organizationId, workspaceId)).removePermission(
       id,
       requiredString(targetUserId, "targetUserId"),
     );

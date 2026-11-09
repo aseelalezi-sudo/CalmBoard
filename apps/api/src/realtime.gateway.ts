@@ -14,6 +14,7 @@ import { RealtimeAccessService, type RealtimeScope } from "./realtime-access.ser
 import { realtimeRooms, RealtimeService, type RealtimePresence } from "./realtime.service.js";
 
 type SocketData = {
+  sessionId?: string;
   user?: RealtimePresence;
   subscriptions?: Record<string, RealtimeScope>;
 };
@@ -46,6 +47,7 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayDisconnect {
         const accessToken = parseCookies(socket.handshake.headers.cookie)[ACCESS_COOKIE];
         if (!accessToken) throw new Error("Authentication is required");
         const session = await this.auth.current(accessToken);
+        socket.data.sessionId = session.sessionId;
         socket.data.user = {
           id: session.user.id,
           name: session.user.name,
@@ -64,6 +66,9 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayDisconnect {
     const user = socket.data.user;
     if (!user) return { ok: false as const, error: "Authentication is required" };
     try {
+      const sessionId = socket.data.sessionId;
+      if (!sessionId || (await this.auth.currentRealtimeSession(sessionId, user.id)).user.id !== user.id)
+        throw new Error("Authentication session expired");
       const scope = await this.access.authorize(user.id, input);
       const key = subscriptionKey(scope);
       const previous = socket.data.subscriptions?.[key];
@@ -83,6 +88,9 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayDisconnect {
     const user = socket.data.user;
     if (!user) return { ok: false as const };
     try {
+      const sessionId = socket.data.sessionId;
+      if (!sessionId || (await this.auth.currentRealtimeSession(sessionId, user.id)).user.id !== user.id)
+        throw new Error("Authentication session expired");
       const scope = await this.access.authorize(user.id, input);
       const key = subscriptionKey(scope);
       const previous = socket.data.subscriptions?.[key];
@@ -100,7 +108,7 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayDisconnect {
   handleDisconnect(socket: RealtimeSocket) {
     const subscriptions = Object.values(socket.data.subscriptions ?? {});
     setTimeout(() => {
-      for (const scope of subscriptions) void this.realtime.publishPresence(scope);
+      for (const scope of subscriptions) void this.realtime.publishPresence(scope).catch(() => undefined);
     }, 0);
   }
 }

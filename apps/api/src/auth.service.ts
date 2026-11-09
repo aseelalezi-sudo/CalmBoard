@@ -431,6 +431,18 @@ export class AuthService {
     return { ok: true };
   }
 
+  // A socket proves its token at the handshake, then binds to a server-owned
+  // session ID. Rechecking that session avoids silently freezing a live channel
+  // when its original short-lived access token is normally refreshed.
+  async currentRealtimeSession(sessionId: string, userId: string) {
+    const session = await this.sessions.validate(sessionId, userId);
+    const user = await this.identities.findPublicUser(userId);
+    if (!user || !["active", "deletion_pending"].includes(user.lifecycleState)) {
+      throw new UnauthorizedException("Authentication user is disabled");
+    }
+    return { user, sessionId: session.id };
+  }
+
   async verifyAccessToken(token: string) {
     try {
       const result = await jwtVerify(token, accessTokenSecret(), {

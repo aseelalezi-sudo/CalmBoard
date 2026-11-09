@@ -1,5 +1,7 @@
-import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, notExists, notInArray, or, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import { db } from "../client.js";
+import { accessibleProjectIds } from "../project-access.js";
 import { TenantConflictError, TenantPermissionDeniedError, TenantResourceNotFoundError } from "../errors.js";
 import { goalCheckins, goals, goalTaskLinks, memberships, tasks, users, workspaces } from "../schema.js";
 import { assertWorkspaceTenantContext, type DatabaseTenantContext } from "../tenant-context.js";
@@ -75,6 +77,38 @@ export function createGoalsRepository(context: DatabaseTenantContext) {
     isNull(goals.deletedAt),
   )!;
 
+  async function visibleGoalCondition() {
+    const projectIds = await accessibleProjectIds(context, true);
+    const relatedGoal = alias(goals, "related_goal");
+    // Objectives and their key results share aggregate progress and check-ins.
+    // Hide the family if any linked task is inaccessible, including historical tasks.
+    return notExists(
+      db
+        .select({ id: goalTaskLinks.id })
+        .from(goalTaskLinks)
+        .innerJoin(relatedGoal, eq(relatedGoal.id, goalTaskLinks.goalId))
+        .innerJoin(tasks, eq(tasks.id, goalTaskLinks.taskId))
+        .where(
+          and(
+            eq(goalTaskLinks.organizationId, organizationId),
+            eq(goalTaskLinks.workspaceId, workspaceId),
+            eq(relatedGoal.organizationId, organizationId),
+            eq(relatedGoal.workspaceId, workspaceId),
+            isNull(relatedGoal.deletedAt),
+            eq(tasks.organizationId, organizationId),
+            eq(tasks.workspaceId, workspaceId),
+            notInArray(tasks.projectId, projectIds),
+            or(
+              eq(relatedGoal.id, goals.id),
+              eq(relatedGoal.parentId, goals.id),
+              eq(relatedGoal.id, goals.parentId),
+              eq(relatedGoal.parentId, goals.parentId),
+            ),
+          ),
+        ),
+    );
+  }
+
   function requireActor() {
     if (!actorId) throw new TenantPermissionDeniedError("An authenticated actor is required to manage OKRs");
     return actorId;
@@ -109,7 +143,7 @@ export function createGoalsRepository(context: DatabaseTenantContext) {
     const [goal] = await db
       .select()
       .from(goals)
-      .where(and(eq(goals.id, goalId), tenantScope))
+      .where(and(eq(goals.id, goalId), tenantScope, await visibleGoalCondition()))
       .limit(1);
     if (!goal) throw new TenantResourceNotFoundError("goal");
     return goal;
@@ -131,6 +165,7 @@ export function createGoalsRepository(context: DatabaseTenantContext) {
           eq(tasks.organizationId, organizationId),
           eq(tasks.workspaceId, workspaceId),
           isNull(tasks.deletedAt),
+          inArray(tasks.projectId, await accessibleProjectIds(context)),
         ),
       )
       .limit(1);
@@ -235,7 +270,11 @@ export function createGoalsRepository(context: DatabaseTenantContext) {
   return {
     async list() {
       await requireWorkspace();
-      const records = await db.select().from(goals).where(tenantScope).orderBy(desc(goals.createdAt));
+      const records = await db
+        .select()
+        .from(goals)
+        .where(and(tenantScope, await visibleGoalCondition()))
+        .orderBy(desc(goals.createdAt));
       return hydrate(records);
     },
 

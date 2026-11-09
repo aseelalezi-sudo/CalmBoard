@@ -10,6 +10,7 @@ import {
   createAuthIdentityRepository,
   createAuthSessionsRepository,
   createWorkspaceDirectoryRepository,
+  createTasksRepository,
   pool,
 } from "@calmboard/database";
 import { SignJWT } from "jose";
@@ -52,6 +53,8 @@ function join(socket: Socket, scope: { organizationId: string; workspaceId: stri
 
 async function cleanupFixtures(userIds: string[], organizationIds: string[]) {
   if (organizationIds.length) {
+    await pool.query("delete from tasks where organization_id = any($1::uuid[])", [organizationIds]);
+    await pool.query("delete from projects where organization_id = any($1::uuid[])", [organizationIds]);
     await pool.query("delete from memberships where organization_id = any($1::uuid[])", [organizationIds]);
     await pool.query("delete from workspaces where organization_id = any($1::uuid[])", [organizationIds]);
     await pool.query("update organizations set owner_id = null where id = any($1::uuid[])", [organizationIds]);
@@ -141,6 +144,16 @@ describe("realtime Socket.IO isolation", () => {
       const firstWorkspace = firstDirectory.workspaces[0]!;
       const secondWorkspace = secondDirectory.workspaces[0]!;
       createdOrganizationIds.push(firstWorkspace.organizationId, secondWorkspace.organizationId);
+      const projectId = randomUUID();
+      await pool.query(
+        "insert into projects (id,organization_id,workspace_id,name,privacy) values ($1,$2,$3,'Realtime project','workspace')",
+        [projectId, firstWorkspace.organizationId, firstWorkspace.id],
+      );
+      const task = await createTasksRepository({
+        organizationId: firstWorkspace.organizationId,
+        workspaceId: firstWorkspace.id,
+        actorId: first.user.id,
+      }).create({ projectId, title: "Realtime authorized task" });
 
       const url = await app.getUrl();
       [firstSocket, secondSocket] = await Promise.all([
@@ -201,8 +214,14 @@ describe("realtime Socket.IO isolation", () => {
           actorId: first.user.id,
         },
       );
+      await realtime.publishHttpMutation({ method: "PATCH", url: "/tasks", body: { id: task.id } } as never, {
+        organizationId: firstWorkspace.organizationId,
+        workspaceId: firstWorkspace.id,
+        actorId: first.user.id,
+      });
       const event = await delivered;
       assert.equal((event.scope as { organizationId: string }).organizationId, firstWorkspace.organizationId);
+      assert.equal((event.scope as { taskId: string }).taskId, task.id);
       await new Promise((resolve) => setTimeout(resolve, 150));
       assert.equal(leaked, false);
     } finally {

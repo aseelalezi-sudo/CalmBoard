@@ -1,7 +1,9 @@
-import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, not, notExists, or, sql } from "drizzle-orm";
 import { db } from "../client.js";
+import { accessibleProjectIds } from "../project-access.js";
+import { assertExportProjectAccess } from "../export-access.js";
 import { TenantPermissionDeniedError, TenantResourceNotFoundError } from "../errors.js";
-import { automationRuns, automations, memberships, workspaces } from "../schema.js";
+import { automationRuns, automations, memberships, tasks, workspaces } from "../schema.js";
 import { assertWorkspaceTenantContext, type DatabaseTenantContext } from "../tenant-context.js";
 
 export type AutomationRecord = typeof automations.$inferSelect;
@@ -89,13 +91,55 @@ export function createAutomationsRepository(context: DatabaseTenantContext) {
     async list() {
       await requireWorkspace();
       await requireMember();
-      const rules = await db.select().from(automations).where(workspaceScope).orderBy(desc(automations.createdAt));
+      const projectIds = await accessibleProjectIds(context, true);
+      const visibleTasks = db
+        .select({ id: tasks.id })
+        .from(tasks)
+        .where(
+          and(
+            eq(tasks.organizationId, organizationId),
+            eq(tasks.workspaceId, workspaceId),
+            inArray(tasks.projectId, projectIds),
+          ),
+        );
+      let allowUnscoped = false;
+      try {
+        await assertExportProjectAccess(context, false);
+        allowUnscoped = true;
+      } catch (error) {
+        if (!(error instanceof TenantPermissionDeniedError)) throw error;
+      }
+      const visibleRun = sql<boolean>`coalesce(${or(
+        inArray(automationRuns.taskId, visibleTasks),
+        allowUnscoped ? isNull(automationRuns.taskId) : undefined,
+      )}, false)`;
+      // Rule totals and timestamps include all executions. Keep them together
+      // with their audit history when a private execution is hidden.
+      const rules = await db
+        .select()
+        .from(automations)
+        .where(
+          and(
+            workspaceScope,
+            or(
+              sql`${automations.conditions}->>'projectId' is null`,
+              inArray(sql<string>`${automations.conditions}->>'projectId'`, projectIds),
+            ),
+            notExists(
+              db
+                .select({ id: automationRuns.id })
+                .from(automationRuns)
+                .where(and(runScope, eq(automationRuns.automationId, automations.id), not(visibleRun))),
+            ),
+          ),
+        )
+        .orderBy(desc(automations.createdAt));
       const automationIds = rules.map((rule) => rule.id);
       const runs = automationIds.length
         ? await db
             .select()
             .from(automationRuns)
-            .where(and(inArray(automationRuns.automationId, automationIds), runScope))
+            .where(and(inArray(automationRuns.automationId, automationIds), runScope, visibleRun))
             .orderBy(desc(automationRuns.createdAt))
             .limit(30)
         : [];
