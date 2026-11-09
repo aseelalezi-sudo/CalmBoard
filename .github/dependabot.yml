@@ -14,6 +14,15 @@ updates:
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
+      # SDK 3 / API 1.10 require a coordinated Sentry migration. Keep patch
+      # maintenance on the reviewed SDK 2 line; security updates remain eligible.
+      # See docs/dependency-review-2026-11-09.md before removing these rules.
+      - dependency-name: "@opentelemetry/api"
+        update-types: ["version-update:semver-minor"]
+      - dependency-name: "@opentelemetry/auto-instrumentations-node"
+        update-types: ["version-update:semver-minor"]
+      - dependency-name: "@opentelemetry/sdk-node"
+        update-types: ["version-update:semver-minor"]
     groups:
       # Related packages must move together (fastify/NestJS, Next/React, TipTap, tooling), so group them.
       production-minor-patch:
