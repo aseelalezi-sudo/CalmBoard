@@ -53,7 +53,7 @@ export class TenantDatabaseInterceptor implements NestInterceptor {
     return defer(() =>
       from(
         withDatabaseContext(context, () => lastValueFrom(next.handle())).then(async (result) => {
-          await this.realtime.publishHttpMutation(request, context);
+          await this.realtime.publishHttpMutation(request, context, result);
           return result;
         }),
       ),

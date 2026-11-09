@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { and, desc, eq, isNull, or } from "drizzle-orm";
 import { db } from "../client.js";
+import { entityVisibility } from "../entity-visibility.js";
 import { TenantResourceNotFoundError } from "../errors.js";
 import { memberships, notificationEmailOutbox, notificationPreferences, notifications, users } from "../schema.js";
 import { assertWorkspaceTenantContext, type DatabaseTenantContext } from "../tenant-context.js";
@@ -45,10 +46,12 @@ export function createNotificationsRepository(context: DatabaseTenantContext, da
   return {
     async listForUser(userId: string, limit = 50) {
       await requireRecipient(userId);
+      if (context.actorId !== userId) throw new TenantResourceNotFoundError("notification recipient");
+      const visible = await entityVisibility(context, notifications.entityType, notifications.entityId);
       return database
         .select()
         .from(notifications)
-        .where(and(tenantScope, eq(notifications.userId, userId)))
+        .where(and(tenantScope, eq(notifications.userId, userId), visible))
         .orderBy(desc(notifications.createdAt))
         .limit(Math.min(Math.max(limit, 1), 100));
     },
@@ -121,18 +124,22 @@ export function createNotificationsRepository(context: DatabaseTenantContext, da
 
     async markAllRead(userId: string) {
       await requireRecipient(userId);
+      if (context.actorId !== userId) throw new TenantResourceNotFoundError("notification recipient");
+      const visible = await entityVisibility(context, notifications.entityType, notifications.entityId);
       await database
         .update(notifications)
         .set({ isRead: true })
-        .where(and(tenantScope, eq(notifications.userId, userId)));
+        .where(and(tenantScope, eq(notifications.userId, userId), visible));
     },
 
     async markRead(notificationId: string, userId: string) {
       await requireRecipient(userId);
+      if (context.actorId !== userId) throw new TenantResourceNotFoundError("notification recipient");
+      const visible = await entityVisibility(context, notifications.entityType, notifications.entityId);
       const [notification] = await database
         .update(notifications)
         .set({ isRead: true })
-        .where(and(tenantScope, eq(notifications.id, notificationId), eq(notifications.userId, userId)))
+        .where(and(tenantScope, eq(notifications.id, notificationId), eq(notifications.userId, userId), visible))
         .returning();
       if (!notification) {
         throw new TenantResourceNotFoundError("notification");

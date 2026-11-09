@@ -1,3 +1,4 @@
+import { collaborationUserSelection } from "../public-user.js";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { and, desc, eq, inArray, isNull, or } from "drizzle-orm";
 import { encryptInvitationEmailPayload } from "@calmboard/notifications";
@@ -154,7 +155,9 @@ export function createMembershipsRepository(context: DatabaseTenantContext) {
         .orderBy(desc(memberships.joinedAt));
       const userIds = [...new Set(memberRows.map((membership) => membership.userId))];
       const teamIds = [...new Set(memberRows.flatMap((membership) => (membership.teamId ? [membership.teamId] : [])))];
-      const memberUsers = userIds.length ? await db.select().from(users).where(inArray(users.id, userIds)) : [];
+      const memberUsers = userIds.length
+        ? await db.select(collaborationUserSelection).from(users).where(inArray(users.id, userIds))
+        : [];
       const memberTeams = teamIds.length
         ? await db
             .select()

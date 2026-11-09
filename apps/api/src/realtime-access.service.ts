@@ -5,7 +5,11 @@ import {
   createTasksRepository,
   createWorkspaceRepository,
   withDatabaseContext,
+  canAccessProject,
+  db,
+  tasks,
 } from "@calmboard/database";
+import { and, eq } from "drizzle-orm";
 
 export type RealtimeScope = {
   organizationId: string;
@@ -37,6 +41,34 @@ export function parseRealtimeScope(input: unknown): RealtimeScope {
 @Injectable()
 export class RealtimeAccessService {
   private readonly authorization = createAuthorizationRepository();
+
+  async authorizeDelivery(userId: string, scope: RealtimeScope): Promise<void> {
+    const context = { organizationId: scope.organizationId, workspaceId: scope.workspaceId, actorId: userId };
+    await withDatabaseContext(context, async () => {
+      const access = await this.authorization.resolve(userId, scope);
+      if (!access.member) throw new ForbiddenException("Realtime access is no longer available");
+      let projectId = scope.projectId;
+      if (scope.taskId && scope.workspaceId) {
+        const [task] = await db
+          .select({ projectId: tasks.projectId })
+          .from(tasks)
+          .where(
+            and(
+              eq(tasks.id, scope.taskId),
+              eq(tasks.organizationId, scope.organizationId),
+              eq(tasks.workspaceId, scope.workspaceId),
+            ),
+          )
+          .limit(1);
+        if (task && projectId && task.projectId !== projectId)
+          throw new ForbiddenException("Invalid realtime task scope");
+        projectId ??= task?.projectId;
+        if (!projectId) throw new ForbiddenException("Realtime resource is unavailable");
+      }
+      if (projectId && !(await canAccessProject(context, projectId, true)))
+        throw new ForbiddenException("Realtime project access is denied");
+    });
+  }
 
   async authorize(userId: string, rawScope: unknown): Promise<RealtimeScope> {
     const requested = parseRealtimeScope(rawScope);

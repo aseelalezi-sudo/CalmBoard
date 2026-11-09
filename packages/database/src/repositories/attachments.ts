@@ -1,5 +1,6 @@
 import { and, desc, eq, isNull } from "drizzle-orm";
 import { db } from "../client.js";
+import { canAccessProject } from "../project-access.js";
 import { TenantResourceNotFoundError } from "../errors.js";
 import { attachments, projects, tasks } from "../schema.js";
 import { assertWorkspaceTenantContext, type DatabaseTenantContext } from "../tenant-context.js";
@@ -55,9 +56,16 @@ export function createAttachmentsRepository(context: DatabaseTenantContext) {
     const [task] = await db
       .select()
       .from(tasks)
-      .where(and(eq(tasks.id, taskId), eq(tasks.organizationId, organizationId), eq(tasks.workspaceId, workspaceId)))
+      .where(
+        and(
+          eq(tasks.id, taskId),
+          eq(tasks.organizationId, organizationId),
+          eq(tasks.workspaceId, workspaceId),
+          isNull(tasks.deletedAt),
+        ),
+      )
       .limit(1);
-    if (!task) throw new TenantResourceNotFoundError("task");
+    if (!task || !(await canAccessProject(context, task.projectId))) throw new TenantResourceNotFoundError("task");
     return task;
   }
 
@@ -70,15 +78,27 @@ export function createAttachmentsRepository(context: DatabaseTenantContext) {
           eq(projects.id, projectId),
           eq(projects.organizationId, organizationId),
           eq(projects.workspaceId, workspaceId),
+          isNull(projects.deletedAt),
         ),
       )
       .limit(1);
-    if (!project) throw new TenantResourceNotFoundError("project");
+    if (!project || !(await canAccessProject(context, project.id))) throw new TenantResourceNotFoundError("project");
     return project;
   }
 
   async function requireTarget(target: AttachmentTarget) {
     return "taskId" in target && target.taskId ? requireTask(target.taskId) : requireProject(target.projectId!);
+  }
+
+  async function requireAttachment(attachmentId: string) {
+    const [attachment] = await db
+      .select()
+      .from(attachments)
+      .where(and(eq(attachments.id, attachmentId), attachmentScope))
+      .limit(1);
+    if (!attachment) throw new TenantResourceNotFoundError("attachment");
+    await requireTarget(normalizeTarget(attachment));
+    return attachment;
   }
 
   return {
@@ -126,17 +146,11 @@ export function createAttachmentsRepository(context: DatabaseTenantContext) {
     },
 
     async get(attachmentId: string) {
-      const [attachment] = await db
-        .select()
-        .from(attachments)
-        .where(and(eq(attachments.id, attachmentId), attachmentScope))
-        .limit(1);
-      if (!attachment) throw new TenantResourceNotFoundError("attachment");
-      await requireTarget(normalizeTarget(attachment));
-      return attachment;
+      return requireAttachment(attachmentId);
     },
 
     async setScanResult(attachmentId: string, result: AttachmentScanResult) {
+      await requireAttachment(attachmentId);
       const [attachment] = await db
         .update(attachments)
         .set({
@@ -153,6 +167,7 @@ export function createAttachmentsRepository(context: DatabaseTenantContext) {
     },
 
     async setPreviewResult(attachmentId: string, result: AttachmentPreviewResult) {
+      await requireAttachment(attachmentId);
       const [attachment] = await db
         .update(attachments)
         .set({
@@ -170,16 +185,7 @@ export function createAttachmentsRepository(context: DatabaseTenantContext) {
     },
 
     async delete(attachmentId: string) {
-      const [attachment] = await db
-        .select()
-        .from(attachments)
-        .where(and(eq(attachments.id, attachmentId), attachmentScope))
-        .limit(1);
-      if (!attachment) {
-        throw new TenantResourceNotFoundError("attachment");
-      }
-
-      await requireTarget(normalizeTarget(attachment));
+      const attachment = await requireAttachment(attachmentId);
       await db
         .update(attachments)
         .set({ deletedAt: new Date(), updatedAt: new Date() })

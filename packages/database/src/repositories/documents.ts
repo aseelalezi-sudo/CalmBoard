@@ -1,8 +1,11 @@
-import { and, desc, eq, inArray, isNull, max } from "drizzle-orm";
+import { collaborationUserSelection } from "../public-user.js";
+import { and, desc, eq, inArray, isNull, max, or } from "drizzle-orm";
 import { db } from "../client.js";
+import { accessibleProjectIds, canAccessProject } from "../project-access.js";
 import { TenantConflictError, TenantPermissionDeniedError, TenantResourceNotFoundError } from "../errors.js";
 import { documentPermissions, docs, docVersions, memberships, projects, users, workspaces } from "../schema.js";
 import { assertWorkspaceTenantContext, type DatabaseTenantContext } from "../tenant-context.js";
+import { createAuthorizationRepository } from "./authorization.js";
 
 export type DocumentAccessLevel = "viewer" | "editor" | "manager";
 export type DocumentWorkspaceAccess = "none" | "viewer" | "editor";
@@ -15,6 +18,7 @@ export type UpdateDocumentInput = Partial<
 >;
 export type DocumentsRepositoryOptions = {
   canManageWorkspaceDocuments?: boolean;
+  managedProjectIds?: readonly string[];
 };
 
 const MAX_DOCUMENT_DEPTH = 10;
@@ -52,9 +56,20 @@ export function createDocumentsRepository(context: DatabaseTenantContext, option
     if (!workspace) throw new TenantResourceNotFoundError("workspace");
   }
 
-  async function loadAccessState() {
+  async function loadAccessState(includeDeleted = false) {
     const currentActorId = requireActor();
-    const documents = await db.select().from(docs).where(tenantScope);
+    const projectIds = await accessibleProjectIds(context, includeDeleted);
+    const documents = await db
+      .select()
+      .from(docs)
+      .where(
+        and(
+          eq(docs.organizationId, organizationId),
+          eq(docs.workspaceId, workspaceId),
+          includeDeleted ? undefined : isNull(docs.deletedAt),
+          or(isNull(docs.projectId), inArray(docs.projectId, projectIds)),
+        ),
+      );
     const grants = await db
       .select({
         docId: documentPermissions.docId,
@@ -71,15 +86,32 @@ export function createDocumentsRepository(context: DatabaseTenantContext, option
     const documentMap = new Map(documents.map((document) => [document.id, document]));
     const grantMap = new Map(grants.map((grant) => [grant.docId, grant.accessLevel]));
     const accessCache = new Map<string, DocumentAccessLevel | null>();
+    const requestedProjectIds = new Set(options.managedProjectIds ?? []);
+    const managedProjectIds = new Set<string>();
+    if (includeDeleted || options.canManageWorkspaceDocuments || requestedProjectIds.size) {
+      const authorization = createAuthorizationRepository();
+      const documentProjectIds = new Set(
+        documents.flatMap((document) => (document.projectId ? [document.projectId] : [])),
+      );
+      for (const projectId of documentProjectIds) {
+        if (!includeDeleted && !options.canManageWorkspaceDocuments && !requestedProjectIds.has(projectId)) continue;
+        const access = await authorization.resolve(
+          currentActorId,
+          { organizationId, workspaceId, projectId },
+          "documents.manage",
+        );
+        if (access.member && access.allowed) managedProjectIds.add(projectId);
+      }
+    }
 
-    const resolve = (documentId: string, visited = new Set<string>()): DocumentAccessLevel | null => {
+    const resolveAcl = (documentId: string, visited = new Set<string>()): DocumentAccessLevel | null => {
       const cached = accessCache.get(documentId);
       if (cached !== undefined) return cached;
       const document = documentMap.get(documentId);
       if (!document || visited.has(documentId)) return null;
 
       let access: DocumentAccessLevel | null = null;
-      if (options.canManageWorkspaceDocuments || document.authorId === currentActorId) {
+      if (document.authorId === currentActorId) {
         access = "manager";
       }
       access = strongestAccess(access, grantMap.get(documentId) ?? null);
@@ -88,10 +120,21 @@ export function createDocumentsRepository(context: DatabaseTenantContext, option
       if (document.inheritPermissions && document.parentId) {
         const nextVisited = new Set(visited);
         nextVisited.add(documentId);
-        access = strongestAccess(access, resolve(document.parentId, nextVisited));
+        access = strongestAccess(access, resolveAcl(document.parentId, nextVisited));
       }
       accessCache.set(documentId, access);
       return access;
+    };
+
+    const resolve = (documentId: string): DocumentAccessLevel | null => {
+      const document = documentMap.get(documentId);
+      if (!document) return null;
+      // Role capabilities apply to the target scope. Only document ACL grants
+      // and ownership propagate through the explicit inheritance chain.
+      const canManage = document.projectId
+        ? managedProjectIds.has(document.projectId)
+        : options.canManageWorkspaceDocuments;
+      return canManage ? "manager" : resolveAcl(documentId);
     };
 
     return { documents, documentMap, resolve };
@@ -109,6 +152,7 @@ export function createDocumentsRepository(context: DatabaseTenantContext, option
   }
 
   async function requireProject(projectId: string) {
+    if (!(await canAccessProject(context, projectId))) throw new TenantResourceNotFoundError("project");
     const [project] = await db
       .select({ id: projects.id })
       .from(projects)
@@ -131,7 +175,7 @@ export function createDocumentsRepository(context: DatabaseTenantContext, option
         and(
           eq(memberships.userId, userId),
           eq(memberships.organizationId, organizationId),
-          eq(memberships.workspaceId, workspaceId),
+          or(isNull(memberships.workspaceId), eq(memberships.workspaceId, workspaceId)),
           eq(memberships.status, "active"),
         ),
       )
@@ -197,6 +241,20 @@ export function createDocumentsRepository(context: DatabaseTenantContext, option
   }
 
   return {
+    async assertFullExportAccess(required: "viewer" | "manager" = "manager") {
+      // Portability includes permissions and historical versions. Their complete
+      // export requires the same manager access as the permissions endpoint.
+      const state = await loadAccessState(true);
+      if (
+        state.documents.some((document) => {
+          const access = state.resolve(document.id);
+          return access === null || accessRank[access] < accessRank[required];
+        })
+      ) {
+        throw new TenantPermissionDeniedError(`Full export requires ${required} access to every document`);
+      }
+    },
+
     async list() {
       await requireWorkspace();
       const state = await loadAccessState();
@@ -208,7 +266,9 @@ export function createDocumentsRepository(context: DatabaseTenantContext, option
         )
         .sort((left, right) => right.updatedAt.getTime() - left.updatedAt.getTime());
       const authorIds = [...new Set(records.map((document) => document.authorId))];
-      const authors = authorIds.length ? await db.select().from(users).where(inArray(users.id, authorIds)) : [];
+      const authors = authorIds.length
+        ? await db.select(collaborationUserSelection).from(users).where(inArray(users.id, authorIds))
+        : [];
       const authorMap = new Map(authors.map((author) => [author.id, author]));
       return records.map((document) => ({ ...document, author: authorMap.get(document.authorId) ?? null }));
     },
@@ -326,7 +386,9 @@ export function createDocumentsRepository(context: DatabaseTenantContext, option
         )
         .orderBy(desc(docVersions.versionNumber));
       const saverIds = [...new Set(versions.map((version) => version.savedById))];
-      const savers = saverIds.length ? await db.select().from(users).where(inArray(users.id, saverIds)) : [];
+      const savers = saverIds.length
+        ? await db.select(collaborationUserSelection).from(users).where(inArray(users.id, saverIds))
+        : [];
       const saverMap = new Map(savers.map((saver) => [saver.id, saver]));
       return versions.map((version) => ({ ...version, savedBy: saverMap.get(version.savedById) ?? null }));
     },

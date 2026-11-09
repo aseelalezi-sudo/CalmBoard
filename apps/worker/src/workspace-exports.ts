@@ -10,6 +10,7 @@ import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import type { Readable } from "node:stream";
 import type { Pool, PoolClient } from "pg";
+import { assertExportProjectAccess, TenantPermissionDeniedError } from "@calmboard/database";
 import {
   createWorkspacePdf,
   createWorkspaceXlsx,
@@ -270,6 +271,33 @@ async function markCompleted(
   result: { objectKey: string; fileName: string; contentType: string; fileSize: number; checksum: string },
   retentionDays: number,
 ) {
+  await assertExportProjectAccess({
+    organizationId: job.organizationId,
+    workspaceId: job.workspaceId ?? undefined,
+    actorId: job.requestedBy,
+  });
+  const authorizedRecipientIds: string[] = [];
+  if (job.reportScheduleId) {
+    assertWorkspaceExportTarget(job);
+    const recipients = await client.query<{ user_id: string }>(
+      `select recipient.user_id from report_schedule_recipients recipient
+       join report_schedules schedule on schedule.id = recipient.schedule_id
+       where recipient.schedule_id = $1 and recipient.organization_id = $2 and recipient.workspace_id = $3
+         and schedule.deleted_at is null`,
+      [job.reportScheduleId, job.organizationId, job.workspaceId],
+    );
+    for (const recipient of recipients.rows) {
+      try {
+        await assertExportProjectAccess(
+          { organizationId: job.organizationId, workspaceId: job.workspaceId, actorId: recipient.user_id },
+          false,
+        );
+        authorizedRecipientIds.push(recipient.user_id);
+      } catch (error) {
+        if (!(error instanceof TenantPermissionDeniedError)) throw error;
+      }
+    }
+  }
   await client.query("begin");
   try {
     const updated = await client.query(
@@ -309,6 +337,7 @@ async function markCompleted(
            where recipient.schedule_id = $1
              and recipient.organization_id = $2
              and recipient.workspace_id = $3
+             and recipient.user_id = any($8::uuid[])
              and exists (
                select 1 from memberships membership
                where membership.user_id = recipient.user_id
@@ -345,6 +374,7 @@ async function markCompleted(
           result.objectKey,
           result.fileName,
           result.contentType,
+          authorizedRecipientIds,
         ],
       );
     }
@@ -389,6 +419,11 @@ export async function processWorkspaceExports(
     const client = await pool.connect();
     let temporaryArchive: Awaited<ReturnType<typeof createOrganizationPortabilityArchive>> | undefined;
     try {
+      await assertExportProjectAccess({
+        organizationId: job.organizationId,
+        workspaceId: job.workspaceId ?? undefined,
+        actorId: job.requestedBy,
+      });
       if (job.exportScope === "organization") {
         if (job.workspaceId !== null || job.format !== "json" || job.reportScheduleId !== null) {
           throw new Error("Organization export job has an invalid persisted target");

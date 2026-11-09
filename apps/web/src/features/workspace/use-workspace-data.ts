@@ -145,7 +145,9 @@ export function useWorkspaceData(t: Translator, notify: Notify) {
       setUsers(directory.users || []);
       setTeams(directory.teams || []);
 
-      const workspace = directory.workspaces[0];
+      const requestedWorkspaceId = new URLSearchParams(window.location.search).get("workspaceId");
+      const workspace =
+        directory.workspaces.find((candidate) => candidate.id === requestedWorkspaceId) ?? directory.workspaces[0];
       const organization =
         directory.organizations?.find((candidate) => candidate.id === workspace.organizationId) ??
         directory.organizations?.[0];

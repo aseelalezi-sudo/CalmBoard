@@ -1,5 +1,6 @@
 import { and, desc, eq, isNull } from "drizzle-orm";
 import { db } from "../client.js";
+import { assertExportProjectAccess } from "../export-access.js";
 import { TenantConflictError, TenantResourceNotFoundError } from "../errors.js";
 import { exportJobs, type ExportScope, type WorkspaceExportFormat } from "../schema.js";
 import { assertTenantContext, assertWorkspaceTenantContext, type DatabaseTenantContext } from "../tenant-context.js";
@@ -44,6 +45,7 @@ function createScopedExportJobsRepository(context: DatabaseTenantContext, export
 
   return {
     async request(idempotencyKey: string, format: WorkspaceExportFormat = "json") {
+      await assertExportProjectAccess(context);
       if (exportScope === "workspace") await createWorkspaceRepository(context).get();
       if (exportScope === "organization" && format !== "json") {
         throw new TenantConflictError("Organization portability exports use the canonical JSON/ZIP format");
@@ -94,6 +96,7 @@ function createScopedExportJobsRepository(context: DatabaseTenantContext, export
       if (!job.expiresAt || job.expiresAt <= new Date()) {
         throw new TenantResourceNotFoundError("active export job");
       }
+      await assertExportProjectAccess(context);
       return { objectKey: job.objectKey, fileName: job.fileName, contentType: job.contentType! };
     },
 

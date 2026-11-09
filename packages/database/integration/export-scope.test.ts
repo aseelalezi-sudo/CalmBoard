@@ -281,17 +281,27 @@ describe("0063 export scope", () => {
         );
         assert.match(plan.rows.map((row) => row["QUERY PLAN"]).join("\n"), /export_jobs_expired_cleanup_idx/);
       } finally {
-        if (roleCreated) {
-          await maintenance.query(`drop owned by "${rlsRole}"`);
-          await maintenance.query(`drop role "${rlsRole}"`);
+        try {
+          if (roleCreated) {
+            await maintenance.query(`drop owned by "${rlsRole}"`);
+            await maintenance.query(`drop role "${rlsRole}"`);
+          }
+          // Delete this fixture's children first. Swallowing a parent FK error
+          // left pending jobs for a later worker integration test to claim.
+          for (const table of ["export_jobs", "report_schedules", "memberships", "workspaces"]) {
+            await maintenance.query(`delete from ${table} where organization_id = any($1::uuid[])`, [
+              [organizationId, foreignOrganizationId],
+            ]);
+          }
+          await maintenance.query("delete from organizations where id = any($1::uuid[])", [
+            [organizationId, foreignOrganizationId],
+          ]);
+          await maintenance.query("delete from users where id = any($1::uuid[])", [
+            [ownerId, otherRequesterId, workspaceOnlyId],
+          ]);
+        } finally {
+          await maintenance.end();
         }
-        await maintenance
-          .query("delete from organizations where id = any($1::uuid[])", [[organizationId, foreignOrganizationId]])
-          .catch(() => undefined);
-        await maintenance
-          .query("delete from users where id = any($1::uuid[])", [[ownerId, otherRequesterId, workspaceOnlyId]])
-          .catch(() => undefined);
-        await maintenance.end();
       }
     },
   );

@@ -1,5 +1,6 @@
 import { and, count, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { db } from "../client.js";
+import { accessibleProjectIds } from "../project-access.js";
 import { TenantConflictError, TenantResourceNotFoundError } from "../errors.js";
 import {
   memberships,
@@ -301,7 +302,12 @@ export function createProjectsRepository(context: DatabaseTenantContext) {
   return {
     async list() {
       await requireWorkspace();
-      const rows = await db.select().from(projects).where(tenantScope).orderBy(desc(projects.createdAt));
+      const visibleIds = await accessibleProjectIds(context);
+      const rows = await db
+        .select()
+        .from(projects)
+        .where(and(tenantScope, inArray(projects.id, visibleIds)))
+        .orderBy(desc(projects.createdAt));
       if (!rows.length) return [];
       const projectIds = rows.map((project) => project.id);
       const [limits, taskSummaries, memberSummaries] = await Promise.all([
@@ -383,7 +389,14 @@ export function createProjectsRepository(context: DatabaseTenantContext) {
     async create(input: CreateProjectInput) {
       await requireWorkspace();
       const memberIds = [
-        ...new Set([...(input.memberIds ?? []), input.ownerId, input.managerId].filter(Boolean)),
+        ...new Set(
+          [
+            ...(input.memberIds ?? []),
+            input.ownerId,
+            input.managerId,
+            ["private", "private-members"].includes(input.privacy ?? "") ? context.actorId : undefined,
+          ].filter(Boolean),
+        ),
       ] as string[];
       const teamIds = [...new Set(input.teamIds ?? [])];
       await requireMembers(memberIds);

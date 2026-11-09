@@ -49,7 +49,8 @@ describe("realtime tenant isolation", () => {
   it("does not join rooms when tenant authorization rejects the requested organization", async () => {
     const joined: string[] = [];
     const socket = {
-      data: { user: { id: "user-1", name: "User" }, subscriptions: {} },
+      handshake: { headers: { cookie: "calmboard_access=test" } },
+      data: { user: { id: "user-1", name: "User" }, sessionId: "session-1", subscriptions: {} },
       join: async (rooms: string[]) => {
         joined.push(...rooms);
       },
@@ -68,7 +69,7 @@ describe("realtime tenant isolation", () => {
       publishPresence: async () => undefined,
     };
     const gateway = new RealtimeGateway(
-      {} as AuthService,
+      { currentRealtimeSession: async () => ({ user: { id: "user-1", name: "User" } }) } as unknown as AuthService,
       access as RealtimeAccessService,
       realtime as unknown as RealtimeService,
     );
@@ -89,20 +90,29 @@ describe("realtime tenant isolation", () => {
     assert.deepEqual(joined, beforeDenied);
   });
 
-  it("publishes a versioned invalidation only to rooms from the committed tenant context", async () => {
+  it("publishes a versioned invalidation only to authenticated recipients from the committed tenant context", async () => {
     const previousRedisUrl = process.env.REDIS_URL;
     delete process.env.REDIS_URL;
     const emissions: Array<{ rooms: string[]; event: string; payload: Record<string, unknown> }> = [];
     const server = {
-      to(rooms: string[]) {
+      in(rooms: string[]) {
         return {
-          emit(event: string, payload: Record<string, unknown>) {
-            emissions.push({ rooms, event, payload });
-          },
+          fetchSockets: async () => [
+            {
+              data: { user: { id: "user-1", name: "User" }, sessionId: "session-1" },
+              handshake: { headers: { cookie: "calmboard_access=test" } },
+              emit(event: string, payload: Record<string, unknown>) {
+                emissions.push({ rooms, event, payload });
+              },
+            },
+          ],
         };
       },
     } as unknown as Server;
-    const service = new RealtimeService();
+    const service = new RealtimeService(
+      { currentRealtimeSession: async () => ({ user: { id: "user-1", name: "User" } }) } as unknown as AuthService,
+      { authorizeDelivery: async () => undefined } as unknown as RealtimeAccessService,
+    );
     service.attachServer(server);
     try {
       await service.publishHttpMutation(

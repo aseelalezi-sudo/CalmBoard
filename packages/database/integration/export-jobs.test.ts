@@ -11,6 +11,7 @@ import {
   pool,
   TenantConflictError,
   TenantResourceNotFoundError,
+  TenantPermissionDeniedError,
   users,
   workspaces,
 } from "../src/index";
@@ -52,7 +53,7 @@ describe("workspace export job formats", () => {
       assert.equal(created.format, "pdf");
       assert.equal((await owner.request(idempotencyKey, "pdf")).id, created.id);
       await assert.rejects(() => owner.request(idempotencyKey, "xlsx"), TenantConflictError);
-      await assert.rejects(() => member.request(idempotencyKey, "pdf"), TenantResourceNotFoundError);
+      await assert.rejects(() => member.request(idempotencyKey, "pdf"), TenantPermissionDeniedError);
 
       await db
         .update(exportJobs)

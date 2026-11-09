@@ -1,5 +1,6 @@
-import { and, desc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, ne, notExists, notInArray, or, sql } from "drizzle-orm";
 import { db } from "../client.js";
+import { accessibleProjectIds } from "../project-access.js";
 import { TenantConflictError, TenantPermissionDeniedError, TenantResourceNotFoundError } from "../errors.js";
 import { memberships, tasks, timeLogs, timesheets, users } from "../schema.js";
 import { assertWorkspaceTenantContext, type DatabaseTenantContext } from "../tenant-context.js";
@@ -12,6 +13,13 @@ export type CreateTimeLogInput = {
   description?: string;
   billable?: boolean;
   startedAt?: Date;
+};
+
+const timeTaskSelection = {
+  id: tasks.id,
+  projectId: tasks.projectId,
+  title: tasks.title,
+  serial: tasks.serial,
 };
 
 function dateKey(value: Date) {
@@ -45,6 +53,27 @@ export function createTimeLogsRepository(context: DatabaseTenantContext) {
   )!;
   const timesheetScope = and(eq(timesheets.organizationId, organizationId), eq(timesheets.workspaceId, workspaceId))!;
 
+  async function visibleTimesheetCondition() {
+    const projectIds = await accessibleProjectIds(context, true);
+    const visibleTasks = db
+      .select({ id: tasks.id })
+      .from(tasks)
+      .where(
+        and(
+          eq(tasks.organizationId, organizationId),
+          eq(tasks.workspaceId, workspaceId),
+          inArray(tasks.projectId, projectIds),
+        ),
+      );
+    // A sheet is reviewed as a whole. Partial entries would misrepresent its totals.
+    return notExists(
+      db
+        .select({ id: timeLogs.id })
+        .from(timeLogs)
+        .where(and(logScope, eq(timeLogs.timesheetId, timesheets.id), notInArray(timeLogs.taskId, visibleTasks))),
+    );
+  }
+
   async function requireActiveMember(userId: string) {
     const [membership] = await db
       .select({ id: memberships.id })
@@ -70,10 +99,17 @@ export function createTimeLogsRepository(context: DatabaseTenantContext) {
       .from(users)
       .where(inArray(users.id, userIds));
     const entries = await db
-      .select({ log: timeLogs, task: tasks })
+      .select({ log: timeLogs, task: timeTaskSelection })
       .from(timeLogs)
       .innerJoin(tasks, eq(timeLogs.taskId, tasks.id))
-      .where(and(inArray(timeLogs.timesheetId, ids), isNull(timeLogs.deletedAt)))
+      .where(
+        and(
+          inArray(timeLogs.timesheetId, ids),
+          logScope,
+          eq(tasks.organizationId, organizationId),
+          eq(tasks.workspaceId, workspaceId),
+        ),
+      )
       .orderBy(desc(timeLogs.startedAt));
     const peopleById = new Map(people.map((person) => [person.id, person]));
     return rows.map((row) => {
@@ -96,7 +132,7 @@ export function createTimeLogsRepository(context: DatabaseTenantContext) {
     const rows = await db
       .select()
       .from(timesheets)
-      .where(and(timesheetScope, eq(timesheets.userId, actorId)))
+      .where(and(timesheetScope, eq(timesheets.userId, actorId), await visibleTimesheetCondition()))
       .orderBy(desc(timesheets.periodStart))
       .limit(26);
     return hydrateTimesheets(rows);
@@ -106,10 +142,17 @@ export function createTimeLogsRepository(context: DatabaseTenantContext) {
     async list(options: { includeReviewQueue?: boolean } = {}) {
       await requireActiveMember(actorId);
       const rows = await db
-        .select({ log: timeLogs, task: tasks })
+        .select({ log: timeLogs, task: timeTaskSelection })
         .from(timeLogs)
         .innerJoin(tasks, eq(timeLogs.taskId, tasks.id))
-        .where(and(logScope, taskScope, eq(timeLogs.userId, actorId)))
+        .where(
+          and(
+            logScope,
+            taskScope,
+            eq(timeLogs.userId, actorId),
+            inArray(tasks.projectId, await accessibleProjectIds(context)),
+          ),
+        )
         .orderBy(desc(timeLogs.startedAt))
         .limit(100);
       const own = await ownTimesheets();
@@ -118,7 +161,14 @@ export function createTimeLogsRepository(context: DatabaseTenantContext) {
             await db
               .select()
               .from(timesheets)
-              .where(and(timesheetScope, ne(timesheets.userId, actorId), ne(timesheets.status, "draft")))
+              .where(
+                and(
+                  timesheetScope,
+                  ne(timesheets.userId, actorId),
+                  ne(timesheets.status, "draft"),
+                  await visibleTimesheetCondition(),
+                ),
+              )
               .orderBy(desc(timesheets.periodStart), desc(timesheets.updatedAt))
               .limit(100),
           )
@@ -148,7 +198,9 @@ export function createTimeLogsRepository(context: DatabaseTenantContext) {
         const [task] = await transaction
           .select({ id: tasks.id })
           .from(tasks)
-          .where(and(eq(tasks.id, input.taskId), taskScope))
+          .where(
+            and(eq(tasks.id, input.taskId), taskScope, inArray(tasks.projectId, await accessibleProjectIds(context))),
+          )
           .limit(1);
         if (!task) throw new TenantResourceNotFoundError("task");
 
@@ -225,7 +277,14 @@ export function createTimeLogsRepository(context: DatabaseTenantContext) {
         const [period] = await transaction
           .select()
           .from(timesheets)
-          .where(and(eq(timesheets.id, timesheetId), timesheetScope, eq(timesheets.userId, actorId)))
+          .where(
+            and(
+              eq(timesheets.id, timesheetId),
+              timesheetScope,
+              eq(timesheets.userId, actorId),
+              await visibleTimesheetCondition(),
+            ),
+          )
           .limit(1);
         if (!period) throw new TenantResourceNotFoundError("timesheet");
         if (period.version !== expectedVersion)
@@ -266,7 +325,7 @@ export function createTimeLogsRepository(context: DatabaseTenantContext) {
         const [period] = await transaction
           .select()
           .from(timesheets)
-          .where(and(eq(timesheets.id, timesheetId), timesheetScope))
+          .where(and(eq(timesheets.id, timesheetId), timesheetScope, await visibleTimesheetCondition()))
           .limit(1);
         if (!period) throw new TenantResourceNotFoundError("timesheet");
         if (period.userId === actorId)

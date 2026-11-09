@@ -1,3 +1,4 @@
+import { collaborationUserSelection } from "../public-user.js";
 import {
   and,
   asc,
@@ -16,6 +17,7 @@ import {
   type SQL,
 } from "drizzle-orm";
 import { db } from "../client.js";
+import { accessibleProjectIds, canAccessProject } from "../project-access.js";
 import { TenantConflictError, TenantResourceNotFoundError } from "../errors.js";
 import {
   projects,
@@ -654,6 +656,7 @@ export function createTasksRepository(context: DatabaseTenantContext) {
   async function loadDependencyLinks(taskIds: string[]) {
     const linksByTask = new Map<string, TaskDependencyLink[]>();
     if (!taskIds.length) return linksByTask;
+    const visibleProjectIds = await accessibleProjectIds(context);
     const rows = await db
       .select({
         dependentTaskId: taskDependencies.dependentTaskId,
@@ -670,6 +673,7 @@ export function createTasksRepository(context: DatabaseTenantContext) {
           eq(tasks.organizationId, organizationId),
           eq(tasks.workspaceId, workspaceId),
           isNull(tasks.deletedAt),
+          inArray(tasks.projectId, visibleProjectIds),
         ),
       )
       .where(
@@ -706,7 +710,7 @@ export function createTasksRepository(context: DatabaseTenantContext) {
       .where(and(...conditions))
       .limit(1);
 
-    if (!task) {
+    if (!task || !(await canAccessProject(context, task.projectId))) {
       throw new TenantResourceNotFoundError("task");
     }
     const [hydrated] = await hydrateTaskRows([task]);
@@ -714,6 +718,7 @@ export function createTasksRepository(context: DatabaseTenantContext) {
   }
 
   async function validateCreateInput(input: CreateTaskInput) {
+    if (!(await canAccessProject(context, input.projectId))) throw new TenantResourceNotFoundError("project");
     const [project] = await db
       .select({ id: projects.id })
       .from(projects)
@@ -916,8 +921,9 @@ export function createTasksRepository(context: DatabaseTenantContext) {
     return defsByKey;
   }
 
-  function buildListConditions(filters: TaskListFilters, defsByKey: Map<string, CustomFieldRecord> = new Map()) {
-    const conditions: SQL[] = [tenantScope, isNull(tasks.deletedAt)];
+  async function buildListConditions(filters: TaskListFilters, defsByKey: Map<string, CustomFieldRecord> = new Map()) {
+    const visibleIds = await accessibleProjectIds(context);
+    const conditions: SQL[] = [tenantScope, isNull(tasks.deletedAt), inArray(tasks.projectId, visibleIds)];
     if (filters.projectId) conditions.push(eq(tasks.projectId, filters.projectId));
     if (filters.calendarFrom && filters.calendarTo) {
       conditions.push(
@@ -1129,7 +1135,7 @@ export function createTasksRepository(context: DatabaseTenantContext) {
     const sectionIds = [...new Set(rows.flatMap((task) => (task.sectionId ? [task.sectionId] : [])))];
 
     const primaryAssignees = primaryAssigneeIds.length
-      ? await db.select().from(users).where(inArray(users.id, primaryAssigneeIds))
+      ? await db.select(collaborationUserSelection).from(users).where(inArray(users.id, primaryAssigneeIds))
       : [];
     const sections = sectionIds.length
       ? await db
@@ -1159,7 +1165,7 @@ export function createTasksRepository(context: DatabaseTenantContext) {
     ];
     const participantUsers = participantIds.length
       ? await db
-          .select()
+          .select(collaborationUserSelection)
           .from(users)
           .where(inArray(users.id, [...new Set(participantIds)]))
       : [];
@@ -1189,6 +1195,14 @@ export function createTasksRepository(context: DatabaseTenantContext) {
           schedules.recurrenceByTask.get(task.id) ?? null,
         ),
         dependencies: dependencyLinks.map((link) => link.blockingTaskSerial),
+        customFields: Array.isArray(task.customFields?.dependencies)
+          ? {
+              ...task.customFields,
+              ...(Array.isArray(task.customFields?.dependencies)
+                ? { dependencies: dependencyLinks.map((link) => link.blockingTaskSerial) }
+                : {}),
+            }
+          : task.customFields,
         dependencyLinks,
         assignee: task.assigneeId ? (userMap.get(task.assigneeId) ?? null) : null,
         assigneeIds: (assigneesByTask.get(task.id) ?? []).map((user) => user.id),
@@ -1209,7 +1223,7 @@ export function createTasksRepository(context: DatabaseTenantContext) {
       const rows = await db
         .select()
         .from(tasks)
-        .where(and(...buildListConditions(filters, defsByKey)))
+        .where(and(...(await buildListConditions(filters, defsByKey))))
         .orderBy(...taskSort(filters, defsByKey));
       return hydrateTaskRows(rows);
     },
@@ -1219,7 +1233,7 @@ export function createTasksRepository(context: DatabaseTenantContext) {
         throw new TenantConflictError("Task page limit must be between 1 and 100");
       }
       const defsByKey = await loadDefinitionsForFilters(filters);
-      const conditions = buildListConditions(filters, defsByKey);
+      const conditions = await buildListConditions(filters, defsByKey);
       const countConditions = [...conditions];
       if (filters.cursor) {
         conditions.push(taskPageCursorCondition(decodeTaskCursor(filters.cursor, filters, defsByKey), defsByKey));

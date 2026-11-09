@@ -10,6 +10,7 @@ import {
   executeRule,
   processAutomationEvents,
   readAutomationEventOptions,
+  readScheduledAutomationActors,
   releaseEvent,
   saveRun,
   MAX_AUTOMATION_DEPTH,
@@ -46,9 +47,38 @@ describe("automation event worker", () => {
         AUTOMATION_EVENT_BATCH_SIZE: "20",
         AUTOMATION_EVENT_CLAIM_TIMEOUT_MINUTES: "10",
       }),
-      { batchSize: 20, claimTimeoutMinutes: 10 },
+      { batchSize: 20, claimTimeoutMinutes: 10, scheduledActors: [] },
     );
     assert.throws(() => readAutomationEventOptions({ AUTOMATION_EVENT_BATCH_SIZE: "0" }), /between 1 and 250/);
+  });
+
+  it("validates trusted workspace identities without ambiguous scopes or payload fields", () => {
+    const identity = { organizationId: randomUUID(), workspaceId: randomUUID(), actorId: randomUUID() };
+    assert.deepEqual(readScheduledAutomationActors({}), []);
+    assert.deepEqual(readScheduledAutomationActors({ AUTOMATION_SCHEDULED_ACTORS: JSON.stringify([identity]) }), [
+      identity,
+    ]);
+    for (const value of [
+      "{",
+      "null",
+      "{}",
+      '["actor"]',
+      JSON.stringify([{ ...identity, actorId: "owner" }]),
+      JSON.stringify([{ ...identity, enabled: true }]),
+      JSON.stringify([
+        identity,
+        { ...identity, workspaceId: identity.workspaceId.toUpperCase(), actorId: randomUUID() },
+      ]),
+    ]) {
+      assert.throws(
+        () => readScheduledAutomationActors({ AUTOMATION_SCHEDULED_ACTORS: value }),
+        /AUTOMATION_SCHEDULED_ACTORS must/,
+      );
+    }
+    assert.throws(
+      () => readAutomationEventOptions({ AUTOMATION_SCHEDULED_ACTORS: "invalid" }),
+      /AUTOMATION_SCHEDULED_ACTORS must/,
+    );
   });
 
   it("enforces explicit automation event state machine transitions", () => {

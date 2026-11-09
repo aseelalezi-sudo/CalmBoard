@@ -1,6 +1,7 @@
 import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { db } from "../client.js";
-import { TenantConflictError, TenantResourceNotFoundError } from "../errors.js";
+import { TenantConflictError, TenantPermissionDeniedError, TenantResourceNotFoundError } from "../errors.js";
+import { accessibleProjectIds } from "../project-access.js";
 import { taskDependencies, tasks } from "../schema.js";
 import type { DatabaseTenantContext } from "../tenant-context.js";
 import { assertWorkspaceTenantContext } from "../tenant-context.js";
@@ -215,7 +216,30 @@ export function createTaskDependenciesRepository(
 
   const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+  async function visibleEndpoints() {
+    const projectIds = await accessibleProjectIds(context);
+    return {
+      query: dbOrTx
+        .select({ id: tasks.id })
+        .from(tasks)
+        .where(
+          and(
+            eq(tasks.organizationId, organizationId),
+            eq(tasks.workspaceId, workspaceId),
+            inArray(tasks.projectId, projectIds),
+            isNull(tasks.deletedAt),
+          ),
+        ),
+    };
+  }
+
+  async function visibleEdge() {
+    const { query } = await visibleEndpoints();
+    return and(inArray(taskDependencies.blockingTaskId, query), inArray(taskDependencies.dependentTaskId, query));
+  }
+
   async function resolveTaskEndpoint(identifier: string): Promise<{ id: string; serial: string; projectId: string }> {
+    const projectIds = await accessibleProjectIds(context);
     const trimmed = identifier.trim();
     if (!trimmed) {
       throw new TenantResourceNotFoundError("task dependency");
@@ -230,6 +254,7 @@ export function createTaskDependenciesRepository(
           eq(tasks.organizationId, organizationId),
           eq(tasks.workspaceId, workspaceId),
           isUuid ? eq(tasks.id, trimmed) : eq(tasks.serial, trimmed),
+          inArray(tasks.projectId, projectIds),
           isNull(tasks.deletedAt),
         ),
       )
@@ -349,6 +374,7 @@ export function createTaskDependenciesRepository(
             eq(tasks.organizationId, organizationId),
             eq(tasks.workspaceId, workspaceId),
             matchConditions.length === 1 ? matchConditions[0]! : or(...matchConditions),
+            inArray(tasks.projectId, await accessibleProjectIds(context)),
             isNull(tasks.deletedAt),
           ),
         );
@@ -480,7 +506,7 @@ export function createTaskDependenciesRepository(
       const [record] = await dbOrTx
         .select()
         .from(taskDependencies)
-        .where(and(eq(taskDependencies.id, id), tenantScope, isNull(taskDependencies.deletedAt)))
+        .where(and(eq(taskDependencies.id, id), tenantScope, isNull(taskDependencies.deletedAt), await visibleEdge()))
         .limit(1);
 
       if (!record) {
@@ -497,6 +523,8 @@ export function createTaskDependenciesRepository(
       incoming: TaskDependencyLink[];
       outgoing: TaskOutgoingDependencyLink[];
     }> {
+      await resolveTaskEndpoint(taskId);
+      const visible = await visibleEdge();
       const incomingRows = await dbOrTx
         .select({
           blockingTaskId: taskDependencies.blockingTaskId,
@@ -514,7 +542,9 @@ export function createTaskDependenciesRepository(
             isNull(tasks.deletedAt),
           ),
         )
-        .where(and(tenantScope, eq(taskDependencies.dependentTaskId, taskId), isNull(taskDependencies.deletedAt)))
+        .where(
+          and(tenantScope, eq(taskDependencies.dependentTaskId, taskId), isNull(taskDependencies.deletedAt), visible),
+        )
         .orderBy(asc(taskDependencies.createdAt), asc(taskDependencies.id));
 
       const outgoingRows = await dbOrTx
@@ -534,7 +564,9 @@ export function createTaskDependenciesRepository(
             isNull(tasks.deletedAt),
           ),
         )
-        .where(and(tenantScope, eq(taskDependencies.blockingTaskId, taskId), isNull(taskDependencies.deletedAt)))
+        .where(
+          and(tenantScope, eq(taskDependencies.blockingTaskId, taskId), isNull(taskDependencies.deletedAt), visible),
+        )
         .orderBy(asc(taskDependencies.createdAt), asc(taskDependencies.id));
 
       return {
@@ -550,7 +582,7 @@ export function createTaskDependenciesRepository(
       const rows = await dbOrTx
         .select()
         .from(taskDependencies)
-        .where(and(tenantScope, isNull(taskDependencies.deletedAt)))
+        .where(and(tenantScope, isNull(taskDependencies.deletedAt), await visibleEdge()))
         .orderBy(asc(taskDependencies.createdAt), asc(taskDependencies.id));
 
       return rows as TaskDependencyRecord[];
@@ -563,7 +595,7 @@ export function createTaskDependenciesRepository(
       const [updated] = await dbOrTx
         .update(taskDependencies)
         .set({ deletedAt: new Date() })
-        .where(and(eq(taskDependencies.id, id), tenantScope, isNull(taskDependencies.deletedAt)))
+        .where(and(eq(taskDependencies.id, id), tenantScope, isNull(taskDependencies.deletedAt), await visibleEdge()))
         .returning({ id: taskDependencies.id });
 
       return Boolean(updated);
@@ -577,6 +609,8 @@ export function createTaskDependenciesRepository(
       dependentTaskId: string,
       type?: TaskDependencyType,
     ): Promise<boolean> {
+      await resolveTaskEndpoint(blockingTaskId);
+      await resolveTaskEndpoint(dependentTaskId);
       const conditions = [
         tenantScope,
         eq(taskDependencies.blockingTaskId, blockingTaskId),
@@ -614,6 +648,8 @@ export function createTaskDependenciesRepository(
       changed: boolean;
       activeDependencies: TaskDependencyRecord[];
     }> {
+      await resolveTaskEndpoint(dependentTaskId);
+      for (const item of desiredItems) await resolveTaskEndpoint(item.blockingTaskId);
       // 1. Load current active dependencies for the dependent task
       const currentActive = (await dbOrTx
         .select()
@@ -622,6 +658,26 @@ export function createTaskDependenciesRepository(
           and(tenantScope, eq(taskDependencies.dependentTaskId, dependentTaskId), isNull(taskDependencies.deletedAt)),
         )
         .orderBy(asc(taskDependencies.createdAt), asc(taskDependencies.id))) as TaskDependencyRecord[];
+      const { query } = await visibleEndpoints();
+      const readable = new Set(
+        (
+          await dbOrTx
+            .select({ id: tasks.id })
+            .from(tasks)
+            .where(
+              and(
+                inArray(
+                  tasks.id,
+                  currentActive.map((edge) => edge.blockingTaskId),
+                ),
+                inArray(tasks.id, query),
+              ),
+            )
+        ).map((task) => task.id),
+      );
+      if (currentActive.some((edge) => !readable.has(edge.blockingTaskId))) {
+        throw new TenantPermissionDeniedError("Some task dependencies are not accessible");
+      }
 
       // 2. Canonicalize and sort keys to check for true no-op
       const currentKeyMap = new Map<string, TaskDependencyRecord>();

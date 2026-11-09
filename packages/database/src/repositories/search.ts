@@ -1,5 +1,6 @@
 import { and, desc, eq, getTableColumns, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
 import { db } from "../client.js";
+import { accessibleProjectIds } from "../project-access.js";
 import { commentReactionState } from "../comment-reactions.js";
 import { attachments, comments, docs, memberships, projects, tasks, teams, users } from "../schema.js";
 import { assertWorkspaceTenantContext, type DatabaseTenantContext } from "../tenant-context.js";
@@ -72,6 +73,18 @@ export function createSearchRepository(context: DatabaseTenantContext) {
     async search(input: string) {
       const query = input.trim().slice(0, MAX_SEARCH_QUERY_LENGTH);
       if (query.length < 2) return emptySearchResults();
+      const visibleProjectIds = await accessibleProjectIds(context);
+      const visibleTaskIds = db
+        .select({ id: tasks.id })
+        .from(tasks)
+        .where(
+          and(
+            eq(tasks.organizationId, organizationId),
+            eq(tasks.workspaceId, workspaceId),
+            isNull(tasks.deletedAt),
+            inArray(tasks.projectId, visibleProjectIds),
+          ),
+        );
 
       const visibleMemberships = await db
         .select({ userId: memberships.userId })
@@ -128,6 +141,7 @@ export function createSearchRepository(context: DatabaseTenantContext) {
             eq(tasks.organizationId, organizationId),
             eq(tasks.workspaceId, workspaceId),
             isNull(tasks.deletedAt),
+            inArray(tasks.projectId, visibleProjectIds),
             postgresSearchCondition(taskSearchText, query),
           ),
         )
@@ -141,6 +155,7 @@ export function createSearchRepository(context: DatabaseTenantContext) {
             eq(projects.organizationId, organizationId),
             eq(projects.workspaceId, workspaceId),
             isNull(projects.deletedAt),
+            inArray(projects.id, visibleProjectIds),
             postgresSearchCondition(projectSearchText, query),
           ),
         )
@@ -156,6 +171,7 @@ export function createSearchRepository(context: DatabaseTenantContext) {
                 eq(docs.workspaceId, workspaceId),
                 isNull(docs.deletedAt),
                 inArray(docs.id, visibleDocumentIds),
+                or(isNull(docs.projectId), inArray(docs.projectId, visibleProjectIds)),
                 postgresSearchCondition(documentSearchText, query),
               ),
             )
@@ -170,6 +186,7 @@ export function createSearchRepository(context: DatabaseTenantContext) {
             eq(comments.organizationId, organizationId),
             eq(comments.workspaceId, workspaceId),
             isNull(comments.deletedAt),
+            inArray(comments.taskId, visibleTaskIds),
             postgresSearchCondition(commentSearchText, query),
           ),
         )
@@ -211,6 +228,8 @@ export function createSearchRepository(context: DatabaseTenantContext) {
             eq(attachments.organizationId, organizationId),
             eq(attachments.workspaceId, workspaceId),
             isNull(attachments.deletedAt),
+            or(isNull(attachments.projectId), inArray(attachments.projectId, visibleProjectIds)),
+            or(isNull(attachments.taskId), inArray(attachments.taskId, visibleTaskIds)),
             postgresSearchCondition(attachmentSearchText, query),
           ),
         )
