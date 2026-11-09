@@ -12,7 +12,7 @@
     "test:integration": "tsx --conditions source --env-file-if-exists=../../.env --test integration/**/*.test.ts"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "^3.1163.0",
+    "@aws-sdk/client-s3": "^3.1164.0",
     "@aws-sdk/s3-request-presigner": "^3.1161.0",
     "@calmboard/database": "workspace:*",
     "@calmboard/licensing": "workspace:*",

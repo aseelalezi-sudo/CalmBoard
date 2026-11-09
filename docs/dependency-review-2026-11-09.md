@@ -8,9 +8,14 @@ Playwright 1.65.0 وTailwind/PostCSS 4.3.5 وeslint-config-next 16.4.5.
 
 يقبل [طلب التشغيل #26](https://github.com/aseelalezi-sudo/CalmBoard/pull/26) في نطاقه
 المراجع **13 تحديث اعتماد مباشر**: Next.js 16.4.5 في الجذر والويب، وحزم TipTap التسع
-إلى 3.33.0، وReact Virtual 3.14.26، وAWS S3 Client 3.1163.0، وArgon2 0.45.2.
+إلى 3.33.0، وReact Virtual 3.14.26، وAWS S3 Client 3.1164.0، وArgon2 0.45.2.
 دُمجت قاعدة #27 في فرع #26 وأُعيد توليد القفل للحفاظ على تحديثات أدوات التطوير.
 لا يلزم تغيير كود التطبيق أو مخطط قاعدة البيانات لهذه الدفعة.
+
+أثناء المراجعة أعاد Dependabot تأسيس فرعه على #27 وحدّث S3 Client من 3.1163.0
+إلى 3.1164.0. ضُم التصحيح الجديد بعد مراجعة
+[إصدار AWS الرسمي](https://github.com/aws/aws-sdk-js-v3/releases/tag/v3.1164.0)
+ومتطلبات Node المنشورة (`>=20.0.0`)، وأُعيدت فحوص التوافق والبناء والتدقيق عليه.
 
 ## إصدارات المراقبة المؤجلة
 
@@ -44,8 +49,8 @@ OpenTelemetry API المفروض في المشروع. لا يحل حذف الا�
 نجح محليًا تثبيت frozen-lockfile و**52 اختبارًا للسكربتات**، بما فيها اختبارات
 instrumentation الأربع وتوافق overrides، دون فشل أو تخطٍ. لم يجد التدقيق ثغرات معروفة،
 ونجح بناء API والعامل واعتمادياتهما السبعة، واختبار hash/verify الأصلي لـArgon2
-على Node 22.23.4. السجلات في `artifacts/deps-pr26-install.log` و
-`deps-pr26-script-tests.log` و`deps-pr26-audit.log` و`deps-pr26-backend-build.log`.
+على Node 22.23.4. السجلات النهائية في `artifacts/deps-pr26-final-install.log` و
+`deps-pr26-final-script-tests.log` و`deps-pr26-final-audit.log` و`deps-pr26-final-backend-build.log`.
 
 يلزم تثبيت frozen-lockfile على Node 22، ونجاح اختبارات instrumentation مع المراقبة
 مفعّلة ومعطلة للـAPI والعامل، واختبارات توافق overrides والتدقيق والبناء. يُدمج #26
