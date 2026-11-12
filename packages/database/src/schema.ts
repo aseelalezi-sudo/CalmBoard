@@ -1149,6 +1149,10 @@ export const goals = pgTable(
       .references(() => workspaces.id)
       .notNull(),
     title: varchar("title", { length: 500 }).notNull(),
+    sourceProjectIds: uuid("source_project_ids")
+      .array()
+      .default(sql`'{}'::uuid[]`)
+      .notNull(),
     description: text("description"),
     type: varchar("type", { length: 50 }).default("objective").notNull(),
     parentId: uuid("parent_id").references((): AnyPgColumn => goals.id, { onDelete: "restrict" }),

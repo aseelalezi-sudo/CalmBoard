@@ -6,12 +6,13 @@ import {
   migrationManifest,
   normalizedHistory,
   REVIEWED_PREFIX_DIGEST,
+  REVIEWED_PREFIX_LENGTH,
   validateDevelopmentBaseline,
 } from "./migration-baseline.mjs";
 import { loadMigrations, pendingMigrations } from "./migration-runner.mjs";
 
 async function decisionFixture() {
-  const migrations = await loadMigrations();
+  const migrations = (await loadMigrations()).slice(0, REVIEWED_PREFIX_LENGTH);
   const rows = migrations.map((migration, id) => ({
     id,
     hash: DEVELOPMENT_HASH_EXCEPTIONS.find((entry) => entry.tag === migration.tag)?.historical || migration.hash,
@@ -56,6 +57,34 @@ test("baseline validation rejects another identity, changed prefix, altered hist
   );
   for (const environment of ["production", "staging", "unknown"])
     assert.throws(() => validateDevelopmentBaseline({ ...fixture, environment }), /environment/);
+});
+
+test("new published migrations remain pending and are never covered by historical baseline exceptions", async () => {
+  const fixture = await decisionFixture();
+  const migrations = await loadMigrations();
+  const exceptions = validateDevelopmentBaseline({ ...fixture, migrations });
+  const pending = pendingMigrations(migrations, fixture.rows, exceptions);
+  assert.equal(pending.length, migrations.length - REVIEWED_PREFIX_LENGTH);
+  assert.ok(pending.every((entry) => entry.idx >= REVIEWED_PREFIX_LENGTH));
+  if (pending.length) {
+    const future = pending[0];
+    assert.throws(
+      () =>
+        pendingMigrations(
+          migrations,
+          [
+            ...fixture.rows,
+            {
+              id: REVIEWED_PREFIX_LENGTH,
+              hash: "f".repeat(64),
+              created_at: future.when,
+            },
+          ],
+          exceptions,
+        ),
+      /Hash mismatch/,
+    );
+  }
 });
 
 test("decision digests and evidence cannot be altered silently or expanded to unrelated hashes", async () => {

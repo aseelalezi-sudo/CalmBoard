@@ -26,6 +26,261 @@ import { fixture, cleanup } from "./testing/private-project-fixture.js";
 
 after(async () => pool.end());
 
+for (const checkpoint of ["before authorization", "before completion"] as const) {
+  for (const revocation of [
+    "account",
+    "membership",
+    "project",
+    "automations.manage",
+    "tasks.update",
+    "comments.manage",
+  ] as const) {
+    it(`rechecks scheduled ${revocation} access ${checkpoint}`, { timeout: 30_000 }, async () => {
+      const f = await fixture();
+      const blocker = await pool.connect();
+      let execution: Promise<unknown> | undefined;
+      const barrierName = `automation_access_${randomUUID().replaceAll("-", "")}`;
+      let barrierCreated = false;
+      try {
+        await allowProjects(f);
+        for (const permission of ["automations.manage", "tasks.update", "comments.manage"]) {
+          await override(f, f.memberId, permission, "allow");
+        }
+        const initialAccess = await createAuthorizationRepository().resolve(f.memberId, {
+          organizationId: f.organizationId,
+          workspaceId: f.workspaceId,
+          projectId: f.privateId,
+        });
+        assert.equal(initialAccess.member, true);
+        for (const permission of ["automations.manage", "tasks.update", "comments.manage"]) {
+          assert.ok(initialAccess.permissions.includes(permission), `Initial access must include ${permission}`);
+        }
+        const task = await createTasksRepository(f.owner).create({
+          projectId: f.privateId,
+          title: "Concurrent daily authorization",
+          reporterId: f.ownerId,
+        });
+        const ruleId = randomUUID();
+        await pool.query(
+          `insert into automations (id,organization_id,workspace_id,name,trigger,conditions,actions)
+         values ($1,$2,$3,'Concurrent daily rule','schedule_daily','{}',$4)`,
+          [
+            ruleId,
+            f.organizationId,
+            f.workspaceId,
+            { setStatus: "done", addComment: "Authorized daily action", notify: "reporter" },
+          ],
+        );
+        const identities = [{ organizationId: f.organizationId, workspaceId: f.workspaceId, actorId: f.memberId }];
+        async function event(): Promise<AutomationEventCandidate> {
+          const id = randomUUID();
+          const claimToken = randomUUID();
+          await pool.query(
+            `insert into automation_events (id,organization_id,workspace_id,task_id,trigger,task_version,
+             actor_id,current,deduplication_key,status,claim_token,claimed_at,attempts)
+           values ($1,$2,$3,$4,'schedule_daily',$5,$6,$7,$8,'processing',$9,now(),1)`,
+            [
+              id,
+              f.organizationId,
+              f.workspaceId,
+              task.id,
+              task.version,
+              f.ownerId,
+              {
+                status: task.status,
+                priority: task.priority,
+                projectId: task.projectId,
+                assigneeId: null,
+                tags: task.tags,
+                version: task.version,
+              },
+              `concurrent-daily/${id}`,
+              claimToken,
+            ],
+          );
+          return {
+            id,
+            organizationId: f.organizationId,
+            workspaceId: f.workspaceId,
+            taskId: task.id,
+            trigger: "schedule_daily",
+            taskVersion: task.version,
+            actorId: f.ownerId,
+            previous: null,
+            current: {
+              status: task.status,
+              priority: task.priority,
+              projectId: task.projectId,
+              assigneeId: null,
+              tags: task.tags,
+              version: task.version,
+            },
+            depth: 0,
+            attempt: 1,
+            maxAttempts: 8,
+            claimToken,
+          };
+        }
+        const pending = await event();
+        const beforeEffects = (
+          await pool.query(
+            "select updated_at, (select count(*)::int from activities where organization_id=$2) as activities from tasks where id=$1",
+            [task.id, f.organizationId],
+          )
+        ).rows[0];
+        await blocker.query("begin");
+        if (checkpoint === "before authorization") {
+          await blocker.query("select id from tasks where id=$1 for update", [task.id]);
+        } else {
+          // Only this fixture's automation notification pauses, after task and comment effects.
+          // The trigger and advisory lock exist exclusively in the isolated test database.
+          await pool.query(`create function ${barrierName}() returns trigger language plpgsql as $$
+          begin
+            if new.organization_id = '${f.organizationId}'::uuid and new.type = 'automation' then
+              perform pg_advisory_xact_lock(1942801, 1);
+            end if;
+            return new;
+          end $$`);
+          barrierCreated = true;
+          await pool.query(`create trigger ${barrierName} before insert on notifications
+          for each row execute function ${barrierName}()`);
+          await blocker.query("select pg_advisory_xact_lock(1942801, 1)");
+        }
+        const blockerPid = (await blocker.query<{ pid: number }>("select pg_backend_pid() as pid")).rows[0].pid;
+        execution = executeRule(pool, pending, ruleId, identities);
+        // Observe the real database lock rather than relying on an arbitrary delay.
+        const deadline = Date.now() + 10_000;
+        let waiting = false;
+        while (Date.now() < deadline) {
+          waiting = (
+            await pool.query<{ waiting: boolean }>(
+              "select exists(select 1 from pg_stat_activity where $1=any(pg_blocking_pids(pid))) as waiting",
+              [blockerPid],
+            )
+          ).rows[0].waiting;
+          if (waiting) break;
+          await new Promise((resolve) => setTimeout(resolve, 20));
+        }
+        assert.equal(waiting, true, `Execution must be waiting ${checkpoint} before revocation`);
+        if (revocation === "account") {
+          await pool.query("update users set lifecycle_state='auth_disabled',auth_disabled_at=now() where id=$1", [
+            f.memberId,
+          ]);
+        } else if (revocation === "membership") {
+          await pool.query("update memberships set status='suspended' where organization_id=$1 and user_id=$2", [
+            f.organizationId,
+            f.memberId,
+          ]);
+        } else if (revocation === "project") {
+          await pool.query("update project_members set deleted_at=now() where project_id=$1 and user_id=$2", [
+            f.privateId,
+            f.memberId,
+          ]);
+        } else {
+          const denied = await pool.query(
+            `update membership_permission_overrides set effect='deny'
+           where organization_id=$1 and membership_id in (select id from memberships where user_id=$2)
+             and permission_id in (select id from permissions where key=$3)`,
+            [f.organizationId, f.memberId, revocation],
+          );
+          assert.equal(denied.rowCount, 1, "Only the selected action permission must be revoked");
+        }
+        await blocker.query("commit");
+        assert.equal(await execution, "skipped");
+        const unchanged = (await pool.query("select status,version,updated_at from tasks where id=$1", [task.id]))
+          .rows[0];
+        assert.equal(unchanged.status, task.status);
+        assert.equal(unchanged.version, task.version);
+        assert.deepEqual(unchanged.updated_at, beforeEffects.updated_at);
+        assert.equal(
+          (
+            await pool.query("select count(*)::int as count from activities where organization_id=$1", [
+              f.organizationId,
+            ])
+          ).rows[0].count,
+          beforeEffects.activities,
+        );
+        assert.equal((await pool.query("select runs from automations where id=$1", [ruleId])).rows[0].runs, 0);
+        for (const table of ["comments", "notifications", "notification_email_outbox"] as const) {
+          assert.equal(
+            (
+              await pool.query(`select count(*)::int as count from ${table} where organization_id=$1`, [
+                f.organizationId,
+              ])
+            ).rows[0].count,
+            0,
+          );
+        }
+        assert.equal(
+          (
+            await pool.query("select count(*)::int as count from automation_events where parent_event_id=$1", [
+              pending.id,
+            ])
+          ).rows[0].count,
+          0,
+        );
+        assert.equal(
+          (
+            await pool.query("select status from automation_runs where event_id=$1 and automation_id=$2", [
+              pending.id,
+              ruleId,
+            ])
+          ).rows[0].status,
+          "skipped",
+        );
+        await pool.query("update users set lifecycle_state='active',auth_disabled_at=null where id=$1", [f.memberId]);
+        await pool.query("update memberships set status='active' where organization_id=$1 and user_id=$2", [
+          f.organizationId,
+          f.memberId,
+        ]);
+        await pool.query("update project_members set deleted_at=null where project_id=$1 and user_id=$2", [
+          f.privateId,
+          f.memberId,
+        ]);
+        await pool.query("update membership_permission_overrides set effect='allow' where organization_id=$1", [
+          f.organizationId,
+        ]);
+        assert.equal(
+          await executeRule(pool, pending, ruleId, identities),
+          "skipped",
+          "A terminal skip must remain idempotent after access is restored",
+        );
+        const restoredEvent = await event();
+        assert.equal(await executeRule(pool, restoredEvent, ruleId, identities), "success");
+        assert.equal((await pool.query("select status from tasks where id=$1", [task.id])).rows[0].status, "done");
+        assert.equal((await pool.query("select runs from automations where id=$1", [ruleId])).rows[0].runs, 1);
+        assert.equal(
+          (
+            await pool.query(
+              "select count(*)::int as count from notifications where organization_id=$1 and deduplication_key=$2",
+              [f.organizationId, `automation-run/${restoredEvent.id}/${ruleId}/${f.ownerId}`],
+            )
+          ).rows[0].count,
+          1,
+        );
+        assert.equal(
+          (
+            await pool.query("select count(*)::int as count from comments where task_id=$1 and user_id=$2", [
+              task.id,
+              f.memberId,
+            ])
+          ).rows[0].count,
+          1,
+        );
+      } finally {
+        await blocker.query("rollback");
+        blocker.release();
+        await execution?.catch(() => {});
+        if (barrierCreated) {
+          await pool.query(`drop trigger if exists ${barrierName} on notifications`);
+          await pool.query(`drop function ${barrierName}()`);
+        }
+        await cleanup(f);
+      }
+    });
+  }
+}
+
 it("runs daily private automation as the configured identity and rechecks grants, membership and account state", async () => {
   const f = await fixture();
   try {

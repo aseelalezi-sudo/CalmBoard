@@ -470,6 +470,13 @@
       "when": 1789332009160,
       "tag": "0066_automation_comment_and_run_fencing",
       "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1794268800000,
+      "tag": "0067_goal_project_sources",
+      "breakpoints": true
     }
   ]
 }

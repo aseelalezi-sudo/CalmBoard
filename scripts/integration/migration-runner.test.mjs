@@ -24,10 +24,23 @@ const quoteIdentifier = (value) => `"${value.replaceAll('"', '""')}"`;
 test(
   "an explicit development baseline preserves history, refuses drift and other databases, and supports future upgrades",
   { timeout: 120000 },
-  async () => {
+  async (t) => {
+    // Baseline adoption intentionally targets the exact historical 67-file
+    // source, even after the application gains additional migrations.
+    const historical = await migrationFixture();
+    t.after(() => historical.cleanup());
+    const journal = JSON.parse(await readFile(join(defaultMigrationsDirectory, "meta/_journal.json"), "utf8"));
+    const reviewedJournal = { ...journal, entries: journal.entries.slice(0, 67) };
+    for (const entry of reviewedJournal.entries)
+      await copyFile(
+        join(defaultMigrationsDirectory, `${entry.tag}.sql`),
+        join(historical.directory, `${entry.tag}.sql`),
+      );
+    await historical.writeJournal(reviewedJournal);
+    const directory = historical.directory;
     await withDatabase(async ({ client, connectionString }) => {
-      await migrateDatabase({ connectionString, log: quiet });
-      const migrations = await loadMigrations();
+      await migrateDatabase({ connectionString, directory, log: quiet });
+      const migrations = await loadMigrations(directory);
       // Model the two unknown historical records only inside this disposable database.
       for (const entry of DEVELOPMENT_HASH_EXCEPTIONS)
         await client.query("update drizzle.__drizzle_migrations set hash=$1 where created_at=$2", [
@@ -35,46 +48,54 @@ test(
           migrations.find((migration) => migration.tag === entry.tag).when,
         ]);
       await assert.rejects(migrateDatabase({ connectionString, checkOnly: true, log: quiet }), /Hash mismatch/);
-      const receipt = await baselineTestReceipt(client);
-      const result = await withReferenceCatalog(connectionString, async (referenceCatalog) => {
-        const writer = new pg.Client({ connectionString });
-        const id = randomUUID();
-        await writer.connect();
-        await client.query("begin isolation level repeatable read read only");
-        const snapshotId = (await client.query("select pg_export_snapshot() as id")).rows[0].id;
-        const options = {
-          connectionString,
-          receipt,
-          referenceCatalog,
-          receiptDigest: "e".repeat(64),
-          reason: "Isolated exported snapshot verification",
-          log: quiet,
-        };
-        try {
-          await writer.query("insert into users (id,email,name) values ($1,$2,'Concurrent application writer')", [
-            id,
-            `${id}@example.test`,
-          ]);
-          await assert.rejects(adoptDevelopmentBaseline(options), /contents differ/);
-          assert.equal((await adoptDevelopmentBaseline({ ...options, snapshotId })).adopted, false);
-          await assert.rejects(
-            adoptDevelopmentBaseline({ ...options, snapshotId: "unsafe';select 1" }),
-            /Invalid exported/,
-          );
-          const first = receipt.history[0];
-          await writer.query("update drizzle.__drizzle_migrations set hash=$1 where id=$2", ["f".repeat(64), first.id]);
-          await assert.rejects(
-            adoptDevelopmentBaseline({ ...options, snapshotId }),
-            /history changed after the backup/,
-          );
-          await writer.query("update drizzle.__drizzle_migrations set hash=$1 where id=$2", [first.hash, first.id]);
-        } finally {
-          await client.query("rollback");
-          await writer.query("delete from users where id=$1", [id]);
-          await writer.end();
-        }
-        return exerciseDevelopmentBaseline({ connectionString, receipt, referenceCatalog });
-      });
+      const receipt = await baselineTestReceipt(client, { directory });
+      const result = await withReferenceCatalog(
+        connectionString,
+        async (referenceCatalog) => {
+          const writer = new pg.Client({ connectionString });
+          const id = randomUUID();
+          await writer.connect();
+          await client.query("begin isolation level repeatable read read only");
+          const snapshotId = (await client.query("select pg_export_snapshot() as id")).rows[0].id;
+          const options = {
+            connectionString,
+            receipt,
+            referenceCatalog,
+            directory,
+            receiptDigest: "e".repeat(64),
+            reason: "Isolated exported snapshot verification",
+            log: quiet,
+          };
+          try {
+            await writer.query("insert into users (id,email,name) values ($1,$2,'Concurrent application writer')", [
+              id,
+              `${id}@example.test`,
+            ]);
+            await assert.rejects(adoptDevelopmentBaseline(options), /contents differ/);
+            assert.equal((await adoptDevelopmentBaseline({ ...options, snapshotId })).adopted, false);
+            await assert.rejects(
+              adoptDevelopmentBaseline({ ...options, snapshotId: "unsafe';select 1" }),
+              /Invalid exported/,
+            );
+            const first = receipt.history[0];
+            await writer.query("update drizzle.__drizzle_migrations set hash=$1 where id=$2", [
+              "f".repeat(64),
+              first.id,
+            ]);
+            await assert.rejects(
+              adoptDevelopmentBaseline({ ...options, snapshotId }),
+              /history changed after the backup/,
+            );
+            await writer.query("update drizzle.__drizzle_migrations set hash=$1 where id=$2", [first.hash, first.id]);
+          } finally {
+            await client.query("rollback");
+            await writer.query("delete from users where id=$1", [id]);
+            await writer.end();
+          }
+          return exerciseDevelopmentBaseline({ connectionString, receipt, referenceCatalog, directory });
+        },
+        { directory },
+      );
       assert.equal(result.futureMigrationAppliedOnce, true);
       await withDatabase(async ({ client: other, connectionString: otherUrl }) => {
         await other.query("create schema drizzle");
@@ -284,7 +305,7 @@ test("status is read-only and an untracked public schema cannot be silently adop
 });
 
 test(
-  "the real chain upgrades 0051 -> 0052 by journal index and finishes through 0066",
+  "the real chain upgrades 0051 -> 0052 by journal index and finishes through the latest migration",
   { timeout: 90000 },
   async (t) => {
     const fixture = await migrationFixture();
@@ -372,12 +393,88 @@ test(
             code === 0 ? resolve(output) : reject(new Error(`Migration CLI exited ${code}: ${output}`)),
           );
         });
-      assert.match(await run([]), /67 executed/);
-      assert.match(await run(["--check"]), /67 applied migration hashes; 0 pending/);
+      const migrationCount = (await loadMigrations()).length;
+      assert.match(await run([]), new RegExp(`${migrationCount} executed`));
+      assert.match(await run(["--check"]), new RegExp(`${migrationCount} applied migration hashes; 0 pending`));
       assert.equal(
         (await client.query("select count(*)::int as count from drizzle.__drizzle_migrations")).rows[0].count,
-        67,
+        migrationCount,
       );
+    });
+  },
+);
+
+test(
+  "goal source migration backfills existing links and parents without changing check-ins or historical hashes",
+  { timeout: 90000 },
+  async (t) => {
+    const fixture = await migrationFixture();
+    t.after(() => fixture.cleanup());
+    const journal = JSON.parse(await readFile(join(defaultMigrationsDirectory, "meta/_journal.json"), "utf8"));
+    for (const entry of journal.entries.slice(0, 67))
+      await copyFile(join(defaultMigrationsDirectory, `${entry.tag}.sql`), join(fixture.directory, `${entry.tag}.sql`));
+    await fixture.writeJournal({ ...journal, entries: journal.entries.slice(0, 67) });
+    await withDatabase(async ({ client, connectionString }) => {
+      await migrateDatabase({ connectionString, directory: fixture.directory, log: quiet });
+      const [user, organization, workspace, project, task, objective, result] = Array.from({ length: 7 }, () =>
+        randomUUID(),
+      );
+      await client.query("insert into users (id,email,name) values ($1,$2,'Migration owner')", [
+        user,
+        `${user}@example.test`,
+      ]);
+      await client.query("insert into organizations (id,name,slug,owner_id) values ($1,'Migration tenant',$2,$3)", [
+        organization,
+        organization,
+        user,
+      ]);
+      await client.query(
+        "insert into workspaces (id,organization_id,name,slug) values ($1,$2,'Migration workspace',$3)",
+        [workspace, organization, `source-${workspace}`],
+      );
+      await client.query(
+        "insert into projects (id,organization_id,workspace_id,name,privacy) values ($1,$2,$3,'Private source','private')",
+        [project, organization, workspace],
+      );
+      await client.query(
+        "insert into tasks (id,organization_id,workspace_id,project_id,title,serial,progress) values ($1,$2,$3,$4,'Existing task','SOURCE-1',80)",
+        [task, organization, workspace, project],
+      );
+      await client.query(
+        "insert into goals (id,organization_id,workspace_id,title,type,progress_mode) values ($1,$2,$3,'Existing objective','objective','children')",
+        [objective, organization, workspace],
+      );
+      await client.query(
+        "insert into goals (id,organization_id,workspace_id,title,type,parent_id,progress_mode) values ($1,$2,$3,'Existing result','key_result',$4,'tasks')",
+        [result, organization, workspace, objective],
+      );
+      await client.query(
+        "insert into goal_task_links (organization_id,workspace_id,goal_id,task_id,created_by_id) values ($1,$2,$3,$4,$5)",
+        [organization, workspace, result, task, user],
+      );
+      await client.query(
+        "insert into goal_checkins (organization_id,workspace_id,goal_id,progress,status,note,created_by_id) values ($1,$2,$3,80,'on_track','Preserve historical private note',$4)",
+        [organization, workspace, result, user],
+      );
+      const history = (await client.query("select * from drizzle.__drizzle_migrations order by id")).rows;
+      const checkins = (await client.query("select * from goal_checkins order by id")).rows;
+      const progress = (await client.query("select id,progress,status,updated_at from goals order by id")).rows;
+      assert.equal((await migrateDatabase({ connectionString, log: quiet })).executed, 1);
+      const sources = (await client.query("select source_project_ids from goals order by id")).rows;
+      assert.deepEqual(
+        sources.map((row) => row.source_project_ids),
+        [[project], [project]],
+      );
+      assert.deepEqual((await client.query("select * from goal_checkins order by id")).rows, checkins);
+      assert.deepEqual(
+        (await client.query("select id,progress,status,updated_at from goals order by id")).rows,
+        progress,
+      );
+      assert.deepEqual(
+        (await client.query("select * from drizzle.__drizzle_migrations order by id limit 67")).rows,
+        history,
+      );
+      assert.equal((await migrateDatabase({ connectionString, log: quiet })).executed, 0);
     });
   },
 );

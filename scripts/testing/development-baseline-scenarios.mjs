@@ -16,7 +16,7 @@ import { migrationFixture } from "./migration-fixtures.mjs";
 
 const quiet = () => {};
 
-export async function baselineTestReceipt(client) {
+export async function baselineTestReceipt(client, { directory } = {}) {
   await client.query("begin isolation level repeatable read read only");
   try {
     await client.query("set local time zone 'UTC'");
@@ -30,7 +30,7 @@ export async function baselineTestReceipt(client) {
         (await client.query("select id,hash,created_at from drizzle.__drizzle_migrations")).rows,
       ),
       tables: await fingerprintTables(client),
-      migrations: migrationManifest(await loadMigrations()),
+      migrations: migrationManifest(await loadMigrations(directory)),
       archiveSha256: "a".repeat(64),
       verification: { isolatedRestore: true, tableContentsMatch: true },
     };
@@ -46,6 +46,7 @@ export async function exerciseDevelopmentBaseline({
   receipt,
   receiptDigest = "b".repeat(64),
   referenceCatalog,
+  directory,
 }) {
   if (
     !/^calmboard_(?:migrator_test|recovery)_\d+_[a-f0-9]{16}$/.test(
@@ -60,6 +61,7 @@ export async function exerciseDevelopmentBaseline({
     receipt,
     receiptDigest,
     referenceCatalog,
+    directory,
     reason: "Isolated baseline regression test",
     log: quiet,
   };
@@ -115,13 +117,13 @@ export async function exerciseDevelopmentBaseline({
       ).rows[0].count,
       0,
     );
-    assert.equal((await migrateDatabase({ connectionString, checkOnly: true, log: quiet })).pending, 0);
+    assert.equal((await migrateDatabase({ connectionString, directory, checkOnly: true, log: quiet })).pending, 0);
     assert.deepEqual(
       normalizedHistory((await client.query("select id,hash,created_at from drizzle.__drizzle_migrations")).rows),
       history,
     );
     for (const environment of ["production", "staging"])
-      await assert.rejects(migrateDatabase({ connectionString, environment, log: quiet }), /environment/);
+      await assert.rejects(migrateDatabase({ connectionString, directory, environment, log: quiet }), /environment/);
     await assert.rejects(
       adoptDevelopmentBaseline({ ...options, receiptDigest: "c".repeat(64), apply: true }),
       /different baseline decision/,
@@ -134,7 +136,7 @@ export async function exerciseDevelopmentBaseline({
       digest(tampered),
     ]);
     await assert.rejects(
-      migrateDatabase({ connectionString, checkOnly: true, log: quiet }),
+      migrateDatabase({ connectionString, directory, checkOnly: true, log: quiet }),
       /another database identity/,
     );
     await client.query(`update ${BASELINE_TABLE} set document=$1,document_hash=$2`, [
@@ -145,7 +147,7 @@ export async function exerciseDevelopmentBaseline({
     const original = history[0];
     await client.query("update drizzle.__drizzle_migrations set hash=$1 where id=$2", ["d".repeat(64), original.id]);
     await assert.rejects(
-      migrateDatabase({ connectionString, checkOnly: true, log: quiet }),
+      migrateDatabase({ connectionString, directory, checkOnly: true, log: quiet }),
       /historical records changed/,
     );
     await client.query("update drizzle.__drizzle_migrations set hash=$1 where id=$2", [original.hash, original.id]);
@@ -153,7 +155,7 @@ export async function exerciseDevelopmentBaseline({
     const fixture = await migrationFixture();
     try {
       // Replace synthetic entries with the full, published prefix and one future probe.
-      await cp(defaultMigrationsDirectory, fixture.directory, { recursive: true });
+      await cp(directory ?? defaultMigrationsDirectory, fixture.directory, { recursive: true });
       const journal = JSON.parse(await readFile(join(fixture.directory, "meta/_journal.json"), "utf8"));
       const next = {
         ...journal.entries.at(-1),

@@ -37,6 +37,7 @@ export async function adoptDevelopmentBaseline({
   reason,
   apply = false,
   snapshotId,
+  directory,
   log = console.log,
 }) {
   assertDevelopmentEnvironment(environment);
@@ -45,7 +46,7 @@ export async function adoptDevelopmentBaseline({
     throw new Error("Baseline adoption is restricted to local development databases.");
   if (!reason?.trim() || !/^[a-f0-9]{64}$/.test(receiptDigest || ""))
     throw new Error("Approval reason and authenticated checkpoint evidence are required.");
-  const migrations = await loadMigrations();
+  const migrations = await loadMigrations(directory);
   if (migrations.length !== REVIEWED_PREFIX_LENGTH || digest(migrationManifest(migrations)) !== REVIEWED_PREFIX_DIGEST)
     throw new Error("Adoption requires the exact reviewed 67-file checkout.");
   return withMigrationLock({ connectionString, log }, async (client) => {
@@ -154,7 +155,7 @@ export async function adoptDevelopmentBaseline({
   });
 }
 
-export async function withReferenceCatalog(connectionString, operation) {
+export async function withReferenceCatalog(connectionString, operation, { directory } = {}) {
   if (!["localhost", "127.0.0.1", "[::1]"].includes(new URL(connectionString).hostname))
     throw new Error("Reference verification is restricted to localhost.");
   const name = `calmboard_baseline_ref_${process.pid}_${randomUUID().replaceAll("-", "").slice(0, 16)}`;
@@ -169,7 +170,7 @@ export async function withReferenceCatalog(connectionString, operation) {
     await admin.connect();
     await admin.query(`create database ${quoteIdentifier(name)} template template0`);
     created = true;
-    await migrateDatabase({ connectionString: targetUrl.toString(), log: () => {} });
+    await migrateDatabase({ connectionString: targetUrl.toString(), directory, log: () => {} });
     await reference.connect();
     return await operation(await readCatalog(reference), { client: reference, connectionString: targetUrl.toString() });
   } finally {
