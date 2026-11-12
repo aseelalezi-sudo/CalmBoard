@@ -418,22 +418,26 @@ export async function executeRule(
         throw new Error("Automation notification target is invalid");
       }
       const hasTaskMutation = Boolean(setStatus || setPriority || assignTo || addTag);
-      const visibleProject = await canAccessProject(tenantContext, row.task.project_id);
-      const access: Pick<AuthorizationDecision, "member" | "permissions"> = actorId
-        ? await createAuthorizationRepository().resolve(actorId, {
-            organizationId: event.organizationId,
-            workspaceId: event.workspaceId,
-            projectId: row.task.project_id,
-          })
-        : { member: true, permissions: [] };
-      const allowed =
-        visibleProject &&
-        access.member &&
-        (!actorId ||
-          ((!isScheduled || access.permissions.includes("automations.manage")) &&
-            (!hasTaskMutation || access.permissions.includes("tasks.update")) &&
-            (!addComment || access.permissions.includes("comments.manage"))));
-      if (!allowed) {
+      const projectId = row.task.project_id;
+      async function hasCurrentAccess() {
+        const visibleProject = await canAccessProject(tenantContext, projectId);
+        const access: Pick<AuthorizationDecision, "member" | "permissions"> = actorId
+          ? await createAuthorizationRepository().resolve(actorId, {
+              organizationId: event.organizationId,
+              workspaceId: event.workspaceId,
+              projectId,
+            })
+          : { member: true, permissions: [] };
+        return (
+          visibleProject &&
+          access.member &&
+          (!actorId ||
+            ((!isScheduled || access.permissions.includes("automations.manage")) &&
+              (!hasTaskMutation || access.permissions.includes("tasks.update")) &&
+              (!addComment || access.permissions.includes("comments.manage"))))
+        );
+      }
+      async function skipUnavailableAccess() {
         await db.execute(sql`
           update automation_runs
           set status = 'skipped', message = 'Current automation access is unavailable',
@@ -441,8 +445,14 @@ export async function executeRule(
           where event_id = ${event.id} and automation_id = ${ruleId}
             and claim_token = ${event.claimToken} and status = 'running'
         `);
+      }
+      if (!(await hasCurrentAccess())) {
+        await skipUnavailableAccess();
         return "skipped";
       }
+      // Keep the claim and execution gate while allowing all tentative database
+      // effects to roll back together if access changes during action processing.
+      await db.execute(sql`savepoint automation_effects`);
       if (assignTo) {
         const member = await db.execute(sql`
           select 1 from memberships
@@ -544,6 +554,16 @@ export async function executeRule(
           }
         }
       }
+
+      // Re-read access under READ COMMITTED after action processing. Effects are
+      // still uncommitted; this also rolls back canonical follow-up events/outbox.
+      if (!(await hasCurrentAccess())) {
+        await db.execute(sql`rollback to savepoint automation_effects`);
+        await db.execute(sql`release savepoint automation_effects`);
+        await skipUnavailableAccess();
+        return "skipped";
+      }
+      await db.execute(sql`release savepoint automation_effects`);
 
       // 8. TRUE NO-OP & EXECUTION ACCOUNTING
       const hasAnyGenuineEffect = taskChanged || commentCreated || notificationSent;

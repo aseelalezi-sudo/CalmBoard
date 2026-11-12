@@ -12,7 +12,7 @@ export type GoalMeasurementUnit = "percentage" | "number" | "currency" | "boolea
 export type GoalStatus = "on_track" | "at_risk" | "off_track" | "achieved";
 export type CreateGoalInput = Omit<
   typeof goals.$inferInsert,
-  "organizationId" | "workspaceId" | "checkins" | "progress" | "status"
+  "organizationId" | "workspaceId" | "checkins" | "progress" | "status" | "sourceProjectIds"
 > & {
   type: GoalType;
   progressMode?: GoalProgressMode;
@@ -81,31 +81,51 @@ export function createGoalsRepository(context: DatabaseTenantContext) {
     const projectIds = await accessibleProjectIds(context, true);
     const relatedGoal = alias(goals, "related_goal");
     // Objectives and their key results share aggregate progress and check-ins.
-    // Hide the family if any linked task is inaccessible, including historical tasks.
-    return notExists(
-      db
-        .select({ id: goalTaskLinks.id })
-        .from(goalTaskLinks)
-        .innerJoin(relatedGoal, eq(relatedGoal.id, goalTaskLinks.goalId))
-        .innerJoin(tasks, eq(tasks.id, goalTaskLinks.taskId))
-        .where(
-          and(
-            eq(goalTaskLinks.organizationId, organizationId),
-            eq(goalTaskLinks.workspaceId, workspaceId),
-            eq(relatedGoal.organizationId, organizationId),
-            eq(relatedGoal.workspaceId, workspaceId),
-            isNull(relatedGoal.deletedAt),
-            eq(tasks.organizationId, organizationId),
-            eq(tasks.workspaceId, workspaceId),
-            notInArray(tasks.projectId, projectIds),
-            or(
-              eq(relatedGoal.id, goals.id),
-              eq(relatedGoal.parentId, goals.id),
-              eq(relatedGoal.id, goals.parentId),
-              eq(relatedGoal.parentId, goals.parentId),
+    // Include retained sources: unlinking or moving a task cannot publish history.
+    const relatedFamily = or(
+      eq(relatedGoal.id, goals.id),
+      eq(relatedGoal.parentId, goals.id),
+      eq(relatedGoal.id, goals.parentId),
+      eq(relatedGoal.parentId, goals.parentId),
+    );
+    return and(
+      notExists(
+        db
+          .select({ id: goalTaskLinks.id })
+          .from(goalTaskLinks)
+          .innerJoin(relatedGoal, eq(relatedGoal.id, goalTaskLinks.goalId))
+          .innerJoin(tasks, eq(tasks.id, goalTaskLinks.taskId))
+          .where(
+            and(
+              eq(goalTaskLinks.organizationId, organizationId),
+              eq(goalTaskLinks.workspaceId, workspaceId),
+              eq(relatedGoal.organizationId, organizationId),
+              eq(relatedGoal.workspaceId, workspaceId),
+              isNull(relatedGoal.deletedAt),
+              eq(tasks.organizationId, organizationId),
+              eq(tasks.workspaceId, workspaceId),
+              notInArray(tasks.projectId, projectIds),
+              relatedFamily,
             ),
           ),
-        ),
+      ),
+      notExists(
+        db
+          .select({ id: relatedGoal.id })
+          .from(relatedGoal)
+          .where(
+            and(
+              eq(relatedGoal.organizationId, organizationId),
+              eq(relatedGoal.workspaceId, workspaceId),
+              isNull(relatedGoal.deletedAt),
+              relatedFamily,
+              sql`not (${relatedGoal.sourceProjectIds} <@ array[${sql.join(
+                projectIds.map((id) => sql`${id}::uuid`),
+                sql`, `,
+              )}]::uuid[])`,
+            ),
+          ),
+      ),
     );
   }
 
@@ -242,7 +262,7 @@ export function createGoalsRepository(context: DatabaseTenantContext) {
       checkinsByGoal.set(checkin.goalId, [...(checkinsByGoal.get(checkin.goalId) ?? []), checkin]);
     }
 
-    return records.map((goal) => {
+    return records.map(({ sourceProjectIds: _sourceProjectIds, ...goal }) => {
       const normalizedCheckins = (checkinsByGoal.get(goal.id) ?? []).map((checkin) => ({
         id: checkin.id,
         progress: checkin.progress,

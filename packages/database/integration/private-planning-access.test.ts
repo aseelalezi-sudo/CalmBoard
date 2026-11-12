@@ -81,6 +81,72 @@ it("hides complete goal families and mutations when a linked private task is ina
   }
 });
 
+for (const transition of ["unlink", "move-task", "move-result", "delete-task"] as const) {
+  it(`retains private goal history after ${transition}`, async () => {
+    const f = await fixture();
+    try {
+      const { privateTask } = await seedTasks(f);
+      const owner = createGoalsRepository(f.owner);
+      const member = createGoalsRepository(f.member);
+      const objective = await owner.create({ type: "objective", title: "Source objective" });
+      const result = await owner.create({ type: "key_result", parentId: objective.id, title: "Source result" });
+      const sibling = await owner.create({ type: "key_result", parentId: objective.id, title: "Source sibling" });
+      const destination = await owner.create({ type: "objective", title: "Destination" });
+      await owner.linkTask(result.id, privateTask);
+      await owner.checkIn(result.id, { note: "Private historical measurement" });
+      assert.equal(
+        (await member.list()).some((goal) => goal.id === result.id),
+        false,
+      );
+      if (transition === "unlink") await owner.unlinkTask(result.id, privateTask);
+      else if (transition === "move-task") {
+        await pool.query("update tasks set project_id=$1 where id=$2", [f.publicId, privateTask]);
+        await owner.unlinkTask(result.id, privateTask);
+      } else if (transition === "move-result") {
+        await owner.update(result.id, { parentId: destination.id });
+        await owner.unlinkTask(result.id, privateTask);
+      } else await pool.query("delete from tasks where id=$1", [privateTask]);
+      const hidden = new Set([objective.id, result.id, sibling.id]);
+      if (transition === "move-result") hidden.add(destination.id);
+      assert.equal(
+        (await member.list()).some((goal) => hidden.has(goal.id)),
+        false,
+      );
+      await assert.rejects(
+        () => member.checkIn(result.id, { note: "Unauthorized change" }),
+        TenantResourceNotFoundError,
+      );
+      const history = (await owner.list()).find((goal) => goal.id === result.id)!;
+      assert.equal(Object.hasOwn(history, "sourceProjectIds"), false, "Source metadata stays server-side");
+      assert.equal(history.checkins[0]?.note, "Private historical measurement");
+      assert.equal(history.linkedTasks.length, 0);
+      await pool.query("update goals set source_project_ids='{}'::uuid[] where id=$1", [result.id]);
+      assert.equal(
+        (await member.list()).some((goal) => hidden.has(goal.id)),
+        false,
+        "A normal update cannot clear retained sources",
+      );
+      await assign(f);
+      assert.ok((await member.list()).some((goal) => goal.id === result.id));
+      await revoke(f);
+      assert.equal(
+        (await member.list()).some((goal) => hidden.has(goal.id)),
+        false,
+      );
+      if (transition === "unlink") {
+        await pool.query("update projects set privacy='private' where id=$1", [f.publicId]);
+        assert.deepEqual(
+          (await member.list()).map((goal) => goal.id),
+          [destination.id],
+          "With no visible projects, only the unrelated goal without sources remains visible",
+        );
+      }
+    } finally {
+      await cleanup(f);
+    }
+  });
+}
+
 it("filters own log limits and hides whole sheets from submitters and reviewers after access revocation", async () => {
   const f = await fixture();
   try {
