@@ -45,7 +45,7 @@
     "@types/react-dom": "19.3.0",
     "drizzle-orm": "0.45.4",
     "eslint": "9.39.4",
-    "eslint-config-next": "16.4.5",
+    "eslint-config-next": "16.4.6",
     "playwright": "1.65.0",
     "playwright-core": "1.65.0",
     "postcss": "8.5.32",
